@@ -1,0 +1,8 @@
+snes_addr	file_offset	type	name	size	comment
+$80:8000	0x000000	code	sub_init	-	console init; entered via the RESET thunk. STZ $4200 / REP #$30 / MVN $00,$00 / TXS
+$00:FF00	0x007F00	code	sub_reset_thunk	6	CLC / XCE / JMP $80:8000 - enters native mode and jumps to the FastROM mirror
+$00:FF06	0x007F06	code	sub_nmi	-	native NMI vector target; not yet analysed
+$00:FFB0	0x007FB0	data	dat_cart_header_ext	16	extended header: maker code "01", game code "CG  "
+$00:FFC0	0x007FC0	data	dat_cart_header	64	title, map mode $30, cart type $02, checksum $EEAE
+$00:FFE0	0x007FE0	ptr	tbl_vectors	32	native + emulation vector tables; only NMI and emulation RESET are used
+$95:8000	0x0A8000	data	dat_dense_region_start	-	unconfirmed: start of the low-padding banks $95-$9B, likely compressed assets

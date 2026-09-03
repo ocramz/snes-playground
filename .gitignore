@@ -1,0 +1,22 @@
+# ROM images — never commit these
+*.sfc
+*.smc
+*.fig
+*.swc
+
+# Save data and emulator state
+*.srm
+*.sav
+*.st[0-9]
+*.bs[0-9]
+*.spc
+
+# Derived artifacts: dumps, decompressed assets, rendered graphics
+build/
+
+# Toolchains
+__pycache__/
+*.pyc
+target/
+
+.DS_Store
