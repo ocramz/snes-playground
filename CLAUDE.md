@@ -119,11 +119,24 @@ and the FastROM mirror. Real init begins at file `0x000000`:
 identify the N-SPC (Nintendo/HAL) SPC700 sound driver, so music and SFX data
 follow N-SPC conventions.
 
-**Bank density** — fraction of `0x00`/`0xFF` padding, measured:
-banks `$95-$9B` (file `0x0A8000-0x0DFFFF`) are 4-12% padding, dense enough to
-suggest compressed graphics or course data; `$80-$8F` are 16-41% and look
-code-like. **This is a heuristic, not a finding** — nothing about the contents
-of those banks has been confirmed.
+**Bank contents.** The original density heuristic (banks `$95-$9B` only 4-12%
+padding, `$80-$8F` 16-41% and code-like) turned out to be right, and those
+banks are now identified:
+
+| banks | contents | how established |
+|---|---|---|
+| `$80-$83` | engine code: init, OAM/sprite pipeline, decompressor, APU upload, course loaders | disassembled |
+| `$88` | eleven course pointer tables at `$88:A770`+`0x300*n` | disassembled loaders |
+| `$89` | metasprite frame lists, indexed from `$89:8000` | disassembled |
+| `$8D-$8F` | title screen graphics | decompressor call sites |
+| `$95` | BRR samples, instrument table, volume curve | APU upload tables |
+| `$96-$98` | song sequences (33) plus the song/SFX table | `tbl_spc_songs` |
+| `$99-$9D` | course background tilemaps | course tables 8 and 9 |
+| `$9D-$9F` | course grids, small tables, and the uncompressed headers | course tables 0-7, 10 |
+
+Banks `$84-$94` hold further compressed graphics that no confirmed pointer
+table reaches yet; `tools/extract_gfx.py` finds streams there, but which
+screen each belongs to is unconfirmed.
 
 ## Layout
 
@@ -190,10 +203,62 @@ python3 tools/lorom.py --selftest      # asserts the worked examples above
 # Dump a region (hexdump annotated with both address forms)
 python3 tools/dump.py '$80:8000' 16
 python3 tools/dump.py '$9A:8000' 0x1000 -o build/bank9a.bin
+
+# Disassemble 65816, tracking M/X widths (see the gotchas section below)
+python3 tools/dis65816.py '$80:9F18' --m8 --x16
+python3 tools/dis65816.py 0x002A30 --length 0x70 --m16 --x16 --follow
+
+# HAL LZ compression: decompress one stream, or scan a range for streams
+python3 tools/halcomp.py '$8E:EC7F' -o build/gfx/title.bin
+python3 tools/halcomp.py --scan '$95:8000' '$9B:FFFF'
+
+# Bulk asset extraction
+python3 tools/extract_gfx.py       # every stream -> build/gfx/{bin,png}, index.tsv
+python3 tools/spc_extract.py       # driver, samples (WAV), songs (SPC) -> build/spc
+python3 tools/courses.py           # 232 holes -> build/courses
+
+# Playfield geometry: terrain shape, elevation, gaps
+python3 tools/terrain.py --tables         # the engine's 28 terrain shapes
+python3 tools/terrain.py --stats          # cross-check those tables vs data
+python3 tools/terrain.py --index 0 --legend
+python3 tools/terrain.py --probe 0 5 0    # surface height over one cell
+python3 tools/terrain.py --tiles          # layer-2 special-tile dispatch map
+
+# Render
+python3 tools/tiles.py FILE.bin --bpp 4 -o build/x.png
+python3 tools/tilemap.py MAP.bin TILES.bin --width 32 -o build/x.png
+python3 tools/tilemap.py MAP.bin --guess          # candidate widths
+python3 tools/palettes.py render '$98:C000' 0x200 -o build/pal.png
+python3 tools/sprites.py --table                  # metasprite frame index
+python3 tools/sprites.py --list '$89:8550'
+
+# SPC700 side
+python3 tools/dis_spc700.py build/spc/driver_0800.bin --base 0x0800
+python3 tools/brr.py build/spc/ram_base.bin --dir 0x0400 -o build/wav/
+
+# Text in the game's font encoding (not ASCII)
+python3 tools/text.py --min 6
 ```
 
-`tools/dump.py` and future scripts import `load_rom()` from `tools/romcheck.py`,
-so the integrity check runs implicitly on every invocation.
+Every script imports `load_rom()` from `tools/romcheck.py`, so the integrity
+check runs implicitly on each invocation.
+
+## Formats
+
+Written up in `docs/`, each derived from disassembly rather than pattern
+matching:
+
+- [docs/compression.md](docs/compression.md) — the HAL LZ format that every
+  compressed asset uses, and the two decompressor entry points.
+- [docs/audio.md](docs/audio.md) — N-SPC driver upload, BRR samples,
+  33 songs, and how the standalone `.spc` files are built.
+- [docs/graphics.md](docs/graphics.md) — tiles, tilemaps, palettes, and the
+  metasprite/OAM pipeline.
+- [docs/courses.md](docs/courses.md) — the eleven bank `$88` course tables.
+- [docs/terrain.md](docs/terrain.md) — the playfield: elevation, the 28
+  terrain shapes, the surface equation, and how gaps work.
+- [docs/tiles.md](docs/tiles.md) — the special-tile layer: the dispatch
+  tables, friction overrides, boost panels, kickers and hazards.
 
 ## Workflow
 

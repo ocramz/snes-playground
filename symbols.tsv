@@ -1,8 +1,132 @@
 snes_addr	file_offset	type	name	size	comment
-$80:8000	0x000000	code	sub_init	-	console init; entered via the RESET thunk. STZ $4200 / REP #$30 / MVN $00,$00 / TXS
 $00:FF00	0x007F00	code	sub_reset_thunk	6	CLC / XCE / JMP $80:8000 - enters native mode and jumps to the FastROM mirror
 $00:FF06	0x007F06	code	sub_nmi	-	native NMI vector target; not yet analysed
-$00:FFB0	0x007FB0	data	dat_cart_header_ext	16	extended header: maker code "01", game code "CG  "
+$00:FFB0	0x007FB0	data	dat_cart_header_ext	16	extended header: maker code 01, game code CG
 $00:FFC0	0x007FC0	data	dat_cart_header	64	title, map mode $30, cart type $02, checksum $EEAE
 $00:FFE0	0x007FE0	ptr	tbl_vectors	32	native + emulation vector tables; only NMI and emulation RESET are used
-$95:8000	0x0A8000	data	dat_dense_region_start	-	unconfirmed: start of the low-padding banks $95-$9B, likely compressed assets
+$7E:6A5A	-	ram	ram_course_number	2	course number; hole index = course*8 + hole
+$7E:6A5E	-	ram	ram_hole_in_course	2	hole 0-7 within the course
+$7E:6B90	-	ram	ram_course_shape	-	course grid layer 1: terrain shape id $00-$1B per cell; $00 = gap
+$7E:7390	-	ram	ram_course_height	-	course grid layer 3: elevation $00-$0F per cell
+$7E:7B90	-	ram	ram_course_flags	-	course grid layer 4: low nibble = wall flag per cell edge, N/E/S/W
+$7E:8390	-	ram	ram_course_content	-	course grid layer 2: object id per cell, looked up in $82:BDBC at load
+$7E:8B90	-	ram	ram_course_header	28	the 28-byte hole header; +2 = grid width, +4 = grid height
+$7E:ABB6	-	ram	ram_hole_index3	2	hole index * 3; the index into every bank $88 course table
+$7E:D9FE	-	ram	ram_probe_shape	2	sub_terrain_probe output: terrain shape under the active object
+$7E:DA00	-	ram	ram_probe_height	2	sub_terrain_probe output: elevation of that cell
+$7E:DA06	-	ram	ram_probe_ground_z	4	sub_terrain_probe output: 32-bit surface Z at the exact position
+$7E:DA0A	-	ram	ram_probe_tile	2	sub_terrain_probe output: layer-2 special-tile byte under the object
+$7E:DA3C	-	ram	ram_bounce_damp_xy	2	Q15 factor applied to vx and vy on each bounce; friction tiles rewrite it
+$7E:DA3E	-	ram	ram_bounce_damp_z	2	Q15 factor applied to vz on each bounce
+$80:8000	0x000000	code	sub_init	-	console init; entered via the RESET thunk. STZ $4200 / REP #$30 / MVN $00,$00 / TXS
+$80:8250	0x000250	code	sub_dma_cgram	56	DMA the $7E:0400 CGRAM staging buffer to $2122; mode $22, count from tbl_cgram_dma
+$80:8288	0x000288	tbl	tbl_cgram_dma	24	3 sets of (size, source, CGADD) for sub_dma_cgram, indexed by $00A0 * 8
+$80:8696	0x000696	code	sub_vram_queue	80	queue 8-byte VRAM transfer records (terminated by $FFFF) into the ring at $7E:0200
+$80:86E6	0x0006E6	code	sub_vram_enqueue_one	130	copy one 8-byte record into the $7E:0200 ring, or DMA it directly when $7D is negative
+$80:8815	0x000815	data	tbl_edge_bitmask	8	01 02 04 08 10 20 40 80; entries 0-3 mask the layer-4 wall bits for N/E/S/W
+$80:8823	0x000823	code	sub_oam_reset_ptrs	61	set OAM buffer pointers ($2C=$0600 low, $2E/$32=$0800 high) and zero the 10 queue counts
+$80:8B02	0x000B02	code	sub_oam_enqueue	54	dispatch on $7E:2880 to one of 10 OAM priority queues; A=X pos, X=Y pos, Y=frame ptr
+$80:8C08	0x000C08	code	sub_oam_build	382	drain all 10 priority queues into the OAM staging buffer at $7E:0600
+$80:8D89	0x000D89	code	sub_oam_emit_frame	162	walk a 5-byte metasprite part list, emit hardware sprites. See docs/graphics.md
+$80:8E39	0x000E39	code	sub_oam_emit_frame_alt	118	second copy of sub_oam_emit_frame for the other queue set; same record format
+$80:9B98	0x001B98	code	sub_obj_set_frame_ptr	20	store a frame list pointer into $7E:0B9E,X (addr) and $7E:0BBE,X (bank)
+$80:9E8E	0x001E8E	code	sub_obj_draw	47	look up the current frame from the object's list and enqueue it if on screen
+$80:9F18	0x001F18	code	sub_hal_decompress	286	HAL LZ decompressor. A=src bank, X=src addr, Y=dest addr, DBR=dest bank. JSL/RTL
+$80:A032	0x002032	code	sub_decompress_queue	-	queue an asset for the resumable decompressor; writes the $7E:531C..$579C arrays
+$80:A206	0x002206	code	sub_hal_decompress_resume	-	resumable variant of sub_hal_decompress; state in DP $AB/$AD/$AF, $B1 bytes per call
+$80:AA30	0x002A30	code	sub_spc_ipl_upload	105	SPC700 IPL boot handshake; uploads the driver from tbl_spc_ipl_blocks
+$80:AA99	0x002A99	data	tbl_spc_ipl_blocks	2575	one block: len $0A0B -> SPC $0800, then a $0000 terminator whose addr is the entry point
+$80:AA9D	0x002A9D	data	dat_spc_driver	2571	N-SPC driver image, loaded to SPC $0800. Contains the string *Ver S1.20* at +$092D
+$80:B4AC	0x0034AC	code	sub_spc_play_song	69	write a song id to APU port 0; ids below $7E are ignored, $7E+ uploads first
+$80:B4F1	0x0034F1	code	sub_spc_command	48	write a command byte to APU port 0 without the upload path
+$80:B542	0x003542	code	sub_spc_sfx_trigger	94	allocate an SFX channel from tbl_sfx_slots / tbl_sfx_priority and signal port 1
+$80:B5CA	0x0035CA	code	sub_spc_reset_state	39	clear the driver's SNES-side mirror at $1004-$1012
+$80:B5F1	0x0035F1	code	sub_spc_set_volume	15	store a master volume to $1003 and APU port 2
+$80:B651	0x003651	code	sub_spc_upload_set	74	upload an init set (samples / directory / instruments) via tbl_spc_init_sets
+$80:B69B	0x00369B	code	sub_spc_upload_song	25	upload one song's block chain from tbl_spc_songs to SPC $6502
+$80:B6B4	0x0036B4	code	sub_spc_send_block	61	byte-stream one block chain to the APU through ports 0 and 2
+$80:B729	0x003729	ptr	tbl_spc_init_sets	4	2 entries; each points to a zero-terminated list of long pointers to block chains
+$80:B745	0x003745	ptr	tbl_spc_songs	132	33 songs x (addr16, bank16); song id = $7E + index
+$80:B7C9	0x0037C9	tbl	tbl_sfx_slots	126	per-SFX channel-allocation mask used by sub_spc_sfx_trigger
+$80:B847	0x003847	tbl	tbl_sfx_id	126	per-SFX id byte compared against the active-channel state at $1008
+$80:B8C5	0x0038C5	tbl	tbl_sfx_priority	126	per-SFX priority stored to $100E when a channel is claimed
+$80:C307	0x004307	code	sub_course_enter	58	course entry: load graphics sets and tilesets, then JSL sub_course_load_bg
+$80:CA9F	0x004A9F	code	sub_load_asset	10	decompress a stream to $7F:0000 (bank pushed as $7E7F); A=bank X=addr Y=dest
+$80:CAA9	0x004AA9	code	sub_load_asset_vram	19	as sub_load_asset to $7F:0000, then pass the Y parameter block to sub_vram_queue
+$80:CC81	0x004C81	code	sub_load_gfx_set_a	10	jump table of 8 graphics loaders; entry 0 runs on course entry
+$80:CD89	0x004D89	code	sub_load_gfx_set_b	10	jump table of 6 graphics loaders
+$80:CE45	0x004E45	code	sub_load_tileset	10	jump table of 28 tileset loaders; entry 0 loads the course tiles to VRAM $6000
+$80:DB6D	0x005B6D	data	dat_gravity	2	$FFC0 (-64), added to the ball's vz every frame by $81:899F
+$80:DCFD	0x005CFD	data	dat_bounce_min_frames	2	$0010; below this many frames since the last bounce the ball comes to rest
+$80:DD11	0x005D11	data	dat_bounce_damp_xy	2	$5332 (Q15 0.65); default vx/vy factor per bounce, copied to $7E:DA3C
+$80:DD15	0x005D15	data	dat_bounce_damp_z	2	$6665 (Q15 0.80); default vz factor per bounce, copied to $7E:DA3E
+$80:DD7D	0x005D7D	data	tbl_tile_friction	14	coefficients the $20-$24 friction tiles write into $DA3A/$DA3C/$DA3E
+$80:DDE3	0x005DE3	data	tbl_kicker_clamp	4	impulse clamp for the $10-$13 kicker tiles
+$80:DDEF	0x005DEF	data	tbl_tile_impulse	10	impulse magnitudes for the $70-$7B toggled tiles
+$81:801C	0x00801C	code	sub_ball_physics_step	-	JSL; one frame of ball physics for the object selected by $7E:180B
+$81:811B	0x00811B	code	sub_tile_land	27	dispatch the layer-2 byte in A through tbl_tile_on_land
+$81:8136	0x008136	ptr	tbl_tile_on_land	768	256 long pointers, indexed by the layer-2 byte; behaviour on landing
+$81:8436	0x008436	code	sub_tile_hit	27	dispatch the layer-2 byte in A through tbl_tile_on_hit
+$81:8451	0x008451	ptr	tbl_tile_on_hit	768	256 long pointers; behaviour when the ball hits the cell from the side
+$81:8905	0x008905	code	sub_tile_none_land	-	default on-land handler, 112 of the 256 tile values
+$81:8975	0x008975	code	sub_damp_velocities	-	vx,vy *= $7E:DA3C and vz *= $7E:DA3E via sub_mul_fixed_signed
+$81:89AA	0x0089AA	code	sub_check_fell_out	24	world Z < -$110000: set $7E:D9D2 bit 0 and zero all three velocities
+$81:8A56	0x008A56	code	sub_tile_none_hit	-	default on-hit handler, the same 112 values
+$81:925E	0x00925E	code	sub_edge_step_height	40	surface step across a cell edge: 2*elevation + tbl_terrain_edge_h[shape*4+dir]
+$81:92AC	0x0092AC	code	sub_edge_wall_flags	36	the only read of course grid layer 4; masks its low nibble by direction 0-3
+$81:9310	0x009310	data	tbl_terrain_edge_h	112	28 shapes x 4 bytes: surface level at the N/E/S/W edge midpoint, in half steps
+$81:9479	0x009479	code	sub_terrain_probe	-	JSL; world position -> cell index, shape, elevation, quadrant, 32-bit surface Z
+$81:952A	0x00952A	ptr	tbl_surface_handler	10	5 targets for JMP ($952A,X): flat, then ramps rising with +y, -x, -y, +x
+$81:9569	0x009569	data	tbl_terrain_quad_diag	-	per-quadrant Z for shapes $10-$1B; $FFFF means evaluate a diagonal ramp
+$81:9583	0x009583	ptr	tbl_surface_handler_diag	18	9 targets for the diagonal surface codes; 1-4 are unreachable traps
+$81:95E4	0x0095E4	data	tbl_shape_handler_idx	9	surface shape code 0-8 -> tbl_surface_handler index; $FF for the diagonals
+$81:9629	0x009629	data	tbl_terrain_diag_bias	-	Z bias subtracted for shapes $10-$1B; $5A82 for $14-$17, else $0000
+$81:9D81	0x009D81	data	tbl_terrain_quad	224	28 shapes x 4 words: surface shape code per quadrant, quadrant order N/E/S/W
+$82:80F6	0x0100F6	code	sub_tile_surface_overlay	-	tiles $60-$6F; tracks entering and leaving in $69CA/$69D2-$69DA
+$82:8967	0x010967	code	sub_tile_actor_land	-	tiles $40-$52 and $57; the per-hole actors
+$82:8F77	0x010F77	code	sub_tile_friction	-	tiles $20-$24; overwrite the bounce coefficients
+$82:8FF1	0x010FF1	code	sub_tile_edge	-	tiles $28-$2D; falls through to sub_apply_gravity
+$82:94D3	0x0114D3	code	sub_tile_tall_object	-	tile $02; a solid standing 3 height steps above the cell
+$82:98F8	0x0118F8	code	sub_tile_hazard	-	tiles $80-$8F and $98-$A1; calls $83:ABC5 like falling out of the world
+$82:9CB5	0x011CB5	data	tbl_boost_delta	4	+512 / -512, the velocity deltas the $30-$3B boost panels add
+$82:9DB3	0x011DB3	code	sub_tile_boost_n	36	tiles $30 $35 $38; vy += -512
+$82:9DD7	0x011DD7	code	sub_tile_boost_e	36	tiles $31 $37 $3A; vx += +512
+$82:9DFB	0x011DFB	code	sub_tile_boost_s	36	tiles $32 $34 $39; vy += +512
+$82:9E1F	0x011E1F	code	sub_tile_boost_w	36	tiles $33 $36 $3B; vx += -512
+$82:A7DD	0x0127DD	code	sub_tile_kicker	-	tiles $10-$13; landing vz becomes a directional vx/vy impulse
+$82:ACBF	0x012CBF	code	sub_find_marked_cell	-	scan layer 2 for $0C or $C3; records column, row and elevation+1
+$82:B0A4	0x0130A4	code	sub_set_hole_index	-	hole index = $6A5A*8 + $6A5E; writes it, *2 and *3 to $ABB2/$ABB4/$ABB6
+$82:B14B	0x01314B	code	sub_course_load_bg	126	decompress course tables 5-7 and the two tilemaps (8, 9) for the hole in $7E:ABB6
+$82:B1CA	0x0131CA	code	sub_course_load_header	-	copy the 28-byte uncompressed hole header from tbl_course_header to $7E:8B90
+$82:B20C	0x01320C	code	sub_course_load_grids	100	decompress course tables 1-4 (w*h grid layers) and table 10
+$82:B320	0x013320	code	sub_spawn_course_actors	-	load-time sweep of layer 2; looks each value up in tbl_tile_actor
+$82:BDBC	0x013DBC	data	tbl_tile_actor	512	256 words, layer-2 byte -> actor id; $FFFF means no actor
+$83:ABC5	0x01ABC5	code	sub_ball_lost	-	consequence of a hazard tile or of falling out of the world; not traced
+$88:8000	0x040000	data	tbl_height_z_lo	200	Z(h) = h * $5A82, low words, indexed by elevation*2
+$88:80C8	0x0400C8	data	tbl_height_z_hi	200	Z(h) = h * $5A82, high words, indexed by elevation*2
+$88:8190	0x040190	data	tbl_slope_ramp	2048	1024-entry linear ramp 22..46316; 0-511 spans one height step, 0-1023 two
+$88:A770	0x042770	ptr	tbl_course_header	768	256 long pointers to 28-byte uncompressed hole headers (8 words + 12-char name)
+$88:AA70	0x042A70	ptr	tbl_course_grid1	768	256 long pointers; w*h grid layer -> $7E:6B90 (size = header word 0)
+$88:AD70	0x042D70	ptr	tbl_course_grid2	768	256 long pointers; w*h grid layer -> $7E:8390 (size = header word 0)
+$88:B070	0x043070	ptr	tbl_course_grid3	768	256 long pointers; w*h grid layer -> $7E:7390 (size = header word 0)
+$88:B370	0x043370	ptr	tbl_course_grid4	768	256 long pointers; w*h grid layer -> $7E:7B90 (size = header word 0)
+$88:B670	0x043670	ptr	tbl_course_tab5	768	256 long pointers; ~114-byte 16-bit table -> $7E:93B0
+$88:B970	0x043970	ptr	tbl_course_tab6	768	256 long pointers; ~114-byte 16-bit table -> $7E:9BB0
+$88:BC70	0x043C70	ptr	tbl_course_tab7	768	256 long pointers; ~114-byte 16-bit table -> $7E:8BB0
+$88:BF70	0x043F70	ptr	tbl_course_bg1	768	256 long pointers; course tilemap -> $7F:3000
+$88:C270	0x044270	ptr	tbl_course_bg2	768	256 long pointers; course tilemap -> $7F:9800
+$88:C570	0x044570	ptr	tbl_course_tab10	768	256 long pointers; ~150-byte 16-bit table -> $7E:A3B2
+$89:8000	0x048000	ptr	tbl_sprite_frames	210	105 word pointers into bank $89 to metasprite part lists; $FFFF = unused
+$8B:DAB1	0x05DAB1	gfx	gfx_course_terrain	6946	HAL stream -> 18944 bytes at $7F:2000; isometric course terrain tiles
+$8D:9400	0x069400	gfx	gfx_title_e000	4645	HAL stream -> 6848 bytes at $7F:E000; title screen tiles
+$8D:CA0A	0x06CA0A	gfx	gfx_course_hud	4514	HAL stream -> 13312 bytes to VRAM $6000; font and HUD tiles
+$8E:EC7F	0x076C7F	gfx	gfx_title_7800	3808	HAL stream -> 6656 bytes at $7F:7800; title screen tiles
+$8F:E6A4	0x07E6A4	gfx	gfx_title_1fc0	2863	HAL stream -> 4160 bytes at $7F:1FC0; title screen tiles
+$90:9E9E	0x081E9E	gfx	gfx_course_vram0	2456	HAL stream -> 8192 bytes to VRAM $0000
+$95:8000	0x0A8000	music	dat_brr_samples	32020	BRR sample block -> SPC $8200; 25 distinct samples via the $0400 directory
+$95:FD16	0x0AFD16	music	dat_spc_instruments	472	instrument table -> SPC $0600; 6 bytes each (sample, ADSR1, ADSR2, GAIN, pitch)
+$95:FEF0	0x0AFEF0	music	dat_spc_curve	28	24-byte volume/velocity curve -> SPC $03E0
+$96:8000	0x0B0000	music	dat_spc_songtable	10758	song pointer table + SFX sequences -> SPC $3B00; song ptrs at SPC $3AFE + 2*id
+$96:AA08	0x0B2A08	music	dat_spc_sampledir	324	sample directory -> SPC $0400; 80 entries of (start16, loop16)
+$96:AB4E	0x0B2B4E	music	mus_song_06	3630	song id $84, first song in address order
+$98:9F96	0x0C1F96	music	mus_song_02	7274	song id $80, largest song (7270 bytes to SPC $6502)
