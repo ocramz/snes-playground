@@ -116,9 +116,12 @@ def main():
         100 * t4_singlebit / t4_nonzero if t4_nonzero else 0, t4_outside))
     print("  distinct values: {}".format(len(hist[3])))
     print()
-    print("These are correlations, not proofs. The layer names above are the")
-    print("best reading of the evidence; confirming them needs the code that")
-    print("consumes $7E:6B90 / $8390 / $7390 / $7B90 to be disassembled.")
+    print("These were correlations when first measured; the layer names are")
+    print("now confirmed from the code that consumes them. sub_terrain_probe")
+    print("at $81:9479 reads $7E:6B90 as shape and $7E:7390 as elevation,")
+    print("$81:92AC reads $7E:7B90 as the wall flags, and $81:811B dispatches")
+    print("$7E:8390 through the special-tile table. See docs/terrain.md and")
+    print("docs/tiles.md; tools/terrain.py reimplements the probe.")
     return 0
 
 

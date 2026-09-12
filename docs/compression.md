@@ -80,13 +80,27 @@ are the fixed screens:
 | `$8E:EC7F (0x076C7F)` | `$7F:7800` | 6,656 | title screen tiles |
 | `$8D:9400 (0x069400)` | `$7F:E000` | 6,848 | title screen tiles |
 | `$8F:E6A4 (0x07E6A4)` | `$7F:1FC0` | 4,160 | title screen tiles |
-| `$92:8FDE (0x090FDE)` | `$7E:8BB0` | 4,096 | |
-| `$93:E7D5 (0x09E7D5)` | `$7E:39DA` | 2,144 | |
-| `$93:CE8D (0x09CE8D)` | `$7E:DADC` | 1,466 | loaded twice, from `$81:ED92` and `$81:FC8B` |
-| `$94:F222 (0x0A7222)` | `$7E:DADC` | 2,048 | |
+| `$92:8FDE (0x090FDE)` | `$7E:8BB0` | 4,096 | overwrites the course row-offset table; purpose unknown |
+| `$93:E7D5 (0x09E7D5)` | `$7E:39DA` | 2,144 | tileset loader entry 6 |
+| `$93:E1B6 (0x09E1B6)` | `$7E:39DA` | 2,880 | tileset loader entry 23 |
+| `$93:CE8D (0x09CE8D)` | `$7E:DADC` | 1,466 | a course backdrop tilemap; `$7E:DADC` is staged then DMA'd to VRAM `$3C00` by `$80:D7AC` |
+| `$94:F222 (0x0A7222)` | `$7E:DADC` | 2,048 | the same, on the `$7E:ED5B` variant path in `$80:D6A8` |
+
+All but the first are now accounted for: three are reached from the tileset
+jump table or the backdrop loader, which `tools/scenes.py loaders` walks —
+see [scenes.md](scenes.md). Only `$92:8FDE` is still unexplained, and it is
+notable because `$7E:8BB0` is where course table 7 (the row-offset
+directory) lives, so something else reuses that buffer.
 
 **Table-driven**, the course data in bank `$88` — see
 [courses.md](courses.md).
+
+**Not compressed at all.** Some graphics never pass through this
+decompressor: a VRAM record block whose source is a ROM bank rather than
+`$7E`/`$7F` is a direct ROM-to-VRAM DMA. Nine tileset loader entries work
+that way, with sources in banks `$8D` and `$91`-`$94`. A stream scan will
+never find those assets, so the loader walk in
+[scenes.md](scenes.md) is the only way to reach them.
 
 ## Scanning for streams
 

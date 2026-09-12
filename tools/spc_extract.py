@@ -25,7 +25,13 @@ Outputs (all under --out, default build/spc):
   songs/song_NN_id7E.bin    raw song sequence block (SPC $6502 image)
   songs/song_NN_id7E.spc    playable SPC state (see make_spc for the trick)
   samples/sample_NN.wav     BRR samples decoded via the $0400 directory
+  instruments.tsv           the $0600 table, ADSR/GAIN decoded
+  samples.tsv               the $0400 directory, with lengths and users
+  curve.tsv                 the $03E0 gate/velocity curve
   spc_map.txt               what went where
+
+Sequences (songs and SFX) are parsed by tools/nspc.py, which builds its RAM
+image from base_ram() here.
 
 The .spc files are built without an emulator: RAM is assembled exactly as
 the game uploads it, PC = $0800 so the driver runs its own init, and the
@@ -64,6 +70,21 @@ PORT_READ_PATCH_ADDR = 0x08B6
 PORT_TABLE_ADDR = 0x05F0
 SAMPLE_DIR = 0x0400
 SAMPLE_COUNT = 80
+INSTRUMENT_TABLE = 0x0600     # SPC, 6 bytes/entry; decoded at SPC $0BCB
+INSTRUMENT_COUNT = 78
+CURVE_TABLE = 0x03E0          # SPC, 8 gate then 16 velocity; read at SPC $0AFC
+
+# ADSR/GAIN timings, fullsnes "SNES APU DSP ADSR/GAIN". Indexed by the raw
+# field; entry 0 of the sustain-rate table is "never decays".
+ATTACK_MS = [4100, 2500, 1500, 1000, 640, 380, 260, 160,
+             96, 64, 40, 24, 16, 10, 6, 0]
+DECAY_MS = [1200, 740, 440, 290, 180, 110, 74, 37]
+RATE_MS = [None, 38000, 28000, 24000, 19000, 14000, 12000, 9400,
+           7100, 5900, 4700, 3500, 2900, 2400, 1800, 1500,
+           1200, 880, 740, 590, 440, 370, 290, 220,
+           180, 150, 110, 92, 74, 55, 37, 18]
+GAIN_MODES = ["linear decrease", "exp decrease", "linear increase",
+              "bent increase"]
 
 
 def u16(d, o):
@@ -140,8 +161,15 @@ def base_ram(d):
     return ram, log
 
 
-def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180, fade_ms=10000):
-    """Build a .spc (v0.30 with ID666 text tags) from a RAM image."""
+def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180,
+             fade_ms=10000, sfx_id=0x00, comment="static rip, port0 patched"):
+    """Build a .spc (v0.30 with ID666 text tags) from a RAM image.
+
+    sfx_id lands in the port-1 slot of the constant table. The driver polls
+    port 1 at SPC $1137 and starts that sequence through the same $1168
+    entry songs use, so a nonzero sfx_id makes the file play one sound
+    effect (see tools/nspc.py --sfx-spc, which pairs it with a silent song
+    so the sequencer keeps ticking)."""
     ram = bytearray(ram)
     # Patch: MOV A,$F4+X / CMP A,$F4+X / BNE  ->  MOV A,$05F0+X / NOP NOP NOP
     expect = bytes([0xF4, 0xF4, 0x74, 0xF4, 0xD0, 0xFA])
@@ -150,7 +178,7 @@ def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180, fad
             PORT_READ_PATCH_ADDR))
     ram[PORT_READ_PATCH_ADDR:PORT_READ_PATCH_ADDR + 6] = bytes(
         [0xF5, PORT_TABLE_ADDR & 0xFF, PORT_TABLE_ADDR >> 8, 0x00, 0x00, 0x00])
-    ram[PORT_TABLE_ADDR:PORT_TABLE_ADDR + 4] = bytes([song_id, 0x00, 0xFF, 0x00])
+    ram[PORT_TABLE_ADDR:PORT_TABLE_ADDR + 4] = bytes([song_id, sfx_id, 0xFF, 0x00])
 
     def text(s, n):
         return s.encode("ascii", "replace")[:n].ljust(n, b"\0")
@@ -164,7 +192,7 @@ def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180, fad
     hdr[0x2E:0x4E] = text(title, 32)
     hdr[0x4E:0x6E] = text(game, 32)
     hdr[0x6E:0x7E] = text("snes-playground", 16)
-    hdr[0x7E:0x9E] = text("static rip, port0 patched", 32)
+    hdr[0x7E:0x9E] = text(comment, 32)
     hdr[0x9E:0xA9] = text("", 11)
     hdr[0xA9:0xAC] = text(str(length_s), 3)
     hdr[0xAC:0xB1] = text(str(fade_ms), 5)
@@ -176,6 +204,139 @@ def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180, fad
     dsp[0x6C] = 0xE0                # FLG: mute + echo off until driver sets it
     dsp[0x0C] = dsp[0x1C] = 0x7F    # MVOL, driver overwrites
     return bytes(hdr) + bytes(ram) + bytes(dsp) + bytes(64) + bytes(64)
+
+
+def _ms(v):
+    return "never" if v is None else "{}ms".format(v)
+
+
+def decode_adsr(adsr1, adsr2):
+    """Decode the two ADSR bytes the driver writes to DSP $x5/$x6.
+
+    ADSR1: bit 7 enable, bits 6-4 decay rate, bits 3-0 attack rate.
+    ADSR2: bits 7-5 sustain level, bits 4-0 sustain (release) rate.
+    """
+    enabled = bool(adsr1 & 0x80)
+    ar = adsr1 & 0x0F
+    dr = (adsr1 >> 4) & 0x07
+    sl = (adsr2 >> 5) & 0x07
+    sr = adsr2 & 0x1F
+    return {
+        "enabled": enabled, "ar": ar, "dr": dr, "sl": sl, "sr": sr,
+        "attack": _ms(ATTACK_MS[ar]),
+        "decay": _ms(DECAY_MS[dr]),
+        "sustain_level": "{}/8".format(sl + 1),
+        "sustain_rate": _ms(RATE_MS[sr]),
+    }
+
+
+def decode_gain(gain):
+    """DSP $x7. Bit 7 clear = direct level; set = mode in bits 6-5, rate 4-0."""
+    if not gain & 0x80:
+        return "direct {}/127".format(gain & 0x7F)
+    return "{} rate {} ({})".format(
+        GAIN_MODES[(gain >> 5) & 3], gain & 0x1F, _ms(RATE_MS[gain & 0x1F]))
+
+
+def instruments(ram, count=INSTRUMENT_COUNT):
+    """Yield one dict per instrument. Layout proven by SPC $0BCB, which
+    multiplies the index by 6, adds $0600, writes bytes 0-3 to DSP
+    $x4-$x7 (SRCN, ADSR1, ADSR2, GAIN) and keeps bytes 4-5 as a 16-bit
+    big-endian pitch scaler ($0C16: byte 4 -> $0221+X, byte 5 -> $0220+X)."""
+    for i in range(count):
+        o = INSTRUMENT_TABLE + 6 * i
+        e = ram[o:o + 6]
+        pitch = (e[4] << 8) | e[5]
+        yield {
+            "index": i, "addr": o, "raw": bytes(e),
+            # SPC $0BF4: a sample number with bit 7 set selects noise, the
+            # low 5 bits being the noise clock written to FLG.
+            "noise": bool(e[0] & 0x80),
+            "sample": (e[0] & 0x1F) if e[0] & 0x80 else e[0],
+            "adsr1": e[1], "adsr2": e[2], "gain": e[3],
+            "pitch": pitch, "pitch_mul": pitch / 256.0,
+            "adsr": decode_adsr(e[1], e[2]), "gain_text": decode_gain(e[3]),
+        }
+
+
+def write_instruments(ram, path):
+    rows = ["\t".join([
+        "index", "spc_addr", "raw", "sample", "noise", "adsr1", "adsr2",
+        "adsr_enabled", "attack", "decay", "sustain_level", "sustain_rate",
+        "gain", "gain_decoded", "pitch", "pitch_mul"])]
+    n = 0
+    for it in instruments(ram):
+        a = it["adsr"]
+        rows.append("\t".join([
+            str(it["index"]), "${:04X}".format(it["addr"]),
+            " ".join("{:02X}".format(b) for b in it["raw"]),
+            str(it["sample"]), "yes" if it["noise"] else "no",
+            "${:02X}".format(it["adsr1"]), "${:02X}".format(it["adsr2"]),
+            "yes" if a["enabled"] else "no (GAIN)",
+            a["attack"], a["decay"], a["sustain_level"], a["sustain_rate"],
+            "${:02X}".format(it["gain"]), it["gain_text"],
+            "${:04X}".format(it["pitch"]), "{:.4f}".format(it["pitch_mul"])]))
+        n += 1
+    with open(path, "w") as f:
+        f.write("\n".join(rows) + "\n")
+    return n
+
+
+def write_samples(ram, path):
+    """One row per $0400 directory entry, cross-referenced to instruments."""
+    users = {}
+    for it in instruments(ram):
+        if not it["noise"]:
+            users.setdefault(it["sample"], []).append(it["index"])
+    rows = ["\t".join([
+        "index", "start", "loop", "loop_offset", "blocks", "samples",
+        "looped", "duplicate_of", "instruments"])]
+    seen = {}
+    n = 0
+    for i, (s, l) in enumerate(read_directory(ram, SAMPLE_DIR, SAMPLE_COUNT)):
+        dup = seen.get((s, l))
+        if dup is None and s not in (0, 0xFFFF):
+            seen[(s, l)] = i
+        if s in (0, 0xFFFF):
+            decoded, looped = [], False
+        else:
+            decoded, looped = decode_brr(ram, s, l, loop_times=0)
+        rows.append("\t".join([
+            str(i), "${:04X}".format(s), "${:04X}".format(l),
+            str(l - s), str(len(decoded) // 16), str(len(decoded)),
+            "yes" if looped else "no",
+            "-" if dup is None else str(dup),
+            ",".join(str(u) for u in users.get(i, [])) or "-"]))
+        n += 1
+    with open(path, "w") as f:
+        f.write("\n".join(rows) + "\n")
+    return n, len(seen)
+
+
+def write_curve(ram, path):
+    """The 24-byte $03E0 block: 8 gate values then 16 velocity values.
+
+    SPC $0AFC reads it after a duration byte: the optional following byte
+    < $80 is split by XCN/AND #$07 into $03E0+n (gate, the fraction of the
+    duration the note is held) and AND #$0F into $03E8+n (velocity, the
+    per-note volume multiplier)."""
+    rows = ["\t".join(["kind", "index", "spc_addr", "value", "fraction",
+                       "read_by"])]
+    for i in range(8):
+        v = ram[CURVE_TABLE + i]
+        rows.append("\t".join([
+            "gate", str(i), "${:04X}".format(CURVE_TABLE + i),
+            "${:02X}".format(v), "{:.3f}".format(v / 256.0),
+            "SPC $0B00 (duration byte bits 6-4)"]))
+    for i in range(16):
+        v = ram[CURVE_TABLE + 8 + i]
+        rows.append("\t".join([
+            "velocity", str(i), "${:04X}".format(CURVE_TABLE + 8 + i),
+            "${:02X}".format(v), "{:.3f}".format(v / 256.0),
+            "SPC $0B0A (duration byte bits 3-0)"]))
+    with open(path, "w") as f:
+        f.write("\n".join(rows) + "\n")
+    return 24
 
 
 def _mkdir(p):
@@ -240,6 +401,13 @@ def main():
             write_wav(path, samples)
             log.append("sample {:2d} ${:04X} loop ${:04X} {:6d} samples{}".format(
                 i, s, l, len(samples), " looped" if looped else ""))
+
+    n_instr = write_instruments(ram, os.path.join(out, "instruments.tsv"))
+    n_dir, n_distinct = write_samples(ram, os.path.join(out, "samples.tsv"))
+    n_curve = write_curve(ram, os.path.join(out, "curve.tsv"))
+    log.append("tables: {} instruments, {} directory entries ({} distinct "
+               "samples), {} curve values".format(
+                   n_instr, n_dir, n_distinct, n_curve))
 
     with open(os.path.join(out, "spc_map.txt"), "w") as f:
         f.write("\n".join(log) + "\n")

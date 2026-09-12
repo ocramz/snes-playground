@@ -499,6 +499,164 @@ def components(l1, w, h):
     return sorted(sizes, reverse=True)
 
 
+def tile_meaning(d, byte, land_table):
+    """What the engine does when a ball lands on this layer-2 value."""
+    if byte in TILE_SCANNED:
+        return TILE_SCANNED[byte], "solid"
+    target = land_table[byte]
+    return TILE_HANDLERS.get(target, ("?", "unknown"))
+
+
+def cmd_export(d, defaults, args):
+    """Per-hole machine-readable geometry: shape, elevation, walls, tiles.
+
+    Everything here is computed from the engine's own tables, so the surface
+    corners are the values `sub_terrain_probe` would return, not a model of
+    them. Cells where layer 1 is $00 are gaps: the probe returns ground
+    Z = 0 there and nothing stops a ball, which is why they are flagged
+    rather than given a height.
+    """
+    import json
+
+    tab = Tables(d)
+    land = tile_table(d, TILE_DISPATCH_LAND)
+    actor_off = snes_to_file(0x82, 0xBDBC)
+    actors = [int.from_bytes(d[actor_off + 2 * i:actor_off + 2 * i + 2], "little")
+              for i in range(256)]
+
+    indices = [args.index] if args.index is not None else populated(d, defaults)
+    if not os.path.isdir(args.out_dir):
+        os.makedirs(args.out_dir)
+
+    rows = []
+    corners = ((0x0000, 0x0000), (0xFFFF, 0x0000), (0xFFFF, 0xFFFF), (0x0000, 0xFFFF))
+    for i in indices:
+        got = load_hole(d, defaults, i)
+        if got is None:
+            print("hole {}: no usable grids, skipped".format(i), file=sys.stderr)
+            continue
+        fields, name, w, h, layers = got
+        l1, l2, l3, l4 = layers[1], layers[2], layers[3], layers[4]
+        has_tiles = len(l2) >= w * h
+
+        # Island ids, so a cell can name the component it belongs to.
+        comp_id = {}
+        for cid, start in enumerate(sorted(
+                (j for j in range(w * h) if l1[j]), key=lambda j: j)):
+            if start in comp_id:
+                continue
+            stack = [start]
+            comp_id[start] = cid
+            while stack:
+                c = stack.pop()
+                cx, cy = c % w, c // w
+                for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < w and 0 <= ny < h:
+                        j = ny * w + nx
+                        if l1[j] and j not in comp_id:
+                            comp_id[j] = cid
+                            stack.append(j)
+        # Renumber the components densely in first-appearance order.
+        order, remap = [], {}
+        for j in range(w * h):
+            if j in comp_id and comp_id[j] not in remap:
+                remap[comp_id[j]] = len(order)
+                order.append(comp_id[j])
+
+        cells, marked = [], None
+        for j in range(w * h):
+            shape, elev, flags = l1[j], l3[j], l4[j]
+            tile = l2[j] if has_tiles else 0
+            cell = {
+                "x": j % w, "y": j // w,
+                "shape": shape, "family": family(shape),
+                "fall": tab.fall(shape) if shape else None,
+                "elevation": elev,
+                "gap": shape == 0,
+                "walls": {EDGE_NAMES[b]: bool(flags & (1 << b)) for b in range(4)},
+                "wall_high_nibble": flags >> 4,
+                "island": remap[comp_id[j]] if j in comp_id else None,
+            }
+            if shape:
+                cell["surface_corners"] = [
+                    tab.surface_z(shape, elev, xf, yf) for xf, yf in corners]
+                cell["surface_steps"] = [
+                    round(z / float(Z_UNIT), 4) for z in cell["surface_corners"]]
+            if has_tiles:
+                meaning, conf = tile_meaning(d, tile, land)
+                cell["tile"] = tile
+                cell["tile_meaning"] = meaning
+                cell["tile_confidence"] = conf
+                cell["actor"] = actors[tile] if actors[tile] != 0xFFFF else None
+                if tile in TILE_SCANNED:
+                    marked = {"x": j % w, "y": j // w, "value": tile,
+                              "elevation": elev}
+            cells.append(cell)
+
+        solid = sum(1 for c in cells if not c["gap"])
+        sizes = components(l1, w, h)
+        hole = {
+            "index": i, "name": name, "header": list(fields),
+            "width": w, "height": h,
+            "cell_count": w * h, "solid_cells": solid, "gap_cells": w * h - solid,
+            "max_elevation": max((c["elevation"] for c in cells if not c["gap"]),
+                                 default=0),
+            "islands": sizes,
+            "marked_cell": marked,
+            "has_tile_layer": has_tiles,
+            "z_unit": Z_UNIT,
+            "cells": cells,
+        }
+        hole_dir = os.path.join(args.out_dir, "{:03d}_{}".format(i, name or "noname"))
+        if not os.path.isdir(hole_dir):
+            os.makedirs(hole_dir)
+        with open(os.path.join(hole_dir, "geometry.json"), "w") as f:
+            json.dump(hole, f, indent=1)
+        if not args.no_heightmap:
+            write_heightmap(hole, os.path.join(hole_dir, "heightmap.png"))
+        rows.append((i, name, w, h, solid, hole["max_elevation"], len(sizes),
+                     has_tiles, sum(1 for c in cells if c.get("tile"))))
+
+    with open(os.path.join(args.out_dir, "holes.tsv"), "w") as f:
+        f.write("index\tname\twidth\theight\tsolid_cells\tmax_elevation"
+                "\tislands\thas_tile_layer\tnonzero_tiles\n")
+        for r in rows:
+            f.write("\t".join(str(x) for x in r) + "\n")
+    print("exported {} holes to {}".format(len(rows), args.out_dir))
+    return 0
+
+
+def write_heightmap(hole, path):
+    """Sub-cell surface height as a greyscale image, 8 samples per cell.
+
+    Sampling the same surface function the physics uses means ramps appear
+    as gradients rather than as flat cells, which is the point: the cell's
+    elevation byte is only its base.
+    """
+    from PIL import Image
+    w, h, n = hole["width"], hole["height"], 8
+    img = Image.new("L", (w * n, h * n))
+    px = img.load()
+    tallest = max((max(c["surface_corners"]) for c in hole["cells"]
+                   if not c["gap"]), default=1) or 1
+    for c in hole["cells"]:
+        if c["gap"]:
+            continue
+        z = c["surface_corners"]
+        for sy in range(n):
+            for sx in range(n):
+                u, v = sx / float(n - 1), sy / float(n - 1)
+                # Bilinear over the four corner heights, in corner order
+                # NW, NE, SE, SW.
+                top = z[0] + (z[1] - z[0]) * u
+                bot = z[3] + (z[2] - z[3]) * u
+                val = top + (bot - top) * v
+                px[c["x"] * n + sx, c["y"] * n + sy] = int(
+                    max(0, min(255, 255.0 * val / tallest)))
+    img.save(path)
+
+
 def cmd_stats(d, defaults, args):
     import collections
     tab = Tables(d)
@@ -619,6 +777,12 @@ def main():
                     help="evaluate the surface height over one cell")
     ap.add_argument("--png", action="store_true", help="render to PNG")
     ap.add_argument("-o", "--out", help="PNG path (must be under build/)")
+    ap.add_argument("--export", action="store_true",
+                    help="write per-hole geometry.json and heightmap.png")
+    ap.add_argument("--out-dir", default="build/courses",
+                    help="destination for --export")
+    ap.add_argument("--no-heightmap", action="store_true",
+                    help="skip the heightmap PNGs when exporting")
     args = ap.parse_args()
 
     try:
@@ -630,6 +794,8 @@ def main():
     if args.tables:
         return cmd_tables(d, args)
     defaults = default_entries(d)
+    if args.export:
+        return cmd_export(d, defaults, args)
     if args.tiles:
         return cmd_tiles(d, defaults, args)
     if args.probe:

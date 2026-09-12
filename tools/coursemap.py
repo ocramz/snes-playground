@@ -1,0 +1,427 @@
+#!/usr/bin/env python3
+"""Unpack and render a hole's isometric background from course tables 5-9.
+
+Tables 8 and 9 are the two background layers, but they are not rectangular
+tilemaps: empty space around the diamond is not stored. Tables 5, 6 and 7
+are the row directory that makes them rectangular again. Each holds exactly
+`header word 5` 16-bit entries, one per map row:
+
+    table 5   first column of the row      ($FFFF = the row is empty)
+    table 6   last column of the row
+    table 7   word offset of the row inside tables 8 and 9
+
+so, for a row r and a column c,
+
+    tile(r, c) = table8[ table7[r] + c - table5[r] ]   if t5[r] <= c <= t6[r]
+
+and nothing is stored otherwise. Read off the column-strip copy at
+`$80:BE17 (0x003E17)`, which uploads one column at a time while the course
+scrolls:
+
+    LDA $93B0,X / CMP $9BB0,X / BEQ skip     ; t5[r], t6[r]; equal = no row
+    ... reject c outside [t5, t6] ...
+    SEC / SBC $0A / CLC / ADC $8BB0,X        ; (c - t5[r]) + t7[r]
+    ASL A / TAX
+    LDA $7F:3000,X / STA $0000,Y             ; table 8 -> BG1 row buffer
+    LDA $7F:9800,X / STA $0040,Y             ; table 9 -> BG2 row buffer
+
+`$7E:93B0`, `$9BB0` and `$8BB0` are where `sub_course_load_bg` puts tables
+5, 6 and 7, and `$7F:3000` / `$7F:9800` are tables 8 and 9. The two buffers
+go to VRAM `$5000` and `$5800` (`$80:BE65`, `$80:BE9A`), which screen block
+0 at `$80:CB91` assigns to BG1 and BG2, so **table 8 is BG1 and table 9 is
+BG2**.
+
+Header words 4 and 5 are therefore the map size in 8-pixel *tiles*, not in
+pixels: a grid cell is 8 tiles wide, `word4 = 4 * (width + height)`, and
+`word3 = word4 * word5` is the full rectangular tile count.
+
+The tile page and palette come from the course scene's own loaders:
+
+    $80:CC9D  $8B:DAB1 -> $7F:2000   isometric terrain tiles
+              $90:9E9E -> $7F:0000   then 27,136 bytes to VRAM word $0000
+    $80:D369  512 bytes from $98:C000 by MVN into the CGRAM staging buffer
+
+so VRAM tiles 0-255 come from `$90:9E9E` and 256-847 from `$8B:DAB1`.
+
+BG3 carries the scenery behind the course, and all of it is per-course
+rather than per-hole. `sub_load_course_backdrop $80:D6A8` selects tiles and
+tilemap with `course & 7` from the tables at `$80:D748` and `$80:D768`, and
+`$80:D4F7` selects a matching 40-colour palette from `$80:D517` and hands it
+to `sub_cgram_partial`, which writes CGRAM colours 0-39. That palette is
+what makes the layer readable: the course CGRAM image at `$98:C000` leaves
+BG3 sub-palettes 1-7 entirely black, so drawing the scenery against it
+produces holes.
+
+The BG3 character page is shared three ways -- font at tiles 0-191, window
+furniture at 208-303, and the scenery at 320-511 -- which is why the stored
+tilemap references indices below 320: the same buffer also holds the text
+window. Text is written into it at run time by `$83:B406`, which ORs `$3C00`
+(palette 7, priority) into each glyph.
+
+BG3's map is 32x32, so it wraps. Rendering a whole course at once therefore
+tiles the scenery, where the hardware would only ever show one screen of it.
+Pass `--no-backdrop` for the course geometry alone.
+
+    python3 tools/coursemap.py                  # every hole -> build/courses
+    python3 tools/coursemap.py --index 0
+    python3 tools/coursemap.py --check          # assertions only, no output
+"""
+
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from courses import ENTRIES, default_entries, entry, header  # noqa: E402
+from halcomp import CompressionError, decompress  # noqa: E402
+from lorom import fmt_snes, snes_to_file  # noqa: E402
+from romcheck import RomError, load_rom  # noqa: E402
+from tiles import decode_tiles, snes_color  # noqa: E402
+
+# Course scene graphics, from the loader disassembly above.
+GFX_LOW = (0x90, 0x9E9E)       # VRAM tiles $000-$0FF
+GFX_HIGH = (0x8B, 0xDAB1)      # VRAM tiles $100-$34F
+PALETTE = (0x98, 0xC000)
+CGRAM_BANK = 0x98      # sub_cgram_partial's MVN hardwires this
+PAGE_BYTES = 27136             # the size field of the record at $80:CCB7
+TILE_BYTES4 = 32
+
+# The scenery behind the course is BG3, and it is per-course rather than
+# per-hole: `sub_load_course_backdrop $80:D6A8` takes the course number at
+# $7E:6A5A, masks it with 7, and indexes two 8-entry tables of (bank16,
+# addr16). Tiles land at VRAM word $4A00 and the tilemap at $3C00, while
+# screen block 0 puts BG3's character base at $4000 -- so a tilemap index
+# counts 2bpp tiles from $4000 and the backdrop starts at tile
+# ($4A00 - $4000) / 8 = 320. The font occupies tiles 0-191 of the same page.
+BACKDROP_TILES = (0x80, 0xD748)
+BACKDROP_MAP = (0x80, 0xD768)
+# The BG3 character page is built from three loads, all in the course
+# bundle (`tools/scenes.py bundles`). Tile indices count 2bpp tiles from the
+# character base $4000, so a load at VRAM word W starts at (W - $4000) / 8.
+BG3_SOURCES = [
+    ((0x90, 0xFBBC), 0x4000, 3072),    # font, tiles 0-191   (gfx_b entry 1)
+    ((0x92, 0x9505), 0x4680, 1792),    # window furniture, tiles 208-303
+]
+BG3_CHAR_BASE = 0x4000
+BG3_BACKDROP_VRAM = 0x4A00     # tiles 320-511
+BG3_MAP_TILES = 32             # block 0 gives BG3 a 32x32 map, so it repeats
+TILE_BYTES2 = 16
+
+# The scenery has its own palette, also per-course. `$80:D4F7` indexes this
+# table with `course & 7` and hands 40 colours to `sub_cgram_partial`, which
+# writes them to CGRAM colours 0-39 from bank $98. Without this the course
+# image's own BG3 sub-palettes 1-7 are all black, which is what gives the
+# clouds their holes.
+BG3_PALETTE_TABLE = (0x80, 0xD517)
+BG3_PALETTE_ALT = (0x80, 0xD527)      # taken instead when $7E:6A2E is set
+BG3_PALETTE_COLOURS = 40
+
+W_CELLS, W_WIDTH, W_HEIGHT, W_AREA, W_MAPW, W_MAPH = 0, 1, 2, 3, 4, 5
+EMPTY = 0xFFFF
+
+T_LEFT, T_RIGHT, T_OFFSET, T_BG1, T_BG2 = 5, 6, 7, 8, 9
+
+
+def words(b):
+    return [int.from_bytes(b[i:i + 2], "little") for i in range(0, len(b) - 1, 2)]
+
+
+def table(d, index, n):
+    """Decompress course table `n` for a hole."""
+    bank, addr = entry(d, n, index)
+    out, _ = decompress(d, snes_to_file(bank, addr))
+    return out
+
+
+def course_page(d):
+    """The 848-tile VRAM page the course scene builds at word $0000."""
+    low, _ = decompress(d, snes_to_file(*GFX_LOW))
+    high, _ = decompress(d, snes_to_file(*GFX_HIGH))
+    page = low + high
+    if len(page) != PAGE_BYTES:
+        raise ValueError("page is {} bytes, expected {}".format(len(page), PAGE_BYTES))
+    return page
+
+
+def course_palette(d):
+    """16 sub-palettes of 16 colours from the CGRAM image at $98:C000."""
+    off = snes_to_file(*PALETTE)
+    raw = d[off:off + 512]
+    cols = [snes_color(w) for w in words(raw)]
+    return [cols[i * 16:(i + 1) * 16] for i in range(16)]
+
+
+def backdrop(d, index):
+    """The BG3 scenery for a hole: (tile page, 32x32 tilemap words).
+
+    Selected by course rather than hole. The hole index is `course * 8 +
+    hole` (`sub_set_hole_index $82:B0A4`), so the backdrop slot is
+    `(index // 8) & 7`.
+    """
+    slot = (index // 8) & 7
+
+    def pair(table):
+        off = snes_to_file(*table) + 4 * slot
+        bank = int.from_bytes(d[off:off + 2], "little") & 0xFF
+        addr = int.from_bytes(d[off + 2:off + 4], "little")
+        return bank, addr
+
+    tiles, _ = decompress(d, snes_to_file(*pair(BACKDROP_TILES)))
+    tmap, _ = decompress(d, snes_to_file(*pair(BACKDROP_MAP)))
+
+    page = bytearray(512 * TILE_BYTES2)
+
+    def place(blob, vram_word, size):
+        start = (vram_word - BG3_CHAR_BASE) // 8 * TILE_BYTES2
+        n = min(size, len(blob), len(page) - start)
+        page[start:start + n] = blob[:n]
+
+    for src, vram_word, size in BG3_SOURCES:
+        blob, _ = decompress(d, snes_to_file(*src))
+        place(blob, vram_word, size)
+    place(tiles, BG3_BACKDROP_VRAM, len(tiles))
+
+    poff = snes_to_file(*BG3_PALETTE_TABLE) + 2 * slot
+    paddr = int.from_bytes(d[poff:poff + 2], "little")
+    croff = snes_to_file(CGRAM_BANK, paddr)
+    colours = [snes_color(w) for w in
+               words(d[croff:croff + BG3_PALETTE_COLOURS * 2])]
+    return bytes(page), words(tmap), colours
+
+
+def unpack(d, index, fields=None):
+    """Return (map_w, map_h, bg1, bg2, rows).
+
+    bg1/bg2 are row-major lists of map_w*map_h tilemap words, EMPTY where the
+    hole stores nothing. `rows` is the (left, right, offset) directory.
+    """
+    if fields is None:
+        _, fields, _, _ = header(d, index)
+    map_w, map_h = fields[W_MAPW], fields[W_MAPH]
+    left = words(table(d, index, T_LEFT))
+    right = words(table(d, index, T_RIGHT))
+    offset = words(table(d, index, T_OFFSET))
+    bg1 = words(table(d, index, T_BG1))
+    bg2 = words(table(d, index, T_BG2))
+
+    grid1 = [EMPTY] * (map_w * map_h)
+    grid2 = [EMPTY] * (map_w * map_h)
+    rows = []
+    for r in range(map_h):
+        l, rt, o = left[r], right[r], offset[r]
+        rows.append((l, rt, o))
+        # The engine's own guard: a row whose ends are equal is not drawn.
+        if l == rt or l == EMPTY:
+            continue
+        base = r * map_w
+        for c in range(l, rt + 1):
+            src = o + c - l
+            if src < len(bg1):
+                grid1[base + c] = bg1[src]
+            if src < len(bg2):
+                grid2[base + c] = bg2[src]
+    return map_w, map_h, grid1, grid2, rows
+
+
+def check(d, index, fields, name):
+    """Assertions that the row directory really describes tables 8 and 9."""
+    map_w, map_h = fields[W_MAPW], fields[W_MAPH]
+    left = words(table(d, index, T_LEFT))
+    right = words(table(d, index, T_RIGHT))
+    offset = words(table(d, index, T_OFFSET))
+    n1 = len(table(d, index, T_BG1)) // 2
+    n2 = len(table(d, index, T_BG2)) // 2
+    problems = []
+    if not (len(left) == len(right) == len(offset) == map_h):
+        problems.append("directory lengths {}/{}/{} != word5 {}".format(
+            len(left), len(right), len(offset), map_h))
+    if fields[W_AREA] != map_w * map_h:
+        problems.append("word3 {} != word4*word5 {}".format(
+            fields[W_AREA], map_w * map_h))
+    acc = 0
+    widest = 0
+    for l, r, o in zip(left, right, offset):
+        if l == EMPTY:
+            continue
+        if o != acc:
+            problems.append("row offset {} != running total {}".format(o, acc))
+            break
+        acc += r - l + 1
+        widest = max(widest, r + 1)
+    if acc != n1 or acc != n2:
+        problems.append("span total {} != table8 {} / table9 {}".format(acc, n1, n2))
+    if widest > map_w:
+        problems.append("rightmost column {} exceeds word4 {}".format(widest, map_w))
+    return problems
+
+
+def blit(img, pal, tiles, word_, y, x, bpp_pal_shift=0):
+    """Draw one tilemap cell, treating colour 0 as transparent."""
+    import numpy as np
+    idx = word_ & 0x3FF
+    if idx >= len(tiles):
+        return
+    rows = tiles[idx]
+    if (word_ >> 14) & 1:
+        rows = [row[::-1] for row in rows]
+    if (word_ >> 15) & 1:
+        rows = rows[::-1]
+    cell = np.array(rows, dtype=np.uint8)
+    view = img[y:y + 8, x:x + 8]
+    if view.shape[0] != 8 or view.shape[1] != 8:
+        return
+    mask = cell != 0
+    view[mask] = pal[((word_ >> 10) & 7) + bpp_pal_shift][cell[mask]]
+
+
+def render(map_w, map_h, grid1, grid2, tiles, palettes, back_colour,
+           bg3=None):
+    """Compose the layers the way mode 1 stacks them, back to front.
+
+    BGMODE is `$09`: mode 1 with the BG3 priority bit set. So the order is
+    BG3 (no priority), BG2, BG1, then any BG3 tile whose priority bit is set
+    in front of everything. BG3 is 2bpp with a 32x32 map, so it repeats.
+    """
+    import numpy as np
+    from PIL import Image
+
+    img = np.zeros((map_h * 8, map_w * 8, 3), dtype=np.uint8)
+    img[:, :] = back_colour
+    pal = np.array(palettes, dtype=np.uint8)          # (16, 16, 3)
+    if bg3 is not None and len(bg3) > 2:
+        cols = bg3[2]
+        pal2 = np.array([[cols[g * 4 + c] for c in range(4)]
+                         for g in range(8)], dtype=np.uint8)
+    else:
+        pal2 = np.array([[palettes[i // 4][(i % 4) * 4 + c] for c in range(4)]
+                         for i in range(8)], dtype=np.uint8)
+
+    def draw_bg3(want):
+        if bg3 is None:
+            return
+        page, tmap = bg3[0], bg3[1]
+        cells = decode_tiles(page, 2)
+        for ty in range(0, map_h, BG3_MAP_TILES):
+            for tx in range(0, map_w, BG3_MAP_TILES):
+                for i, w in enumerate(tmap[:BG3_MAP_TILES * BG3_MAP_TILES]):
+                    if ((w >> 13) & 1) != want:
+                        continue
+                    cy, cx = divmod(i, BG3_MAP_TILES)
+                    blit(img, pal2, cells, w, (ty + cy) * 8, (tx + cx) * 8)
+
+    draw_bg3(0)
+    # Mode 1 order: BG2 priority 0, BG1 priority 0, BG2 priority 1, BG1 pri 1.
+    for grid, want in ((grid2, 0), (grid1, 0), (grid2, 1), (grid1, 1)):
+        for i, w in enumerate(grid):
+            if w == EMPTY or ((w >> 13) & 1) != want:
+                continue
+            y, x = divmod(i, map_w)
+            blit(img, pal, tiles, w, y * 8, x * 8)
+    draw_bg3(1)
+    return Image.fromarray(img)
+
+
+def write_grid(path, grid):
+    with open(path, "wb") as f:
+        f.write(b"".join(w.to_bytes(2, "little") for w in grid))
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--out", default="build/courses")
+    ap.add_argument("--index", type=int, help="only this hole index")
+    ap.add_argument("--check", action="store_true",
+                    help="verify the row directory against tables 8/9, write nothing")
+    ap.add_argument("--no-layers", action="store_true",
+                    help="skip the separate bg1/bg2 PNGs")
+    ap.add_argument("--scale", type=int, default=1)
+    ap.add_argument("--no-backdrop", action="store_true",
+                    help="omit the BG3 per-course scenery")
+    args = ap.parse_args()
+
+    try:
+        d = load_rom()
+    except RomError as e:
+        print("error: {}".format(e), file=sys.stderr)
+        return 1
+
+    defaults = default_entries(d)
+    indices = [args.index] if args.index is not None else [
+        i for i in range(ENTRIES) if entry(d, 0, i) != defaults[0]]
+
+    if args.check:
+        bad = 0
+        for i in indices:
+            _, fields, name, _ = header(d, i)
+            try:
+                problems = check(d, i, fields, name)
+            except CompressionError as e:
+                problems = ["decompression failed: {}".format(e)]
+            if problems:
+                bad += 1
+                print("hole {:3d} {}: {}".format(i, name, "; ".join(problems)))
+        print("{}/{} holes consistent".format(len(indices) - bad, len(indices)))
+        return 1 if bad else 0
+
+    try:
+        page = course_page(d)
+    except (CompressionError, ValueError) as e:
+        print("error: course tile page: {}".format(e), file=sys.stderr)
+        return 1
+    tiles = decode_tiles(page, 4)
+    palettes = course_palette(d)
+    back_colour = palettes[0][0]
+    print("tile page {} tiles from {} + {}; palette {}".format(
+        len(tiles), fmt_snes(*GFX_LOW), fmt_snes(*GFX_HIGH), fmt_snes(*PALETTE)))
+
+    worst = 0
+    for i in indices:
+        _, fields, name, _ = header(d, i)
+        hole_dir = os.path.join(args.out, "{:03d}_{}".format(i, name or "noname"))
+        if not os.path.isdir(hole_dir):
+            os.makedirs(hole_dir)
+        map_w, map_h, g1, g2, rows = unpack(d, i, fields)
+        bg3 = None if args.no_backdrop else backdrop(d, i)
+        used = [w & 0x3FF for w in g1 + g2 if w != EMPTY]
+        top = max(used) if used else 0
+        worst = max(worst, top)
+        missing = sum(1 for t in used if t >= len(tiles))
+
+        write_grid(os.path.join(hole_dir, "bg1.bin"), g1)
+        write_grid(os.path.join(hole_dir, "bg2.bin"), g2)
+        with open(os.path.join(hole_dir, "map.json"), "w") as f:
+            json.dump({
+                "index": i, "name": name, "header": fields,
+                "grid_width": fields[W_WIDTH], "grid_height": fields[W_HEIGHT],
+                "map_width_tiles": map_w, "map_height_tiles": map_h,
+                "rows": [{"left": l, "right": r, "offset": o}
+                         for l, r, o in rows],
+                "stored_tiles": len(used) // 2, "max_tile": top,
+            }, f, indent=1)
+
+        img = render(map_w, map_h, g1, g2, tiles, palettes, back_colour, bg3)
+        if args.scale != 1:
+            from PIL import Image
+            resample = getattr(Image, "Resampling", Image).NEAREST
+            img = img.resize((img.width * args.scale, img.height * args.scale), resample)
+        img.save(os.path.join(hole_dir, "render.png"))
+        if not args.no_layers:
+            blank = [EMPTY] * (map_w * map_h)
+            render(map_w, map_h, g1, blank, tiles, palettes, back_colour).save(
+                os.path.join(hole_dir, "bg1.png"))
+            render(map_w, map_h, blank, g2, tiles, palettes, back_colour).save(
+                os.path.join(hole_dir, "bg2.png"))
+        print("{:3d} {:12s} {:3d}x{:3d} tiles, {:5d} stored, max tile ${:03X}{}".format(
+            i, name, map_w, map_h, len(used) // 2, top,
+            ", {} MISSING".format(missing) if missing else ""))
+
+    print("{} holes rendered; highest tile index ${:03X} of {} in the page".format(
+        len(indices), worst, len(tiles)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

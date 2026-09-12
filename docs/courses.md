@@ -44,11 +44,11 @@ and which count applies depends on the layer you are measuring.
 | 2 | `$88:AD70` | `$7E:8390` | w*h | grid layer: object ids |
 | 3 | `$88:B070` | `$7E:7390` | w*h | grid layer: elevation |
 | 4 | `$88:B370` | `$7E:7B90` | w*h | grid layer: edge wall flags |
-| 5 | `$88:B670` | `$7E:93B0` | ~114 | 16-bit table, `$FF`-padded |
-| 6 | `$88:B970` | `$7E:9BB0` | ~114 | 16-bit table, `$FF`-padded |
-| 7 | `$88:BC70` | `$7E:8BB0` | ~114 | 16-bit table |
-| 8 | `$88:BF70` | `$7F:3000` | 704-16,880 | SNES tilemap |
-| 9 | `$88:C270` | `$7F:9800` | 704-16,880 | SNES tilemap |
+| 5 | `$88:B670` | `$7E:93B0` | 2 * word5 | row directory: first column of each map row |
+| 6 | `$88:B970` | `$7E:9BB0` | 2 * word5 | row directory: last column of each map row |
+| 7 | `$88:BC70` | `$7E:8BB0` | 2 * word5 | row directory: word offset of each row in tables 8/9 |
+| 8 | `$88:BF70` | `$7F:3000` | 704-16,880 | BG1 tilemap, row-packed |
+| 9 | `$88:C270` | `$7F:9800` | 704-16,880 | BG2 tilemap, row-packed |
 | 10 | `$88:C570` | `$7E:A3B2` | ~150 | 16-bit table |
 
 Tables 1-4 are four parallel grid layers, one byte per cell. **Courses are
@@ -105,28 +105,71 @@ python3 tools/course_stats.py                # the older per-layer statistics
 Exactly 20 holes — `MAPC0`-`MAPC7`, `MAPD0`-`MAPD7`, `MAPE0`-`MAPE3` — have
 a **16-byte** table 2 instead of one byte per cell, while their other three
 layers are full size. The contiguous naming says this is a deliberate
-course category rather than corruption, but what the 16 bytes mean is
-unknown. `tools/course_stats.py` skips these 20, so its statistics cover 212
-holes and 55,664 cells.
+course category rather than corruption, but what the 16 bytes are is answered in
+[special tiles](tiles.md): the stub is a single `$0C`, the marked cell every
+hole has, and nothing else. So that variant of those courses carries no
+hazards and no enemies at all. Whether the game ever selects it is not
+established. `tools/course_stats.py` skips these 20, so its statistics cover
+212 holes and 55,664 cells.
 
-Tables 8 and 9 are confirmed tilemap **data**: their high 6 bits (palette,
-priority, flip) take only 8 distinct values across 1,656 entries, while tile
-indices span 1-655. They are the two background layers of the isometric
-course view, and they render as recognisable isometric terrain against the
-tile set at `$8B:DAB1`.
+### The background layers and the row directory
 
-**But they are not a plain screen-sized tilemap, and the correct width is
-still unknown.** Tables 8/9 hold 8 to 25 times more entries than the
-projected bounding box from header words 4 and 5 would need, with no
-consistent ratio per hole. Against the count of *solid* cells (layer 1
-non-zero) the ratio is much tighter, roughly 18-33 entries per solid cell
-and typically around 24. That is consistent with a library of per-cell tile
-groups assembled at draw time rather than a flat background image, but the
-assembly code has not been traced, so this is a lead and not a conclusion.
+Tables 8 and 9 are the two background layers of the isometric course view:
+table 8 is BG1, table 9 is BG2. They are **not** rectangular tilemaps. The
+empty space around the diamond is not stored, so tables 5, 6 and 7 are the
+row directory that makes them rectangular again. Each holds exactly
+`header word 5` 16-bit entries, one per map row:
 
-Rendering one with `tools/tilemap.py --width N` therefore produces correct
-tiles in the wrong arrangement. Finding the real layout means disassembling
-whatever consumes `$7F:3000` and `$7F:9800`.
+| table | per row |
+|---|---|
+| 5 | first column of the row; `$FFFF` when the row is empty |
+| 6 | last column of the row |
+| 7 | word offset of the row inside tables 8 and 9 |
+
+so for row `r` and column `c`,
+
+```
+tile(r, c) = table8[ table7[r] + c - table5[r] ]    if table5[r] <= c <= table6[r]
+```
+
+and nothing is stored otherwise. Table 7 is therefore the running total of
+`table6[r] - table5[r] + 1`, and that total equals the entry count of both
+table 8 and table 9.
+
+Read off the column-strip copy at `$80:BE17 (0x003E17)`, which uploads one
+column at a time as the course scrolls:
+
+```
+LDA $93B0,X / CMP $9BB0,X / BEQ skip     ; t5[r], t6[r]; equal = row not drawn
+...                                      ; reject c outside [t5, t6]
+SEC / SBC $0A / CLC / ADC $8BB0,X        ; (c - t5[r]) + t7[r]
+ASL A / TAX
+LDA $7F:3000,X / STA $0000,Y             ; table 8 -> BG1 row buffer
+LDA $7F:9800,X / STA $0040,Y             ; table 9 -> BG2 row buffer
+```
+
+`$7E:93B0`, `$9BB0` and `$8BB0` are where `sub_course_load_bg` puts tables
+5, 6 and 7. The two buffers go to VRAM `$5000` and `$5800` (`$80:BE65`,
+`$80:BE9A`), which screen block 0 at `$80:CB91` assigns to BG1 and BG2 —
+hence the layer assignment above.
+
+Verified both ways: the formula is asserted over all 232 holes by
+`tools/coursemap.py --check` (directory lengths equal word 5, table 7 is the
+running total, the total equals both tilemap sizes, no row reaches past
+word 4), and every hole renders as recognisable isometric terrain.
+
+```bash
+python3 tools/coursemap.py --check      # the assertions, no output
+python3 tools/coursemap.py --index 0    # one hole -> render.png, bg1/bg2, map.json
+python3 tools/coursemap.py              # all 232
+```
+
+The tile page and palette are the course scene's own, not a guess.
+`$80:CC9D` stages `$8B:DAB1` at `$7F:2000` and `$90:9E9E` at `$7F:0000`,
+then uploads 27,136 bytes to VRAM word `$0000` through the record at
+`$80:CCB7` — so tiles `$000-$0FF` come from `$90:9E9E` and `$100-$34F` from
+`$8B:DAB1`, 848 in all, and the highest index any hole uses is `$2DC`. The
+palette is the 512-byte CGRAM image at `$98:C000`, moved by `$80:D369`.
 
 ## Header format
 
@@ -143,23 +186,31 @@ Hole 0, at `0x0FF829`:
 | 0 | `$0090` = 144 | cell count, `= word1 * word2` | **exact, 232/232 holes**, and equals the size of grid layers 1-4 |
 | 1 | `$000C` = 12 | grid width | exact |
 | 2 | `$000C` = 12 | grid height | exact |
-| 3 | `$1560` = 5472 | bounding box area, `= word4 * word5` | **exact, 232/232** |
-| 4 | `$0060` = 96 | projected pixel width, `= 4 * (width + height)` | **exact, 232/232** |
-| 5 | `$0039` = 57 | projected pixel height | see below |
+| 3 | `$1560` = 5472 | tilemap area in tiles, `= word4 * word5` | **exact, 232/232** |
+| 4 | `$0060` = 96 | tilemap width in tiles, `= 4 * (width + height)` | **exact, 232/232** |
+| 5 | `$0039` = 57 | tilemap height in tiles | see below |
 | 6 | `$0000` | always zero in every hole | |
-| 7 | `$00E8` = 232 | unknown; takes few distinct values | |
+| 7 | `$00E8` = 232 | unknown; multiples of 8, few distinct values | |
+
+Words 3, 4 and 5 are in **8-pixel tiles, not pixels**. Word 5 is exactly the
+length of each row-directory table (5, 6 and 7), and word 3 is the count of
+cells in the full rectangular tilemap — both asserted over all 232 holes by
+`tools/coursemap.py --check`. In pixels the bounding box is eight times
+larger: hole 0 is 96 x 57 tiles, i.e. 768 x 456 pixels.
 
 Word 4 being exactly `4 * (width + height)` is the signature of an
 **isometric projection**: a diamond laid out from a `w x h` grid is
-`(w + h)` half-tiles wide. So the courses are drawn isometrically and word 3
-is the pixel area of the bounding box.
+`(w + h)` cells wide and a cell is 8 tiles wide, of which each half-diamond
+occupies 4.
 
-Word 5 is the matching projected height. It is always `2 * (width + height)`
-plus an odd number from 9 upward that grows with terrain elevation
-(verified: `word5 - 2*(w+h)` is positive and within `4*maxheight + 16` for
-all 232 holes). A closed form eluded me — `2*(w+h) + 2*maxheight + 9` fits
-only 50 of 232 — because the projected top depends on *where* the tall
-cells are, not just how tall the tallest is.
+Word 5 is the matching height. It is always `2 * (width + height)` plus an
+odd number from 9 upward that grows with terrain elevation (verified:
+`word5 - 2*(w+h)` is positive and within `4*maxheight + 16` for all 232
+holes). A closed form eluded me — `2*(w+h) + 2*maxheight + 9` fits only 50
+of 232 — because the projected top depends on *where* the tall cells are,
+not just how tall the tallest is. It does not need a closed form: the value
+is read from the header, and the row directory gives the extent of every
+row directly.
 
 Names run `MAP00`, `MAP01`, ... and also `MAPE2`, `MAPF0`, `MAP46`, so the
 naming is not a dense sequence — the table is ordered by index, not by name.

@@ -125,18 +125,23 @@ banks are now identified:
 
 | banks | contents | how established |
 |---|---|---|
-| `$80-$83` | engine code: init, OAM/sprite pipeline, decompressor, APU upload, course loaders | disassembled |
-| `$88` | eleven course pointer tables at `$88:A770`+`0x300*n` | disassembled loaders |
-| `$89` | metasprite frame lists, indexed from `$89:8000` | disassembled |
-| `$8D-$8F` | title screen graphics | decompressor call sites |
+| `$80-$83` | engine code: init, OAM/sprite pipeline, decompressor, APU upload, course loaders, screen setup, text | disassembled |
+| `$84-$87` | more engine code, and frame-pointer tables that index bank `$89` | `frametabs.py`, animation scripts |
+| `$88` | eleven course pointer tables at `$88:A770`+`0x300*n`; also tutorial text | disassembled loaders |
+| `$89` | metasprite frame lists, reached from several pointer tables | disassembled |
+| `$8A-$94` | screen graphics, compressed and uncompressed, reached from the four loader jump tables | `scenes.py loaders` |
 | `$95` | BRR samples, instrument table, volume curve | APU upload tables |
 | `$96-$98` | song sequences (33) plus the song/SFX table | `tbl_spc_songs` |
+| `$98` | **the palette bank**: every CGRAM image and partial palette | `sub_cgram_partial $80:90C8` hardwires it |
 | `$99-$9D` | course background tilemaps | course tables 8 and 9 |
 | `$9D-$9F` | course grids, small tables, and the uncompressed headers | course tables 0-7, 10 |
 
-Banks `$84-$94` hold further compressed graphics that no confirmed pointer
-table reaches yet; `tools/extract_gfx.py` finds streams there, but which
-screen each belongs to is unconfirmed.
+Banks `$8A-$94` used to be "compressed graphics no pointer table reaches".
+The four loader jump tables now reach 70 of their 75 entries, so most of
+that bank range is attributed — see [docs/scenes.md](docs/scenes.md).
+Note that **not all graphics are compressed**: a VRAM record block can name
+a ROM bank directly, and nine tileset entries do, so a compression scan will
+never find those assets.
 
 ## Layout
 
@@ -160,7 +165,8 @@ bare number. When a finding is location-specific, give both:
 
 **Labels.** `snake_case` with a kind prefix: `sub_` routine, `loc_` jump target
 within a routine, `dat_` data blob, `tbl_` table, `ptr_` pointer table, `gfx_`
-graphics, `mus_` music. Prefer meaning to address —
+graphics, `pal_` palette, `mus_` music, `ram_` a WRAM location. Prefer
+meaning to address —
 `sub_decompress_tiles`, not `sub_9A8000`. Use the address form only as a
 placeholder until the purpose is known.
 
@@ -212,10 +218,21 @@ python3 tools/dis65816.py 0x002A30 --length 0x70 --m16 --x16 --follow
 python3 tools/halcomp.py '$8E:EC7F' -o build/gfx/title.bin
 python3 tools/halcomp.py --scan '$95:8000' '$9B:FFFF'
 
+# Everything, in dependency order, plus a cross-reference manifest
+python3 tools/extract_all.py             # -> build/, build/manifest.tsv
+python3 tools/extract_all.py --only courses,scenes
+python3 tools/extract_all.py --manifest-only
+
 # Bulk asset extraction
 python3 tools/extract_gfx.py       # every stream -> build/gfx/{bin,png}, index.tsv
 python3 tools/spc_extract.py       # driver, samples (WAV), songs (SPC) -> build/spc
-python3 tools/courses.py           # 232 holes -> build/courses
+python3 tools/courses.py           # 232 holes, raw tables -> build/courses
+
+# Courses: unpack the row-packed tilemaps and render each hole
+python3 tools/coursemap.py --check        # assert the row directory, 232/232
+python3 tools/coursemap.py --index 0      # -> render.png, bg1/bg2, map.json
+python3 tools/coursemap.py                # all 232
+python3 tools/coursemap.py --no-backdrop  # course geometry without the scenery
 
 # Playfield geometry: terrain shape, elevation, gaps
 python3 tools/terrain.py --tables         # the engine's 28 terrain shapes
@@ -223,21 +240,40 @@ python3 tools/terrain.py --stats          # cross-check those tables vs data
 python3 tools/terrain.py --index 0 --legend
 python3 tools/terrain.py --probe 0 5 0    # surface height over one cell
 python3 tools/terrain.py --tiles          # layer-2 special-tile dispatch map
+python3 tools/terrain.py --export         # geometry.json + heightmap.png per hole
+python3 tools/course_stats.py             # per-layer statistics over build/courses
+
+# Screens: PPU setup, what each loads, and the scene bundles
+python3 tools/scenes.py blocks            # the 20 screen setup blocks
+python3 tools/scenes.py loaders           # the four loader jump tables
+python3 tools/scenes.py bundles           # scene -> graphics + palette
+python3 tools/scenes.py all               # all of it -> build/scenes
 
 # Render
 python3 tools/tiles.py FILE.bin --bpp 4 -o build/x.png
 python3 tools/tilemap.py MAP.bin TILES.bin --width 32 -o build/x.png
 python3 tools/tilemap.py MAP.bin --guess          # candidate widths
 python3 tools/palettes.py render '$98:C000' 0x200 -o build/pal.png
-python3 tools/sprites.py --table                  # metasprite frame index
+
+# Sprites: frame tables, then frames
+python3 tools/frametabs.py                        # find frame-pointer tables
+python3 tools/vram.py loaders                     # VRAM loader records
+python3 tools/vram.py cgram                       # CGRAM palette images
+python3 tools/vram.py objpage --scene course -o build/vram/obj/course.bin
+python3 tools/sprites.py --table                  # one metasprite frame index
 python3 tools/sprites.py --list '$89:8550'
 
 # SPC700 side
 python3 tools/dis_spc700.py build/spc/driver_0800.bin --base 0x0800
-python3 tools/brr.py build/spc/ram_base.bin --dir 0x0400 -o build/wav/
+python3 tools/brr.py build/spc/ram_base.bin --dir 0x0400 -o build/spc/samples/
 
 # Text in the game's font encoding (not ASCII)
-python3 tools/text.py --min 6
+python3 tools/text.py --strings                   # -> build/text/strings.tsv
+python3 tools/text.py --font-sheet -o build/text/font.png
+python3 tools/text.py --render '$88:DA2F' -o build/text/x.png
+
+# Keep symbols.tsv honest (sorted, addresses and offsets consistent)
+python3 tools/symcheck.py
 ```
 
 Every script imports `load_rom()` from `tools/romcheck.py`, so the integrity
@@ -254,11 +290,16 @@ matching:
   33 songs, and how the standalone `.spc` files are built.
 - [docs/graphics.md](docs/graphics.md) — tiles, tilemaps, palettes, and the
   metasprite/OAM pipeline.
-- [docs/courses.md](docs/courses.md) — the eleven bank `$88` course tables.
+- [docs/courses.md](docs/courses.md) — the eleven bank `$88` course tables,
+  including the row directory that unpacks the two background tilemaps.
 - [docs/terrain.md](docs/terrain.md) — the playfield: elevation, the 28
   terrain shapes, the surface equation, and how gaps work.
 - [docs/tiles.md](docs/tiles.md) — the special-tile layer: the dispatch
   tables, friction overrides, boost panels, kickers and hazards.
+- [docs/scenes.md](docs/scenes.md) — the 20 screen setup blocks, the four
+  loader jump tables, and which graphics and palette each screen loads.
+- [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,
+  and where the strings are.
 
 ## Workflow
 

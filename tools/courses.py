@@ -11,12 +11,15 @@ all point at one shared default entry.
     table  addr      what (measured on index 0)
     0      $88:A770  raw 28-byte hole header, NOT compressed; 16 bytes of
                      fields then a 12-byte space-padded name like "MAP00"
-    1-4    $88:AA70  compressed, 144 bytes each = a 12x12 byte grid
-                     (terrain/height/type layers; unconfirmed which is which)
-    5-7    $88:B670  compressed, ~114 bytes: 0xFF-padded 16-bit tables
-    8-9    $88:BF70  compressed, 704-16880 bytes; SNES tilemap words
-                     (BG layers for the hole's isometric rendering)
-    10     $88:C570  compressed, ~150 bytes: 16-bit tables
+    1-4    $88:AA70  compressed, width*height bytes each: grid layers
+                     1 = terrain shape, 2 = special tiles, 3 = elevation,
+                     4 = edge wall flags. Sizes run 12x12 to 28x28; header
+                     words 1 and 2 give the dimensions
+    5-7    $88:B670  compressed, one 16-bit entry per map row: first column,
+                     last column, and word offset into tables 8/9
+    8-9    $88:BF70  compressed, 704-16880 bytes; the BG1 and BG2 tilemaps,
+                     row-packed against tables 5-7. See tools/coursemap.py
+    10     $88:C570  compressed, ~150 bytes: 16-bit table, meaning unknown
 
 Everything is written under build/courses/<index>/ with the table number
 in the file name, plus headers.tsv listing every populated index.
@@ -71,7 +74,10 @@ def header(d, index):
 # Header word meanings, established by checking all 232 holes:
 #   word 0 = cell count, exactly equal to the decompressed size of tables 1-4
 #   word 1 = grid width, word 2 = grid height, and word 0 == word1 * word2
-# Words 3-7 are not yet understood; word 3 grows with course size.
+#   word 4 = tilemap width in 8-pixel tiles = 4 * (width + height)
+#   word 5 = tilemap height in tiles, and the length of tables 5, 6 and 7
+#   word 3 = word4 * word5, the rectangular tilemap area
+# Word 6 is always zero; word 7 is a multiple of 8 whose meaning is unknown.
 W_CELLS, W_WIDTH, W_HEIGHT = 0, 1, 2
 
 

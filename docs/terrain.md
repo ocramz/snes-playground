@@ -14,12 +14,15 @@ Two of the four grid layers carry the geometry, one byte per cell over the
 
 | | layer | WRAM | encoding |
 |---|---|---|---|
-| shape | 1 | `$7E:6B90` | enum `$00-$1B`; `$00` = gap, `$01` = flat, 26 sloped shapes |
+| shape | 1 | `$7E:6B90` | enum `$00-$1B`; `$00` = gap, `$01` = flat, `$02` mound, `$03` dimple, 24 sloped shapes |
 | elevation | 3 | `$7E:7390` | whole cells, `$00-$0F` |
 
 A **gap** is `layer1 == $00`. **Elevation** is the layer-3 byte. A **slope**
-is one of the 26 non-flat shape ids, which say how the surface tilts *within*
-the cell; the cell's elevation is still a single integer.
+is one of the 24 sloped shape ids, which say how the surface tilts *within*
+the cell; the cell's elevation is still a single integer. Of the 28 shapes,
+`$00` is the gap, `$01` is flat, and `$02` and `$03` are a mound and a dimple
+whose slope is interior rather than a fall line, leaving 24 in six families
+of four rotations.
 
 ## Elevation
 
@@ -264,12 +267,27 @@ a `07 07 01 05 05 01` landing row every fourth row. It is the clearest
 demonstration that elevation is a plain per-cell integer and the shape id
 only describes the tilt within each cell.
 
+## Exporting
+
+`tools/terrain.py --export` writes, per hole, a `geometry.json` giving every
+cell's shape (with its family and fall direction), elevation, the four wall
+flags, the layer-4 high nibble, gap flag, island id, special-tile id with the
+handler's description and confidence, and the actor id from
+`tbl_tile_actor $82:BDBC`. Solid cells also carry the four corner surface Z
+values, computed with the same `surface_z` this document describes, so a
+ramp is described by its actual heights rather than by its elevation byte
+alone. A `heightmap.png` samples that surface 8x8 per cell, and
+`build/courses/holes.tsv` summarises all of them.
+
+```bash
+python3 tools/terrain.py --export            # all holes
+python3 tools/terrain.py --export --index 0
+```
+
 ## Not established
 
 - The **high nibble of layer 4** (`$10`-`$80`). `$80` is the most common
   non-zero value, and no read of it exists anywhere in banks `$80-$87`.
-- **Layer 2's 114 values.** The load-time sweep at `$82:B320` looks each up
-  in a 256-entry word table at `$82:BDBC`, but the ids have not been mapped.
 - **Slope acceleration.** No "add a constant to vx/vy because this is a
   slope" was found. `$81:9444` is called on landing with the surface shape
   code and indexes tables at `$81:9EB9`/`$81:9ED9`, which is the likely

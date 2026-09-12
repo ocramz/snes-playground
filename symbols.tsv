@@ -4,6 +4,49 @@ $00:FF06	0x007F06	code	sub_nmi	-	native NMI vector target; not yet analysed
 $00:FFB0	0x007FB0	data	dat_cart_header_ext	16	extended header: maker code 01, game code CG
 $00:FFC0	0x007FC0	data	dat_cart_header	64	title, map mode $30, cart type $02, checksum $EEAE
 $00:FFE0	0x007FE0	ptr	tbl_vectors	32	native + emulation vector tables; only NMI and emulation RESET are used
+$7E:0400	-	ram	ram_cgram_stage	512	CGRAM staging image; BG palettes at +$000, OBJ (sprite) palettes at +$100. DMA'd by sub_dma_cgram
+$7E:086C	-	ram	ram_obj_list_head	2	head of the active object linked list; negative = empty. Read by sub_obj_tick_all
+$7E:091E	-	ram	ram_obj_x	32	16 objects x 2: X position, whole part; fraction at $097E. Set by anim opcodes $28/$3B
+$7E:093E	-	ram	ram_obj_y	32	16 objects x 2: Y position, whole part; fraction at $099E
+$7E:095E	-	ram	ram_obj_z	32	16 objects x 2: Z position, whole part; fraction at $09BE
+$7E:097E	-	ram	ram_obj_x_frac	32	16 objects x 2: X fraction; anim opcodes $28/$3B set it to $8000
+$7E:099E	-	ram	ram_obj_y_frac	32	16 objects x 2: Y fraction
+$7E:09BE	-	ram	ram_obj_z_frac	32	16 objects x 2: Z fraction
+$7E:09DE	-	ram	ram_obj_vx	32	16 objects x 2: X velocity, whole part; fraction at $0A3E. 8.8 fixed point, set by wait-action 4 ($CN) and anim opcode $2E
+$7E:09FE	-	ram	ram_obj_vy	32	16 objects x 2: Y velocity, whole part; fraction at $0A5E
+$7E:0A1E	-	ram	ram_obj_vz	32	16 objects x 2: Z velocity, whole part; fraction at $0A7E
+$7E:0A3E	-	ram	ram_obj_vx_frac	32	16 objects x 2: X velocity fraction
+$7E:0A5E	-	ram	ram_obj_vy_frac	32	16 objects x 2: Y velocity fraction
+$7E:0A7E	-	ram	ram_obj_vz_frac	32	16 objects x 2: Z velocity fraction. Anim opcode $39 zeroes all six velocity words
+$7E:0A9E	-	ram	ram_obj_field0	32	16 objects x 2: generic object word 0; selected by anim `field` operands through tbl_anim_obj_fields
+$7E:0ABE	-	ram	ram_obj_field1	32	16 objects x 2: generic object word 1
+$7E:0ADE	-	ram	ram_obj_field2	32	16 objects x 2: generic object word 2
+$7E:0AFE	-	ram	ram_obj_field3	32	16 objects x 2: generic object word 3
+$7E:0B1E	-	ram	ram_obj_queue	32	16 objects x 2: OAM priority queue; anim opcode $3C writes it, sub_obj_draw copies it to $7E:2880 for sub_oam_enqueue
+$7E:0B3E	-	ram	ram_obj_hook_addr	32	16 objects x 2: per-object long hook address, called by $80:9510 each tick. Anim opcode $08 sets it; $80:9D9B resets it to $80:94C6
+$7E:0B5E	-	ram	ram_obj_hook_bank	32	16 objects x 2: bank of ram_obj_hook_addr; negative skips the call
+$7E:0B7E	-	ram	ram_obj_frame_index	32	16 objects x 2: index into the object's frame pointer table; negative = invisible
+$7E:0B9E	-	ram	ram_obj_frame_table_addr	32	16 objects x 2: address of the object's frame POINTER TABLE; set only by sub_obj_set_frame_ptr
+$7E:0BBE	-	ram	ram_obj_frame_table_bank	32	16 objects x 2: bank of the frame pointer table
+$7E:0BDE	-	ram	ram_obj_vec_update	32	16 objects x 2: per-object update vector, JSR ($0BDE,X); default $9E5C
+$7E:0BFE	-	ram	ram_obj_vec_draw	32	16 objects x 2: per-object draw vector, JSR ($0BFE,X); default $9E8E = sub_obj_draw
+$7E:0C1E	-	ram	ram_obj_vec_physics	32	16 objects x 2: per-object physics vector, JSR ($0C1E,X); default $9E33
+$7E:0C3E	-	ram	ram_anim_thread_link	62	31 threads x 2: thread spawned by anim opcode $07; anim opcode $13 ends it
+$7E:0C7E	-	ram	ram_anim_stack_ptr	62	31 threads x 2: local stack pointer into ram_anim_locals; zeroed on spawn
+$7E:0CBE	-	ram	ram_anim_wait	62	31 threads x 2: script wait timer in game ticks; $FFFF = halted. Decremented by sub_anim_script_run
+$7E:0CFE	-	ram	ram_anim_pc	62	31 threads x 2: animation script program counter, used as Y against [$D0]
+$7E:0D3E	-	ram	ram_anim_bank	62	31 threads x 2: animation script bank, copied to $D2
+$7E:0D7E	-	ram	ram_anim_reg	62	31 threads x 2: the animation thread register. Subject of anim opcodes $0A/$0B/$10/$11/$16/$17/$1D-$21/$27, and the A passed to a wait-action 7 far call
+$7E:0DBE	-	ram	ram_anim_locals	248	31 threads x 8 local bytes; pointer computed into $D4 as $0DBE + 8*thread
+$7E:1002	-	ram	ram_sfx_port1_toggle	2	bit 7 XORed into every port-1 write by sub_spc_sfx_trigger so a repeated id still changes the port; SPC $1143 shifts it away
+$7E:1006	-	ram	ram_sfx_last_id	2	last SFX id sub_spc_sfx_trigger sent to $2141
+$7E:1008	-	ram	ram_sfx_slot_value	6	3 channel slots x 2 bytes; each holds the tbl_sfx_id value of the effect occupying it. Compared at $80:B5AC, also polled from bank $82
+$7E:100E	-	ram	ram_sfx_slot_priority	6	3 slots x 2 bytes written from tbl_sfx_priority at $80:B5C4; no reader found anywhere in banks $80-$87
+$7E:1014	-	ram	ram_sfx_disable	2	nonzero makes sub_spc_sfx_trigger refuse every request ($80:B554); cleared at $80:B687
+$7E:5E1C	-	ram	ram_obj2_frame_ptr	128	second object system: 16-bit frame pointer per slot, 321 store sites. UNRESOLVED whether it holds a frame pointer TABLE or a frame LIST; see docs/animation.md
+$7E:5E9C	-	ram	ram_obj2_queue	128	second object system: OAM priority queue, passed to $80:8B09 by $87:8C93. unconfirmed
+$7E:5F1C	-	ram	ram_obj2_x	128	second object system: screen X, -> $C2 for sub_oam_enqueue. unconfirmed
+$7E:5F9C	-	ram	ram_obj2_y	128	second object system: screen Y. unconfirmed
 $7E:6A5A	-	ram	ram_course_number	2	course number; hole index = course*8 + hole
 $7E:6A5E	-	ram	ram_hole_in_course	2	hole 0-7 within the course
 $7E:6B90	-	ram	ram_course_shape	-	course grid layer 1: terrain shape id $00-$1B per cell; $00 = gap
@@ -11,6 +54,9 @@ $7E:7390	-	ram	ram_course_height	-	course grid layer 3: elevation $00-$0F per ce
 $7E:7B90	-	ram	ram_course_flags	-	course grid layer 4: low nibble = wall flag per cell edge, N/E/S/W
 $7E:8390	-	ram	ram_course_content	-	course grid layer 2: object id per cell, looked up in $82:BDBC at load
 $7E:8B90	-	ram	ram_course_header	28	the 28-byte hole header; +2 = grid width, +4 = grid height
+$7E:8BB0	-	ram	ram_course_row_offset	-	course table 7: word offset of each map row inside the two tilemaps; read at $80:BE36
+$7E:93B0	-	ram	ram_course_row_left	-	course table 5: first column of each map row; $FFFF = empty row. Read at $80:BE17
+$7E:9BB0	-	ram	ram_course_row_right	-	course table 6: last column of each map row; equal to the left value means the row is not drawn
 $7E:ABB6	-	ram	ram_hole_index3	2	hole index * 3; the index into every bank $88 course table
 $7E:D9FE	-	ram	ram_probe_shape	2	sub_terrain_probe output: terrain shape under the active object
 $7E:DA00	-	ram	ram_probe_height	2	sub_terrain_probe output: elevation of that cell
@@ -18,28 +64,103 @@ $7E:DA06	-	ram	ram_probe_ground_z	4	sub_terrain_probe output: 32-bit surface Z a
 $7E:DA0A	-	ram	ram_probe_tile	2	sub_terrain_probe output: layer-2 special-tile byte under the object
 $7E:DA3C	-	ram	ram_bounce_damp_xy	2	Q15 factor applied to vx and vy on each bounce; friction tiles rewrite it
 $7E:DA3E	-	ram	ram_bounce_damp_z	2	Q15 factor applied to vz on each bounce
+$7F:3000	-	ram	ram_course_bg1	-	course table 8, row-packed BG1 tilemap; uploaded a column at a time to VRAM $5000
+$7F:9800	-	ram	ram_course_bg2	-	course table 9, row-packed BG2 tilemap; uploaded to VRAM $5800
 $80:8000	0x000000	code	sub_init	-	console init; entered via the RESET thunk. STZ $4200 / REP #$30 / MVN $00,$00 / TXS
 $80:8250	0x000250	code	sub_dma_cgram	56	DMA the $7E:0400 CGRAM staging buffer to $2122; mode $22, count from tbl_cgram_dma
 $80:8288	0x000288	tbl	tbl_cgram_dma	24	3 sets of (size, source, CGADD) for sub_dma_cgram, indexed by $00A0 * 8
+$80:8508	0x000508	code	sub_obsel_set	32	write $2101 OBSEL. A = sprite size selector (ASL x5), X = VRAM byte address of the sprite tile page (X>>13 = name base). JSL/RTL
+$80:8542	0x000542	code	sub_bg1_set	-	BG1 tilemap and character base: Y = tilemap word address, X low 2 bits = map size, X >> 12 = char base in 4K words
+$80:8598	0x000598	code	sub_bg2_set	-	as sub_bg1_set for BG2
+$80:85EC	0x0005EC	code	sub_bg3_set	-	as sub_bg1_set for BG3
+$80:8642	0x000642	code	sub_bg4_set	-	as sub_bg1_set for BG4
 $80:8696	0x000696	code	sub_vram_queue	80	queue 8-byte VRAM transfer records (terminated by $FFFF) into the ring at $7E:0200
 $80:86E6	0x0006E6	code	sub_vram_enqueue_one	130	copy one 8-byte record into the $7E:0200 ring, or DMA it directly when $7D is negative
 $80:8815	0x000815	data	tbl_edge_bitmask	8	01 02 04 08 10 20 40 80; entries 0-3 mask the layer-4 wall bits for N/E/S/W
 $80:8823	0x000823	code	sub_oam_reset_ptrs	61	set OAM buffer pointers ($2C=$0600 low, $2E/$32=$0800 high) and zero the 10 queue counts
-$80:8B02	0x000B02	code	sub_oam_enqueue	54	dispatch on $7E:2880 to one of 10 OAM priority queues; A=X pos, X=Y pos, Y=frame ptr
+$80:8B02	0x000B02	code	sub_oam_enqueue	54	dispatch on $7E:2880 to one of 10 OAM priority queues; A=frame list ptr, X=screen X, Y=screen Y
 $80:8C08	0x000C08	code	sub_oam_build	382	drain all 10 priority queues into the OAM staging buffer at $7E:0600
+$80:8C1A	0x000C1A	code	loc_oam_build_set_dbr	4	PEA $7E89 / PLB: frame lists are always read with DBR=$89, whatever bank the frame TABLE is in
 $80:8D89	0x000D89	code	sub_oam_emit_frame	162	walk a 5-byte metasprite part list, emit hardware sprites. See docs/graphics.md
-$80:8E39	0x000E39	code	sub_oam_emit_frame_alt	118	second copy of sub_oam_emit_frame for the other queue set; same record format
-$80:9B98	0x001B98	code	sub_obj_set_frame_ptr	20	store a frame list pointer into $7E:0B9E,X (addr) and $7E:0BBE,X (bank)
+$80:8D90	0x000D90	code	loc_oam_frame_priority	28	control record $7E: read the byte at $7E:<ptr>, bits 0-1 -> bits 12-13 of $3F, then continue the SAME list at +3 via sub_oam_emit_frame_alt. A priority override, not a continuation
+$80:8DAC	0x000DAC	code	loc_oam_frame_follow_ptr	6	control record $80: LDA $0001,Y / TAY, an absolute jump to another list in the same bank
+$80:8E39	0x000E39	code	sub_oam_emit_frame_alt	118	sub_oam_emit_frame with the $3F priority override applied ($80:8E67 ORA $3F); entered from loc_oam_frame_priority. Same record format
+$80:903A	0x00103A	code	sub_apply_screen_params_entry	6	prologue that falls into sub_apply_screen_params; A = bank, Y = block address
+$80:9040	0x001040	code	sub_apply_screen_params	-	apply a screen setup block: byte 0 -> $2105 BGMODE, byte 1 -> $2101 OBSEL, then word pairs to sub_obsel_set. A=bank Y=block. No direct callers; dispatched
+$80:90C8	0x0010C8	code	sub_cgram_partial	20	A = colours, X = source address, Y = first CGRAM colour index. The MVN at $80:90D4 hardwires the source bank to $98
+$80:93DD	0x0013DD	code	sub_obj_spawn	-	JSL; allocate an object and start its script. A = object type (index into tbl_obj_type_scripts), X = world X, Y = world Y. Returns $FFFF if no slot
+$80:94C7	0x0014C7	code	sub_obj_tick_all	-	JSL; walk the ram_obj_list_head chain, running each object's physics, update and draw vectors. Sets $D0 = $0000 for the script long pointer
+$80:9564	0x001564	code	sub_anim_script_run	82	the animation script interpreter; one thread per call. See docs/animation.md
+$80:95B6	0x0015B6	ptr	tbl_anim_opcodes	122	61 word targets for JSR ($95B6,X); animation script opcodes $00-$3C
+$80:9630	0x001630	ptr	tbl_anim_wait_actions	16	8 word targets for JSR ($9630,X); packed opcodes $70-$FF, action = bits 4-6, wait ticks = bits 0-3
+$80:9640	0x001640	code	sub_anim_obj_destroy	17	anim opcode $00: JSR sub_obj_destroy, then wait = $FFFF. 0 operand bytes
+$80:9651	0x001651	code	sub_anim_loop_begin	29	anim opcode $01: push PC + a 1-byte count as a 3-byte local-stack frame. Opcode $24 enters at $9655 with the count from ram_anim_reg. 1 operand byte
+$80:9675	0x001675	code	sub_anim_loop_end	34	anim opcode $02: decrement the pushed count, branch back to the pushed PC or pop the frame. 0 operand bytes
+$80:9697	0x001697	code	sub_anim_jmp	4	anim opcode $19: near jump, same bank. 2 operand bytes
+$80:969B	0x00169B	code	sub_anim_jml	11	anim opcode $03: far jump, sets Y and the script bank $D2. 3 operand bytes (addr16, bank8)
+$80:96A6	0x0016A6	code	sub_anim_jsr	23	anim opcode $1A: near call, pushes a 2-byte frame. 2 operand bytes
+$80:96BD	0x0016BD	code	sub_anim_rts	22	anim opcode $1B: near return; an empty local stack falls into sub_anim_end_thread. 0 operand bytes
+$80:96D3	0x0016D3	code	sub_anim_jsl	37	anim opcode $04: far call, pushes PC + bank as a 3-byte frame. 3 operand bytes
+$80:96F8	0x0016F8	code	sub_anim_rtl	25	anim opcode $05: far return; an empty local stack falls into sub_anim_end_thread. 0 operand bytes
+$80:9711	0x001711	code	sub_anim_wait	12	anim opcode $06: set ram_anim_wait directly, 0-255 ticks. 1 operand byte
+$80:971D	0x00171D	code	sub_anim_set_frame	20	wait-action 0 (opcodes $8N): ram_obj_frame_index = next byte; $FF stores $FFFF (hidden)
+$80:9761	0x001761	code	sub_anim_set_pos	36	anim opcode $3B: set X, Y and Z at once, each fraction $8000. 6 operand bytes
+$80:9785	0x001785	code	sub_anim_set_vel_x	-	wait-action 4 (opcodes $CN): set X velocity, whole and fractional words
+$80:97A3	0x0017A3	code	sub_anim_set_vel_y	-	wait-action 5 (opcodes $DN): set Y velocity
+$80:97C1	0x0017C1	code	sub_anim_set_vel_z	-	wait-action 6 (opcodes $EN): set Z velocity
+$80:9964	0x001964	code	sub_anim_stop	21	anim opcode $39: zero all three velocity pairs, whole and fractional. 0 operand bytes
+$80:998E	0x00198E	code	sub_anim_set_queue	12	anim opcode $3C: ram_obj_queue = byte. 1 operand byte
+$80:999A	0x00199A	code	sub_anim_far_call	-	wait-action 7 (opcodes $7N and $FN): far call addr16,bank8 via JML [$0876]
+$80:99D6	0x0019D6	code	sub_anim_switch	26	anim opcode $10: jump via ram_anim_reg into a table of `count` words; register >= count skips past the table. 1 + 2*count operand bytes
+$80:99FB	0x0019FB	code	sub_anim_switch_call	37	anim opcode $11: sub_anim_switch that first pushes the address after the table as a 2-byte frame, matched by sub_anim_rts
+$80:9A20	0x001A20	code	sub_anim_end_thread	26	anim opcode $0C: unlink the thread via $80:9D18; also destroys the object when $7E:08BE,X is negative. 0 operand bytes
+$80:9A3A	0x001A3A	code	sub_anim_spawn	49	anim opcode $07: allocate a thread via $80:9D09 starting at addr in the same bank, linked through ram_anim_thread_link. 2 operand bytes
+$80:9A6B	0x001A6B	code	sub_anim_end_linked_thread	9	anim opcode $13: sub_anim_end_thread applied to ram_anim_thread_link. 0 operand bytes
+$80:9A74	0x001A74	code	sub_anim_set_obj_hook	20	anim opcode $08: store addr16 + bank8 into ram_obj_hook_addr/bank. 3 operand bytes
+$80:9A88	0x001A88	code	sub_anim_halt	10	anim opcode $09: DEY back onto the opcode byte, wait = $FFFF. The script terminator; all four tbl_obj_type_scripts scripts end on it. 0 operand bytes
+$80:9A92	0x001A92	code	sub_anim_frame_next	6	wait-action 1 (opcodes $9N): INC ram_obj_frame_index
+$80:9A98	0x001A98	code	sub_anim_frame_prev	6	wait-action 2 (opcodes $AN): DEC ram_obj_frame_index
+$80:9A9E	0x001A9E	code	sub_anim_frame_add	-	wait-action 3 (opcodes $BN): ram_obj_frame_index += signed byte
+$80:9B10	0x001B10	ptr	tbl_anim_rmw_ops	8	4 word targets for the read-modify-write anim opcodes $0D/$14/$18/$27: 0 AND, 1 ORA, 2 ADC, 3 EOR. Handlers follow at $9B18/$9B1F/$9B26/$9B2E
+$80:9B4C	0x001B4C	ptr	tbl_anim_obj_fields	8	4 word bases for the anim `field` operand: $0A9E, $0ABE, $0ADE, $0AFE. The handler adds $D8 (object index * 2)
+$80:9B54	0x001B54	code	sub_anim_reset_obj_hook	6	anim opcode $0F: JSR $80:9D9B, ram_obj_hook back to $80:94C6. 0 operand bytes
+$80:9B98	0x001B98	code	sub_obj_set_frame_ptr	20	anim opcode $1C: store a frame POINTER TABLE addr into $7E:0B9E,X and bank into $7E:0BBE,X. The only STA $0B9E,X in the ROM
+$80:9C79	0x001C79	code	sub_obj_destroy	28	JSR; free object X: mark $7E:087E,X = $FFFF, reset the hook ($9D9B) and run three teardown routines ($9CD7, $9CB1, $9CCD)
+$80:9D09	0x001D09	code	sub_anim_thread_alloc	15	JSR; take the head of the free thread list $7E:0870. Carry set = none free
+$80:9D18	0x001D18	code	sub_anim_thread_unlink	13	JSR; JSR $80:9D25, then push thread Y back onto the $7E:0870 list
+$80:9D98	0x001D98	code	sub_anim_far_thunk	3	JML [$0876]: the indirect long jump wait-action 7 and $80:9510 call through. JSL/RTL
+$80:9D9B	0x001D9B	code	sub_obj_reset_hook	13	JSR; ram_obj_hook_addr/bank = $80:94C6, the default per-object long hook
 $80:9E8E	0x001E8E	code	sub_obj_draw	47	look up the current frame from the object's list and enqueue it if on screen
+$80:9F0B	0x001F0B	code	loc_obj_vec_null	1	a bare RTS. Object types 0 and 1 point their draw and physics vectors here, turning both off
+$80:9F0C	0x001F0C	ptr	tbl_obj_type_scripts	12	4 entries x (addr16, bank8): object type -> animation script. Bounded above by sub_hal_decompress
 $80:9F18	0x001F18	code	sub_hal_decompress	286	HAL LZ decompressor. A=src bank, X=src addr, Y=dest addr, DBR=dest bank. JSL/RTL
 $80:A032	0x002032	code	sub_decompress_queue	-	queue an asset for the resumable decompressor; writes the $7E:531C..$579C arrays
 $80:A206	0x002206	code	sub_hal_decompress_resume	-	resumable variant of sub_hal_decompress; state in DP $AB/$AD/$AF, $B1 bytes per call
 $80:AA30	0x002A30	code	sub_spc_ipl_upload	105	SPC700 IPL boot handshake; uploads the driver from tbl_spc_ipl_blocks
 $80:AA99	0x002A99	data	tbl_spc_ipl_blocks	2575	one block: len $0A0B -> SPC $0800, then a $0000 terminator whose addr is the entry point
 $80:AA9D	0x002A9D	data	dat_spc_driver	2571	N-SPC driver image, loaded to SPC $0800. Contains the string *Ver S1.20* at +$092D
+$80:AB4F	0x002B4F	code	sub_nspc_port_mirror	13	SPC $08B2; copies APU ports $F4+X to $00+X. The 6 bytes at SPC $08B6 are what spc_extract.make_spc patches
+$80:AB5C	0x002B5C	code	sub_nspc_note	-	SPC $08BF; note/tie/rest/percussion. $CA-$DF sets the instrument via sub_nspc_set_instrument and forces pitch index $24; $C8/$C9 return without a key-on
+$80:AC56	0x002C56	code	sub_nspc_next_word	14	SPC $09B9; reads the next 16-bit word of a sequence word list and advances $40. Returns flags set from the HIGH byte
+$80:AC69	0x002C69	code	sub_nspc_start_port0	24	SPC $09CC; starts the sequence id in A (from APU port 0): $04 = id, $40 = table[$3AFE + 2*id], $0C = 2
+$80:ACBF	0x002CBF	code	sub_nspc_tick	-	SPC $0A22; the sequencer tick. Reads port 0, walks the word list, loads patterns, runs one event per voice
+$80:AE4C	0x002E4C	code	sub_nspc_command	18	SPC $0BAF; dispatches commands $E0-$FA through tbl_nspc_cmd_jump, pre-fetching one argument byte when tbl_nspc_cmd_args is nonzero
+$80:AE5E	0x002E5E	code	sub_nspc_fetch	10	SPC $0BC1; fetch one track byte through the per-voice pointer $30+X and advance it
+$80:AE68	0x002E68	code	sub_nspc_set_instrument	87	SPC $0BCB; index*6 + $0600, bytes 0-3 to DSP $x4-$x7 and 4-5 to the pitch scaler. An index >= $80 resolves as $5F + index - $CA (percussion)
+$80:AFFB	0x002FFB	ptr	tbl_nspc_cmd_jump_base	-	SPC $0D5E; the dispatcher indexes this with (2*cmd) & $FF, so the live part is tbl_nspc_cmd_jump at +$C0
+$80:B091	0x003091	data	tbl_nspc_cmd_args_base	-	SPC $0DF4; indexed with cmd - $80, so the live part is tbl_nspc_cmd_args at +$60
+$80:B0BB	0x0030BB	ptr	tbl_nspc_cmd_jump	54	SPC $0E1E; 27 command handler addresses, $E0 through $FA. Bytes $FB-$FF have no entry and are invalid in a track
+$80:B0F1	0x0030F1	data	tbl_nspc_cmd_args	27	SPC $0E54; argument count for commands $E0-$FA: 1 1 2 3 0 1 2 1 2 1 1 3 0 1 2 3 1 3 3 0 1 3 0 3 3 3 1. Also added by the look-ahead at SPC $0F69 to skip a command
+$80:B1D1	0x0031D1	code	sub_nspc_lookahead	-	SPC $0F34; when a note's gate expires this scans forward through the track (following $EF calls) to decide whether to key off. A $C8 tie suppresses it
+$80:B37B	0x00337B	data	tbl_nspc_echo_fir	-	SPC $10DE; echo FIR coefficient presets, 8 bytes each, selected by the third argument of command $F7
+$80:B3AF	0x0033AF	data	tbl_nspc_pitch	26	SPC $1112; 13 words, one equal-tempered octave of DSP pitch values for octave 5. Entry 12 is exactly twice entry 0; lower octaves are right shifts
+$80:B3D4	0x0033D4	code	sub_nspc_port1	49	SPC $1137; APU port 1 poll. Acts only when the value changes; id 0 stops every voice flagged in $22, otherwise ASL A discards the toggle bit and starts the sequence
+$80:B405	0x003405	code	sub_nspc_start_seq	86	SPC $1168; the one sequence-start routine, used by songs and SFX alike. Pointer = $3AFE + 2*id, its first word is a pattern, that pattern's 8 words become the voice track pointers
 $80:B4AC	0x0034AC	code	sub_spc_play_song	69	write a song id to APU port 0; ids below $7E are ignored, $7E+ uploads first
 $80:B4F1	0x0034F1	code	sub_spc_command	48	write a command byte to APU port 0 without the upload path
 $80:B542	0x003542	code	sub_spc_sfx_trigger	94	allocate an SFX channel from tbl_sfx_slots / tbl_sfx_priority and signal port 1
+$80:B5A4	0x0035A4	code	sub_sfx_slot_check	13	compares tbl_sfx_id[X] against the value in slot Y at $1008; carry clear means the running effect wins and the request is refused
+$80:B5B1	0x0035B1	code	sub_sfx_claim_slot	25	writes tbl_sfx_id[X] to $1008+Y and tbl_sfx_priority[X] to $100E+Y
 $80:B5CA	0x0035CA	code	sub_spc_reset_state	39	clear the driver's SNES-side mirror at $1004-$1012
 $80:B5F1	0x0035F1	code	sub_spc_set_volume	15	store a master volume to $1003 and APU port 2
 $80:B651	0x003651	code	sub_spc_upload_set	74	upload an init set (samples / directory / instruments) via tbl_spc_init_sets
@@ -50,12 +171,32 @@ $80:B745	0x003745	ptr	tbl_spc_songs	132	33 songs x (addr16, bank16); song id = $
 $80:B7C9	0x0037C9	tbl	tbl_sfx_slots	126	per-SFX channel-allocation mask used by sub_spc_sfx_trigger
 $80:B847	0x003847	tbl	tbl_sfx_id	126	per-SFX id byte compared against the active-channel state at $1008
 $80:B8C5	0x0038C5	tbl	tbl_sfx_priority	126	per-SFX priority stored to $100E when a channel is claimed
+$80:BE17	0x003E17	code	loc_course_row_copy	60	copy one column of the course tilemaps into the row buffers: index = t7[r] + (col - t5[r]); the definition of the row-packed layout
+$80:BE65	0x003E65	code	loc_course_col_upload_bg1	-	queue the BG1 row buffer to VRAM $5000 + column
+$80:BE9A	0x003E9A	code	loc_course_col_upload_bg2	-	as above for BG2, VRAM $5800
 $80:C307	0x004307	code	sub_course_enter	58	course entry: load graphics sets and tilesets, then JSL sub_course_load_bg
 $80:CA9F	0x004A9F	code	sub_load_asset	10	decompress a stream to $7F:0000 (bank pushed as $7E7F); A=bank X=addr Y=dest
 $80:CAA9	0x004AA9	code	sub_load_asset_vram	19	as sub_load_asset to $7F:0000, then pass the Y parameter block to sub_vram_queue
+$80:CABC	0x004ABC	code	sub_scene_screen_setup	-	A = scene number; index tbl_scene_screen_blocks and apply the block via $80:903A
+$80:CAC7	0x004AC7	ptr	tbl_scene_screen_blocks	40	20 word pointers to screen setup blocks (BGMODE, OBSEL, per-BG map/char bases)
+$80:CB91	0x004B91	data	dat_screen_block_course	16	course scene: BGMODE $09, OBSEL $03 (OBJ name base $6000), BG1 map $5000, BG2 map $5800, BG3 map $3C00 char $4000
 $80:CC81	0x004C81	code	sub_load_gfx_set_a	10	jump table of 8 graphics loaders; entry 0 runs on course entry
+$80:CC9D	0x004C9D	code	sub_load_gfx_course_tiles	28	gfx set A entry 0: stage $8B:DAB1 at $7F:2000 and $90:9E9E at $7F:0000, then upload 27136 bytes to VRAM $0000
+$80:CCB7	0x004CB7	data	dat_vram_records_course_tiles	9	one record: slot 0, $6A00 bytes, src $7F:0000, VRAM word $0000 - the 848-tile course page
 $80:CD89	0x004D89	code	sub_load_gfx_set_b	10	jump table of 6 graphics loaders
 $80:CE45	0x004E45	code	sub_load_tileset	10	jump table of 28 tileset loaders; entry 0 loads the course tiles to VRAM $6000
+$80:D2FE	0x0052FE	code	sub_load_palette_set	10	jump table of 33 palette loaders; entry 0 runs on course entry
+$80:D369	0x005369	code	sub_cgram_course	20	MVN 512 bytes from pal_course to the $7E:0400 CGRAM staging buffer, then set $00A0 = 3
+$80:D4F7	0x0054F7	code	sub_cgram_course_backdrop	32	40 colours to CGRAM 0-39 for the per-course BG3 scenery; selects from tbl_backdrop_palette by course & 7
+$80:D517	0x005517	ptr	tbl_backdrop_palette	16	8 word addresses in bank $98, indexed by course & 7; 40 colours each
+$80:D527	0x005527	ptr	tbl_backdrop_palette_alt	16	the variant taken when $7E:6A2E is non-zero
+$80:D6A8	0x0056A8	code	sub_load_course_backdrop	-	load the per-course BG3 scenery; branches on $7E:ED5B, otherwise selects by course & 7
+$80:D748	0x005748	ptr	tbl_course_backdrop_tiles	32	8 entries x (bank16, addr16), indexed by course & 7; each decompresses to 3072 bytes to VRAM $4A00
+$80:D768	0x005768	ptr	tbl_course_backdrop_map	32	8 entries x (bank16, addr16), indexed by course & 7; each decompresses to a 32x32 tilemap to VRAM $3C00
+$80:D788	0x005788	data	dat_vram_records_backdrop_tiles	9	one record: 3072 bytes from $7F:0000 to VRAM word $4A00
+$80:D791	0x005791	data	dat_vram_records_backdrop_tiles2	9	second copy of the backdrop tile record, used by the course-indexed path
+$80:D7A3	0x0057A3	data	dat_vram_records_backdrop_alt	9	2048 bytes from $7F:0000 to VRAM word $4C00; the $7E:ED5B non-zero variant
+$80:D7AC	0x0057AC	data	dat_vram_records_backdrop_map	9	one record: 2048 bytes from $7E:DADC to VRAM word $3C00, the backdrop tilemap
 $80:DB6D	0x005B6D	data	dat_gravity	2	$FFC0 (-64), added to the ball's vz every frame by $81:899F
 $80:DCFD	0x005CFD	data	dat_bounce_min_frames	2	$0010; below this many frames since the last bounce the ball comes to rest
 $80:DD11	0x005D11	data	dat_bounce_damp_xy	2	$5332 (Q15 0.65); default vx/vy factor per bounce, copied to $7E:DA3C
@@ -63,6 +204,7 @@ $80:DD15	0x005D15	data	dat_bounce_damp_z	2	$6665 (Q15 0.80); default vz factor p
 $80:DD7D	0x005D7D	data	tbl_tile_friction	14	coefficients the $20-$24 friction tiles write into $DA3A/$DA3C/$DA3E
 $80:DDE3	0x005DE3	data	tbl_kicker_clamp	4	impulse clamp for the $10-$13 kicker tiles
 $80:DDEF	0x005DEF	data	tbl_tile_impulse	10	impulse magnitudes for the $70-$7B toggled tiles
+$80:E60B	0x00660B	code	sub_obj2_enqueue	42	JML target; second object system draw: screen-bounds check on X/Y, then JML $80:8B09 into sub_oam_enqueue with $C0 = ram_obj2_frame_ptr. Reached from $87:8C93, $87:932E, $87:98AA
 $81:801C	0x00801C	code	sub_ball_physics_step	-	JSL; one frame of ball physics for the object selected by $7E:180B
 $81:811B	0x00811B	code	sub_tile_land	27	dispatch the layer-2 byte in A through tbl_tile_on_land
 $81:8136	0x008136	ptr	tbl_tile_on_land	768	256 long pointers, indexed by the layer-2 byte; behaviour on landing
@@ -102,6 +244,9 @@ $82:B20C	0x01320C	code	sub_course_load_grids	100	decompress course tables 1-4 (w
 $82:B320	0x013320	code	sub_spawn_course_actors	-	load-time sweep of layer 2; looks each value up in tbl_tile_actor
 $82:BDBC	0x013DBC	data	tbl_tile_actor	512	256 words, layer-2 byte -> actor id; $FFFF means no actor
 $83:ABC5	0x01ABC5	code	sub_ball_lost	-	consequence of a hazard tile or of falling out of the world; not traced
+$83:B406	0x01B406	code	sub_text_draw	-	walk a string, OR $3C00 (palette 7, priority) into each glyph and store into the BG3 tilemap buffer; $FE = newline, $F0-$FF dispatch through tbl_text_control
+$83:B46A	0x01B46A	ptr	tbl_text_control	32	16 word targets for control codes $F0-$FF; $FE is the newline at $83:B44C
+$87:99FE	0x0399FE	data	dat_anim_scripts_type0_3	52	the four object-type animation scripts, in table order 2, 3, 0, 1; each ends on opcode $09 (halt)
 $88:8000	0x040000	data	tbl_height_z_lo	200	Z(h) = h * $5A82, low words, indexed by elevation*2
 $88:80C8	0x0400C8	data	tbl_height_z_hi	200	Z(h) = h * $5A82, high words, indexed by elevation*2
 $88:8190	0x040190	data	tbl_slope_ramp	2048	1024-entry linear ramp 22..46316; 0-511 spans one height step, 0-1023 two
@@ -116,17 +261,28 @@ $88:BC70	0x043C70	ptr	tbl_course_tab7	768	256 long pointers; ~114-byte 16-bit ta
 $88:BF70	0x043F70	ptr	tbl_course_bg1	768	256 long pointers; course tilemap -> $7F:3000
 $88:C270	0x044270	ptr	tbl_course_bg2	768	256 long pointers; course tilemap -> $7F:9800
 $88:C570	0x044570	ptr	tbl_course_tab10	768	256 long pointers; ~150-byte 16-bit table -> $7E:A3B2
-$89:8000	0x048000	ptr	tbl_sprite_frames	210	105 word pointers into bank $89 to metasprite part lists; $FFFF = unused
+$89:8000	0x048000	ptr	tbl_sprite_frames	210	105 word pointers to metasprite part lists in bank $89; $FFFF = unused (8 of them). One of several such tables
+$89:9295	0x049295	ptr	tbl_sprite_frames_type0	94	frame pointer table bound by anim opcode $1C in the object-type 0 script $87:9A14. Entry 0 = $89:9533, Kirby, tiles $1C0-$1C8
+$89:92F3	0x0492F3	ptr	tbl_sprite_frames_type1	94	frame pointer table bound by anim opcode $1C in the object-type 1 script $87:9A23
+$89:9351	0x049351	ptr	tbl_sprite_frames_type2	20	frame pointer table bound by anim opcode $1C in the object-type 2 script $87:99FE
+$89:9365	0x049365	ptr	tbl_sprite_frames_type3	140	frame pointer table bound by anim opcode $1C in the object-type 3 script $87:9A09
+$89:9533	0x049533	data	dat_frame_kirby	48	metasprite part list, entry 0 of tbl_sprite_frames_type0: a $7E priority override plus 9 parts, tiles $1C0-$1C8, palette 0, 24x24 px
+$89:CCDB	0x04CCDB	ptr	tbl_sprite_frames_ccdb	38	frame pointer table; entry 0 is read by LDA $89:CCDB / STA $C0 at $84:E241 and $86:8476. 19 entries
 $8B:DAB1	0x05DAB1	gfx	gfx_course_terrain	6946	HAL stream -> 18944 bytes at $7F:2000; isometric course terrain tiles
 $8D:9400	0x069400	gfx	gfx_title_e000	4645	HAL stream -> 6848 bytes at $7F:E000; title screen tiles
-$8D:CA0A	0x06CA0A	gfx	gfx_course_hud	4514	HAL stream -> 13312 bytes to VRAM $6000; font and HUD tiles
+$8D:CA0A	0x06CA0A	gfx	gfx_course_obj	4514	HAL stream -> 13312 bytes to VRAM $6000 = OBJ tiles $000-$19F (OBSEL $03). Loaded by $80:CE92
+$8E:DD91	0x075D91	gfx	gfx_sprites_obj	3822	HAL stream -> 8192 bytes (256 4bpp tiles) to VRAM word $7000 = OBJ tiles $100-$1FF. Kirby and effects
 $8E:EC7F	0x076C7F	gfx	gfx_title_7800	3808	HAL stream -> 6656 bytes at $7F:7800; title screen tiles
 $8F:E6A4	0x07E6A4	gfx	gfx_title_1fc0	2863	HAL stream -> 4160 bytes at $7F:1FC0; title screen tiles
 $90:9E9E	0x081E9E	gfx	gfx_course_vram0	2456	HAL stream -> 8192 bytes to VRAM $0000
+$90:FBBC	0x087BBC	gfx	gfx_course_font	1038	HAL stream -> 3328 bytes, 3072 uploaded to VRAM $4000; the 2bpp BG3 font used by the course HUD and text windows
 $95:8000	0x0A8000	music	dat_brr_samples	32020	BRR sample block -> SPC $8200; 25 distinct samples via the $0400 directory
 $95:FD16	0x0AFD16	music	dat_spc_instruments	472	instrument table -> SPC $0600; 6 bytes each (sample, ADSR1, ADSR2, GAIN, pitch)
 $95:FEF0	0x0AFEF0	music	dat_spc_curve	28	24-byte volume/velocity curve -> SPC $03E0
 $96:8000	0x0B0000	music	dat_spc_songtable	10758	song pointer table + SFX sequences -> SPC $3B00; song ptrs at SPC $3AFE + 2*id
+$96:8004	0x0B0004	ptr	ptr_spc_sequences	252	-> SPC $3B00; 126 entries for ids $01-$7E, read as $3AFE + 2*id so id $00 falls on the two zero bytes below the block. $01-$7D are SFX, $7E is the song slot at SPC $6502
+$96:8100	0x0B0100	music	dat_sfx_sequences	10502	-> SPC $3BFC; the 125 SFX sequences (word list, one pattern, tracks) that ptr_spc_sequences points into
 $96:AA08	0x0B2A08	music	dat_spc_sampledir	324	sample directory -> SPC $0400; 80 entries of (start16, loop16)
 $96:AB4E	0x0B2B4E	music	mus_song_06	3630	song id $84, first song in address order
 $98:9F96	0x0C1F96	music	mus_song_02	7274	song id $80, largest song (7270 bytes to SPC $6502)
+$98:C000	0x0C4000	data	pal_course	512	the course scene CGRAM image; BG sub-palettes 0-7, OBJ 8-15. Moved by sub_cgram_course
