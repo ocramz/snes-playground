@@ -1,0 +1,7 @@
+# Title -> DEMO PLAY -> DEMOPLAY SELECT (scene 13, frame 557) -> first demo:
+# a tutorial hole in play with on-screen help text (scene 0, frame 817).
+400 START 2
+450 DOWN 2
+480 DOWN 2
+520 START 2     # DEMO PLAY
+800 A 2         # first demo (top-left)

@@ -1,0 +1,5 @@
+# No input at all: boot -> Nintendo logo (scene 16) -> title (scene 1) ->
+# attract-mode demo of a hole in play (scene 0, Kirby + enemies, ~frame
+# 1509-2800) -> title again (~2807) -> demo again (~4057).
+# Run: snesstep --frames 4400 --input tools/snesstep/inputs/attract.txt
+# (an input file with no entries is allowed; this one only documents.)

@@ -79,7 +79,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$02` | `$82:94D3` | solid object standing 3 height steps tall |
 | `$28-$2D` | `$82:8FF1` | edge; falls through to `$81:899F`, keep falling |
 | `$60-$6F` | `$82:80F6` | surface overlay, with enter/leave tracking |
-| `$08` | `$82:AD8E` | rewrites gravity and object state; unused by any course |
+| `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because the cup is spawned at run time where the last enemy falls |
 | `$14-$17`, `$1C`, `$1D`, `$58-$5D`, `$B0-$B9` | various | not established |
 
 ### Friction — `$20-$24`
@@ -177,6 +177,17 @@ $40-$52 $57  -> $0049        $90-$97 -> $004D        $AD -> $0052
                                                      $AE -> $0053
 ```
 
+**An actor id is a thread object type** (docs/animation.md). `$82:B3AF`
+passes it in A, unchanged, to `sub_thread_spawn_below $80:E4B6`, with the
+cell's position in X/Y; `$8000` spawns nothing and records the cell only.
+So `$0048` is object type 72, `$0049` type 73, `$004C`-`$004D` types 76-77
+and `$0051`-`$0053` types 81-83, and their code and sprites are those
+types' (`build/sprites/objects/obj_NNN.png`, and from live state
+`build/sprites/emu/obj_NNN.png`). Independently confirmed by running all
+232 holes (tools/snesstep/holes.py, tools/actorids.py): types 76, 77, 81,
+82 and 83 are alive in exactly the holes whose layer 2 holds the matching
+actor, an overlap score of 1.000 each.
+
 `$40-$52` and `$57` all map to the *same* actor id, so the layer-2 byte itself
 must carry the subtype — the sweep stores it at `$0C` before the lookup. These
 20 values occur in **all 212 hole slots**, 2 to 11 per hole (most often 3 or
@@ -203,7 +214,10 @@ Some layer-2 values are locked to a layer-1 shape:
   gated on a toggle at `$6A2A`, two impulse magnitudes (`$80:DDEF` = 4912 and
   `$80:DDF3` = 2456). Only four are used at all: `$74` (166 cells), `$75`
   (54), `$70` (3) and `$71` (2).
-- The actor ids `$0048`-`$0053` themselves — what `$82:B3AF` builds from them.
+- ~~The actor ids~~ -- settled: an actor id is the thread object type
+  `$82:B3AF` spawns (see Actors above). Which picture each of the 20
+  `$0049` subtypes selects is decided inside type 73's code from the
+  layer-2 byte saved at `$0C`.
 - Whether the `$28-$2D` "edge" reading is right; it is inferred from the
   handler falling through to the gravity routine and from those values tracing
   the rim of the play area.

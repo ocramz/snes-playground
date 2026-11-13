@@ -1,0 +1,5 @@
+# Only read when cargo is run from inside tools/spcrender. From the repo root
+# use CARGO_TARGET_DIR=build/spcrender (tools/render_audio.py does). Either
+# way nothing is written outside the gitignored build/ directory.
+[build]
+target-dir = "../../build/spcrender"

@@ -173,7 +173,23 @@ one screen of it.
 
 ## Scene identities
 
-Only the course scene is named with certainty so far, from its entry
-routine. The rest are listed by their entry site in
-`build/scenes/callers.tsv`; naming them means reading each entry routine,
-which has not been done. Do not guess a screen's identity from its palette.
+Nine scenes are named by running the game and looking at what it shows
+(tools/snesstep, see [emulation.md](emulation.md); renders in
+`build/screens/`):
+
+| scene | screen |
+|---|---|
+| 0 | a hole in play (also the attract demo) |
+| 1 | title; its menu is drawn over it without a scene change |
+| 2 | members list and name entry |
+| 5 | course map |
+| 6 | 2-player course select |
+| 11 | course intro |
+| 12 | 2-player handicap |
+| 13 | DEMOPLAY SELECT |
+| 16 | Nintendo logo |
+
+The other eleven (3, 4, 7, 8, 9, 10, 14, 15, 17, 18, 19) are not reached by
+the scripted runs; they are listed by entry site in
+`build/scenes/callers.tsv`. Do not guess a screen's identity from its
+palette.

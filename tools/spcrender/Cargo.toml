@@ -1,0 +1,17 @@
+[package]
+name = "spcrender"
+version = "0.1.0"
+edition = "2021"
+description = "Render a .spc (SPC700 + S-DSP state) to a 32 kHz stereo WAV. std only."
+publish = false
+
+# No dependencies on purpose: the build must work offline.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+debug = false
+overflow-checks = false
+
+[lints.clippy]
+all = { level = "deny", priority = 10 }

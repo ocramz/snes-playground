@@ -19,9 +19,19 @@ sequence at `$80:8DE4`, which writes OAM bytes 0-3 for one sprite:
     byte 3   X offset, signed, added to the object's X ($36); low 8 bits go
              to OAM byte 0 and the 9th bit is shifted into the OAM high
              table through the bit pair accumulated in $31.
-    byte 4   bit 7  set on the LAST record of the frame
-             bit 6  the sprite's size bit, shifted into the OAM high table
-                    alongside the X sign bit
+    byte 4   bit 7  set on the LAST record of the frame (`$80:8E1E`
+                    `LDA $0004,Y / BMI`)
+             bit 0  the sprite's size bit. `$80:8E08` does
+                    `LDA $0004,Y / ROR A / ROR $31`: the ROR moves **bit 0**
+                    into carry and from there into the OAM high-table byte
+                    being assembled in `$31`, right after the X sign bit.
+             bits 1-6 are unused: every part of every trusted table has
+             byte 4 in `$00 $01 $80 $81`, which is also what makes a strict
+             frame check possible (see tools/frametabs.py).
+
+An earlier version of this file read the size from bit 6. That drew every
+16x16 part as a single 8x8 tile and is why rendered frames came out as
+scraps.
 
 An off-screen part is skipped by the Y range check at `$80:8DD1`
 (`$00E0..$FFE0`) and the X check that follows, so a skipped part still
@@ -52,9 +62,13 @@ table into them, not the index; see docs/animation.md. An object holds the
 address and bank of such a table (`$7E:0B9E,X`, `$7E:0BBE,X`) plus an index
 into it (`$7E:0B7E,X`).
 
-Rendering needs a composed OBJ page, not a tile sheet: frame lists use tile
-numbers relative to the OBSEL name base ($6000 here), and the page is built
-from several VRAM loads. Use `tools/vram.py objpage` to make one. Sprite
+Rendering needs an OBJ page, not a tile sheet: frame lists use tile numbers
+relative to the OBSEL name base ($6000 here). `tools/vram.py objpage` makes
+the page the course screen starts with -- but most sprites are drawn from
+tiles their object uploads moments before, so one fixed page shows the
+right layout over the wrong tiles for them. This tool decodes and draws a
+frame against whatever page it is given; `tools/objsheets.py` is the one
+that replays the uploads and produces the sheets. Sprite
 palettes are CGRAM $80-$FF, so **OBJ palette n is sub-palette n+8** of a
 512-byte CGRAM image.
 
@@ -155,16 +169,26 @@ def parse_frame(data, off, max_parts=64, follow=True, bank=FRAME_TABLE_BANK,
             "hflip": bool(r[2] & 0x40),
             "vflip": bool(r[2] & 0x80),
             "dx": signed(r[3]),
-            "large": bool(r[4] & 0x40),
+            "large": bool(r[4] & 0x01),
             "last": bool(r[4] & 0x80),
             "raw": bytes(r),
         })
-        # OAM tile numbers index the sprite tile page; a 16x16 sprite uses
-        # tiles t, t+1, t+16, t+17 there.
         p += RECORD
         if r[4] & 0x80:
             break
     return parts, p
+
+
+def obj_tile(tile, tx, ty):
+    """The 8x8 tile a multi-tile sprite shows at cell (tx, ty).
+
+    The column counts in the low nibble of the tile number and the row in the
+    next nibble, and neither carries: fullsnes, "16x16 (and bigger) Tiles",
+    "For OBJ tiles, the are no carry-outs from x+1 to y, nor from y+1 to Y".
+    So a 16x16 sprite at tile `$1FF` uses `$1FF $1F0 $10F $100`, not
+    `$1FF $200 $20F $210`, and the name-select bit (bit 8) never changes.
+    """
+    return (tile & 0x100) | ((((tile >> 4) + ty) & 0xF) << 4) | ((tile + tx) & 0xF)
 
 
 def frame_table(data, bank=FRAME_TABLE_BANK, addr=FRAME_TABLE_ADDR,
@@ -182,8 +206,8 @@ def frame_table(data, bank=FRAME_TABLE_BANK, addr=FRAME_TABLE_ADDR,
 def frame_tiles(parts, obj_size=OBJ_SIZE):
     """(tile numbers, palettes) a frame's drawable parts touch.
 
-    A 16x16 part occupies t, t+1, t+16, t+17 of the OBJ page, so the numbers
-    it reaches are not just the one in the record.
+    A 16x16 part occupies four tiles of the OBJ page (see `obj_tile`), so the
+    numbers it reaches are not just the one in the record.
     """
     tiles, pals = set(), set()
     for p in parts:
@@ -192,7 +216,7 @@ def frame_tiles(parts, obj_size=OBJ_SIZE):
         n = (obj_size[1] if p["large"] else obj_size[0]) // 8
         for ty in range(n):
             for tx in range(n):
-                tiles.add(p["tile"] + ty * 16 + tx)
+                tiles.add(obj_tile(p["tile"], tx, ty))
         pals.add(p["palette"])
     return tiles, pals
 
@@ -260,13 +284,15 @@ def render_frame(parts, tile_data, bpp=4, palettes=None, scale=4, pad=32,
     px = img.load()
     default = grey_palette(bpp)
     stats = {"parts": len(real), "missing": 0, "tile_max": 0}
-    for part, s in zip(real, size):
+    # The builder fills OAM upward (`INX` x4 at `$80:8E1A`) and a lower OAM
+    # index is drawn in front, so the FIRST record of a list is on top. Paint
+    # back to front.
+    for part, s in reversed(list(zip(real, size))):
         colors = palettes[part["palette"]] if palettes else default
         n = s // 8
         for ty in range(n):
             for tx in range(n):
-                # A 16x16 sprite is tiles t, t+1 / t+16, t+17 in VRAM.
-                idx = part["tile"] + ty * 16 + tx
+                idx = obj_tile(part["tile"], tx, ty)
                 stats["tile_max"] = max(stats["tile_max"], idx)
                 rows = tiles[idx] if idx < len(tiles) else None
                 if rows is None:
@@ -362,7 +388,7 @@ def cmd_all(data, args, obj_size):
     page_tiles = len(tile_data) // 32 if tile_data else 0
 
     rows = []
-    rendered = skipped = 0
+    rendered = 0
     for table in tables:
         live = walk_table(data, table, follow=not args.no_follow)
         # Union bbox across the whole table: frames of one table have to share
@@ -370,17 +396,6 @@ def cmd_all(data, args, obj_size):
         boxes = [b for b in (frame_bbox(p, obj_size) for _, _, p in live) if b]
         union = (min(b[0] for b in boxes), min(b[1] for b in boxes),
                  max(b[2] for b in boxes), max(b[3] for b in boxes)) if boxes else None
-        # A table whose tiles run past the composed page belongs to another
-        # scene. Rendering it against this page produces confident-looking
-        # garbage, so flag it instead.
-        all_tiles = set()
-        for _, _, parts in live:
-            all_tiles |= frame_tiles(parts, obj_size)[0]
-        outside = sorted(t for t in all_tiles if t >= page_tiles)
-        scene = "course" if not outside else "other"
-        if outside:
-            skipped += 1
-
         images = []
         for index, wrd, parts in live:
             tiles, pals = frame_tiles(parts, obj_size)
@@ -394,8 +409,8 @@ def cmd_all(data, args, obj_size):
                 box[0] if box else "-", box[1] if box else "-",
                 box[2] - box[0] if box else "-", box[3] - box[1] if box else "-",
                 tile_ranges(tiles), ",".join(str(p) for p in sorted(pals)) or "-",
-                missing, scene, table["confidence"]])
-            if scene != "course" or not box or not tile_data:
+                missing, table["confidence"]])
+            if not box or not tile_data:
                 continue
             img, _ = render_frame(parts, tile_data, args.bpp, palettes,
                                   args.scale, bbox=union, obj_size=obj_size)
@@ -414,19 +429,15 @@ def cmd_all(data, args, obj_size):
     ensure(path)
     with open(path, "w") as f:
         f.write("table\tindex\tlist_addr\tlist_file\tparts\tbbox_x\tbbox_y"
-                "\tbbox_w\tbbox_h\ttiles\tpalettes\tmissing\tscene"
-                "\tconfidence\n")
+                "\tbbox_w\tbbox_h\ttiles\tpalettes\tmissing\tconfidence\n")
         for r in rows:
             f.write("\t".join(str(c) for c in r) + "\n")
     print("{} tables, {} live entries, {} frames rendered".format(
         len(tables), len(rows), rendered))
-    print("{} tables flagged scene=other (tiles past the {}-tile page); "
-          "not rendered".format(skipped, page_tiles))
     print("wrote {}, {}/frames/, {}/sheets/".format(path, args.out, args.out))
-    bad = sum(1 for r in rows if r[12] == "course" and r[11])
-    if bad:
-        print("warning: {} course-scene frames still reference missing "
-              "tiles".format(bad), file=sys.stderr)
+    print("note: every frame here is drawn over the one page given; tiles an "
+          "object uploads for itself are not in it. tools/objsheets.py "
+          "replays those uploads and is what to use for sheets.")
     return 0
 
 

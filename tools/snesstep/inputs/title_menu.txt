@@ -1,0 +1,7 @@
+# Title screen menu (scene 1). The title ignores input until about frame
+# 380; the first START opens the menu: 1PLAY GAME / 2PLAY GAME / DEMO PLAY.
+400 START 2     # menu appears, cursor on 1PLAY GAME
+450 DOWN 2      # cursor -> 2PLAY GAME
+480 DOWN 2      # cursor -> DEMO PLAY
+520 UP 2        # back to 2PLAY GAME
+# snapshots worth taking: 449 (menu), 470 (2P), 500 (demo), 599

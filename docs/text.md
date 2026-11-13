@@ -77,7 +77,7 @@ small numbers looks like, so judging a run by its glyphs alone reports every
 table in the ROM as prose. Even so the output has some false positives in
 banks `$84`-`$85`; open one before trusting it.
 
-315 strings come out, and they are mostly clustered:
+391 strings come out (`build/text/strings.tsv`), and they are mostly clustered:
 
 | where | what |
 |---|---|

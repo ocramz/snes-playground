@@ -1,0 +1,14 @@
+# Title -> 2PLAY GAME -> PLAY COURSE -> 2P COURSE SELECT (scene 6, frame 639)
+# -> HANDICAP / dice order (scene 12, frame 777) -> COURSE intro (scene 11,
+# frame 1517) -> a 2-player hole in play (scene 0, frame 1718), both Kirbys.
+400 START 2
+450 DOWN 2
+500 START 2     # 2PLAY GAME -> "PLAY COURSE"
+600 A 2         # course select: Whispy Woods / Mr.Shine & Mr.Bright / Kracko / Gordo
+700 A 2         # Whispy Woods -> handicap screen, "PUSH A BUTTON"
+1000 A 2        # roll the dice for the order
+1500 START 2    # accept handicaps -> course intro
+1700 A 2        # start the hole
+1900 A 2        # shot panel ...
+2100 A 2
+2300 A 2

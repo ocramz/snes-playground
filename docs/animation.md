@@ -299,31 +299,109 @@ The local stack is 8 bytes per thread, which bounds nesting hard: a far call
 frame is 3 bytes (PC + bank), a near call frame 2, a loop frame 3. Two nested
 far calls plus a loop already fill it.
 
-## The second object system, unresolved
+## Thread objects (the second object system)
 
-A separate set of arrays around `$7E:5E1C` drives more objects, and
-`STA $5E1C,Y` appears 321 times, 297 of them immediately after an
-`LDA #imm16` (96 distinct values). What that slot holds is **not settled**:
+The arrays around `$7E:5E1C` belong to a second, much larger object system,
+and what its frame slot holds is now settled: **both** readings the earlier
+version of this section offered are true, for different objects.
 
-* *It holds a frame pointer table.* Four of the 96 immediates are exactly the
-  `$1C`-confirmed tables `$89:9295`, `$92F3`, `$9351` and `$9365`, and a
-  fifth is `$89:8000`, `tbl_sprite_frames` itself. `$84:8ECC` stores
-  `#$C989` there and then `#$0004` into `$5D9C,Y`, which looks like a table
-  and an index.
-* *It holds a frame list.* The draw path is
-  `$87:8C93` -> `$80:E60B` -> `$80:8B09` -> the OAM queue -> `$80:8C08` ->
-  `$80:8D89`, and `$80:8C08` does `LDA $7E:2884,X / TAY / JSR $8D89`: the
-  queued word is walked as a part list, not dereferenced. `$87:96E9`
-  compare-and-swaps the slot from `#$C685` to `#$C6A3`, 30 bytes apart — six
-  5-byte part records, i.e. one frame's worth.
+A *thread object* is a slot in the arrays at `$7E:4E1C`-`$7E:649C` -- 64
+slots, two bytes each, the running slot's index in dp `$D2` (the direct page
+is `$1E00` in thread context) -- executing native 65816 code as a coroutine.
 
-Both readings are supported by real code, so something between the immediate
-store and the draw must resolve one into the other, and that step has not been
-found. `tools/frametabs.py` therefore emits these as `source=obj2`,
-`confidence=inferred`, and holds them to the same alignment filter the purely
-structural candidates get: a candidate is dropped when its frames would
-straddle a confirmed table's frames at a different record boundary. That
-rejects most of them, which is the conservative outcome.
+| routine | what |
+|---|---|
+| `sub_thread_spawn $80:DFBA` | A = object type. Reads `tbl_thread_types $80:ED3A`, four bytes per type: entry addr16, bank8, list8. **234 types**; the highest any caller passes is 233 |
+| `$80:E4B6`, `$80:E4F2`, `$80:E526` | spawn wrappers that also set the position and install a default draw routine |
+| `sub_thread_yield $80:E445` | A = frames to wait. Pops its own return address into the slot, so the thread resumes after the `JSL`. 2,551 call sites |
+| `sub_thread_exit $80:E060` | free the slot; reached by `JML` |
+
+| slot field | what |
+|---|---|
+| `$4E1C` | object type, `$FFFF` = free |
+| `$4F9C` / `$501C` | resume address and bank |
+| `$509C` / `$511C` | per-frame handler |
+| `$519C` / `$521C` | draw routine |
+| `$529C` | frames left to wait |
+| `$5D9C` | **frame index**, negative = not drawn |
+| `$5E1C` | **frame pointer table**, a word address in bank `$89` |
+| `$5E9C` | OAM priority queue |
+| `$5F1C`, `$5F9C` | X, Y |
+| `$641C` / `$649C` | continuation a shared script segment returns through |
+
+The default draw routines (`$80:E55A` world, `$80:E5A2` screen) end in
+
+```
+$80:E585  LDA $5D9C,X / BMI skip / ASL A / CLC / ADC $5E1C,X / STA $DE
+$80:E591  LDA $009E / STA $E0 / LDA [$DE] / STA $C0
+$80:E59A  LDA $5E9C,X / JML $80:8B09
+```
+
+table plus twice the index, dereferenced, enqueued. So `$5E1C` is a table
+and `$5D9C` the entry. A few objects install their own draw routine
+(`$87:8C93`, `$87:932E`, `$87:98AA`: `LDA $5E1C,Y / STA $C0`) and for those
+the slot holds a frame *list*. Of the 96 distinct immediates stored to the
+slot, 86 are tables and 8 are lists; the bytes tell them apart, see
+`classify_obj2` in `tools/frametabs.py`.
+
+### The helpers in RAM
+
+`$80:E67F` copies twelve small routines from `$80:E732`-`$80:E96B` to WRAM
+`$1018`-`$120D` at boot. Low addresses are mirrored in every bank, so code
+anywhere can reach them with a near `JSR`. They take their operands
+**inline**, after the call, and fix up their own return address:
+
+| call | inline bytes | effect |
+|---|---|---|
+| `JSR $1030` | idx8, frames8 | set the frame index (`$FF` = hide) and yield for `frames`. **924 call sites** -- this is the animation primitive |
+| `JSR $1018` | variant8 | spawn another object of the caller's type, `variant` in `$589C` |
+| `JSR $105E` | x16, y16 | set the position |
+| `JSR $1084`, `$10A3`, `$10C2` | 3 | motion parameters |
+| `JSR $10E7` | 4 | motion parameters |
+| `JSR $1104` | 9 | all three groups at once |
+| `JSR $1151` | 0 | clear them |
+| `JSR $116A`, `$119D`, `$11D6` | 6 | pairs of groups |
+
+A disassembler that does not know these runs straight into the operand
+bytes; that, not interleaved data, is why linear disassembly of banks
+`$83`-`$87` desyncs within a few instructions.
+
+### How an object animates
+
+In two ways at once. It changes the index, and it re-uploads the tiles the
+frame points at -- bank `$86` is almost nothing but
+
+```
+LDA #idx / STA $5D9C,Y        ; which layout
+LDA #blk / JSL $80:8696       ; which tiles (block in the caller's bank)
+LDA #n   / JSL $80:E445       ; for how long
+```
+
+so a frame's picture is (layout, VRAM contents). `tools/objanim.py` follows
+each type's code by recursive descent -- both arms of every branch,
+subroutines in banks `$83`-`$87`, `JMP (abs,X)` tables, and the code
+pointers a thread plants in its own slot -- and reports these idioms in
+address order. From the 234 entry points it reaches 745 of the 890
+`sub_vram_queue` call sites and 910 of the 924 `JSR $1030` sites; what it
+misses is engine and scene code in banks `$80`-`$83` and the script-driven
+objects' code in bank `$87`.
+
+```bash
+python3 tools/objanim.py --types       # tbl_thread_types
+python3 tools/objanim.py --type 197    # one object's events
+python3 tools/objanim.py               # -> build/sprites/objects.tsv, objects/
+```
+
+Type 197 at `$86:9340` is the largest: it binds table `$89:9295` (the one
+the Kirby object-type script names) with draw routine `$80:E974`, then
+dispatches through a 32-entry jump table at `$86:93B0` on `$6A5A` into long
+scripted sequences. Its sheet is where whole Kirby frames come from.
+
+**Not established:** how the script-driven Kirby of the previous sections
+pairs its frame index with its tile uploads during play. Two sites in bank
+`$87` do it with parallel tables (`$87:9E7A`: `LDA $87:9EA5,X / STA $0B7E`
+then `LDA $87:9EC5,X / JSL $80:8696`), which is the pattern to look for;
+the rest is in the `$08` hook code that has not been read.
 
 ## Finding more scripts
 
@@ -342,3 +420,80 @@ address is a guess, since nothing in the ROM points at it.
 The obvious next lead is the `$08` hook. The four known scripts halt straight
 away and hand control to `$81:A2BB`, `$87:9A32` and `$87:9A85`; reading those
 three routines is what would show where the running animation actually lives.
+
+## Kirby's animation scripts (a third interpreter)
+
+Kirby in play is not animated by either system above. Script object 0
+(player 2: object 1) is only the drawing slot; its frame index `$0B7E` is
+set by a third bytecode interpreter at `$87:808E`, found by watching the
+index with `snesstep --watch-write` (it is written by `$87:81C1` and
+`$87:83FE`, the store opcodes, via the per-player state copy at
+`$82:F0F8`/`$82:F28B`). Its design is a **state machine per object**:
+
+| field | what |
+|---|---|
+| `$7E:6830,X` | the script object it animates |
+| `$7E:6840,X` | address of a WRAM **state variable** |
+| `$7E:6850,X` | the variable's value last frame |
+| `$7E:6860,X` | address of a table: state -> script |
+| `$7E:6870,X` / `$6880,X` | script PC; frames left to wait |
+| `$7E:6890,X` | per-frame native hook, 0 = none |
+| `$7E:68A0,X` | return address of a script call |
+| `$7E:68B0,X` / `$68C0,X` | loop counter, loop start |
+
+Every frame, for each of up to 8 threads (X = `$D8`), the interpreter
+compares the state variable with last frame's value: on a change it jumps
+to `table[state]`, otherwise it counts down the wait and resumes. A thread
+is started by `sub_kirbyanim_start $87:804C` from a 6-byte descriptor:
+
+| descriptor | object | state variable | table | states |
+|---|---|---|---|---|
+| `$87:9AD8` | 0 (player 1) | `$7E:D7D4` | `$87:9ADE` | 51 |
+| `$87:B98A` | 1 (player 2) | `$7E:D7D6` | `$87:B990` | 51 |
+| `$87:D7F7` | 10 | `$7E:D7DE` | `$87:D7FD` | 1 |
+
+So **the state variable is the semantic key**: one number per situation,
+one script per number. The 45 opcodes (`$00`-`$58`, even only, dispatched
+through `$87:80F4`) show a frame with a hold time, upload tiles through
+`sub_vram_queue` (blocks in bank `$87`), load partial palettes, branch,
+switch on a WRAM variable, call scripts and native code, loop, do
+arithmetic on WRAM, and play sound effects and songs. The full table, with
+operand layouts, is the docstring of `tools/kirbyanim.py`.
+
+**Angles are switch arms.** Facing is never a separate animation: a script
+switches on a facing variable and each arm uploads different art into the
+same tile slots under the same layout. The variables:
+
+| variable | arms | used by |
+|---|---|---|
+| `$7E:D7C4` | 8 | standing and aiming (states 4, 5) |
+| `$7E:D7CC` | 16 | the shot: curling into the ball (state 6) |
+| `$7E:D8D2` | 11 | unrolling (state 7) |
+| `$7E:D75E`, `$7E:D75A` | 16, 8, 2 | the copy abilities (states 20-36) |
+
+**The curl is drawn by a stand-in.** For about 30 frames from the shot
+(state 6, set by `$81:BEF1`), `$84:CA0C` hides script object 0 (index
+`$FFFF`) and thread object type 26 (`$84:C9C7`, table `$89:92F3`) draws
+Kirby, while state 6's script uploads the curl's tiles. `$84:CAB8` restores
+the index afterwards. A renderer that follows only object 0 never sees the
+curl.
+
+What each state is, named from where the game sets it and what the live
+frames show, is the `STATE_NAMES` table in `tools/kirbyanim.py` and the
+`name` and `evidence` columns of `build/sprites/kirby/states.tsv`. **The
+names are interpretations.** 28 of the 51 states were seen running (hole 1
+and the 20 demos); the rest are named from their script alone or not at
+all.
+
+```bash
+python3 tools/kirbyanim.py --state 6     # one state's script, decoded
+python3 tools/kirbyanim.py --make-base   # snapshot a hole for the static renders
+python3 tools/kirbyanim.py               # every state: listing + strips
+python3 tools/kirbyanim.py --live        # every state as seen in play (~3 min)
+```
+
+Outputs in `build/sprites/kirby/`: `scripts.txt` (every state's script),
+`state_NN.png` (each script replayed, one row per arm of its facing switch),
+`live_state_NN.png` (the frames seen in play), `live_state_NN_facing.png`
+(those frames, one row per facing value) and `states.tsv` / `states.json` /
+`live.json`.

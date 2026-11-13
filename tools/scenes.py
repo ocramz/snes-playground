@@ -192,7 +192,7 @@ def walk_loader(d, bank, addr, limit=0x140, depth=0, seen=None):
     end = min(off + limit, len(d) - 4)
     acts = []
     a = x = y = None
-    block_table = None
+    block_tables = []
     m8 = x8 = False
     i = off
     while i < end:
@@ -211,7 +211,10 @@ def walk_loader(d, bank, addr, limit=0x140, depth=0, seen=None):
         elif mn == "LDA" and md == LONGX:
             # `LDA $80:tbl,X / JSL $80:8696` picks a VRAM block from a table
             # at run time. Remember the table; A is no longer a constant.
-            block_table = opnd & 0xFFFF
+            # A loader can name two and branch between them -- tileset 18 at
+            # `$80:D0E7` reads `$80:D0FC`, or `$80:D10C` when `$1801` is set
+            # -- so keep every table seen since the last queue call.
+            block_tables.append(opnd & 0xFFFF)
             a = None
         elif mn in ("LDX", "LDY", "LDA"):
             # Loaded from memory: the register is no longer a known constant.
@@ -240,9 +243,10 @@ def walk_loader(d, bank, addr, limit=0x140, depth=0, seen=None):
                              "block": y, "site": i})
             elif target == VRAM_QUEUE and a is not None:
                 acts.append({"kind": "queue", "block": a, "site": i})
-            elif target == VRAM_QUEUE and block_table is not None:
-                acts.append({"kind": "queue_table", "table": block_table,
-                             "site": i})
+            elif target == VRAM_QUEUE and block_tables:
+                for t in block_tables:
+                    acts.append({"kind": "queue_table", "table": t, "site": i})
+                block_tables = []
             elif target == DECOMPRESS and None not in (a, x, y):
                 acts.append({"kind": "wram", "src_bank": a, "src": x,
                              "dest": y, "site": i})

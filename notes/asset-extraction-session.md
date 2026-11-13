@@ -62,23 +62,72 @@ line with a pointer rather than repeated.
   `$82:A980`, `$82:A6C7`, `$82:A70B`, `$82:A25D`, `$82:A1B1`, `$82:A3EB`,
   `$82:9342`, `$82:938E`. Also the `$60-$6F` overlay's identity and the
   `$70-$7B` family's purpose.
-- **Enemy identity.** Layer-2 values `$40-$52` and `$57` map to actor ids
-  `$0048-$0053` via `$82:BDBC`, but what `$82:B3AF` builds from those ids,
-  and therefore which enemy is which, is unknown.
+- ~~Enemy identity~~ -- settled: an actor id is a thread object type
+  (`$82:B3AF` -> `JSL $80:E4B6`), confirmed by the 232-hole run. See
+  docs/tiles.md "Actors".
 - **Five loader entries** pick their VRAM record block from a table at run
   time: `$80:CF06`, `$80:CFF8`, `$80:D030`, `$80:D10C`, `$80:D252`.
+  `tools/vram.py queue` now walks four of them to their end (3, 2, 8 and 2
+  blocks); `$80:D030`'s first word is not a clean block, so that one is
+  still open. Which entry runs is game state either way.
 - **Three scenes** (7, 10, 14) have no call site with an immediate scene
   number, so nothing selects them the obvious way.
-- **Scene identities.** Only the course scene is named from its entry
-  routine. The others are listed by entry site in `build/scenes/callers.tsv`.
-- **The title tilemap.** The three title streams are all 4bpp tile data; the
-  map comes from somewhere else, probably the resumable decompressor queue
-  at `$80:A032`.
+- **Scene identities.** Nine of twenty are named now (emulated; see
+  docs/scenes.md). Eleven are unreached: they need progress in SRAM or a
+  finished hole/course, see docs/emulation.md "Screens reached".
+- ~~The title tilemap~~ -- settled by emulation: `$92:8550`, with tiles
+  `$8B:8000` and `$92:C1F2`. The three streams once called title tiles
+  belong to `$87:EB44`, screen unidentified (docs/compression.md).
 - **No string pointer table** has been found, so a string cannot be tied to
   the screen that shows it.
-- **1,304 streams** in `build/manifest.tsv` are still `lead`: found by the
+- **1,093 streams** in `build/manifest.tsv` are still `lead`: found by the
   compression scan, referenced by nothing. Some are real assets, some are
-  alignment accidents.
+  alignment accidents. (Was 1,304 before the scan decoded referenced
+  streams first; 110 of those were chance decodes swallowing real ones.)
+
+## Sprite session, 2026-11-13
+
+Settled, with the evidence in [docs/graphics.md](../docs/graphics.md) and
+[docs/animation.md](../docs/animation.md):
+
+- The part record's size bit is byte 4 **bit 0** (`$80:8E08`), not bit 6.
+- The "second object system" is a coroutine system of 234 object types,
+  `tbl_thread_types $80:ED3A`; `$5E1C` is a frame table, `$5D9C` the index.
+- Twelve helpers run from WRAM `$1018`-`$120D` and take inline operands;
+  `JSR $1030 / idx / frames` is the animation primitive.
+- `sub_vram_queue` takes its block's bank from the caller, and record byte 0
+  is a mode into `tbl_dma_modes $80:FF0A`.
+- Bank `$89`'s frame region is 99.8% explained: 125 tables, 1,163 frames.
+
+Still open for sprites:
+
+- ~~Enemy tiles~~ -- answered by emulation: `build/sprites/emu/` draws
+  every object seen in all 232 holes with its live tiles (docs/graphics.md
+  "From live state"). The static path below is still unexplained, but no
+  longer needed to get the pictures. Was: 37 object types draw over tiles
+  the hole-start object loaded and 36 over filler or empty slots. The enemy graphics go through
+  the WRAM staging buffer at `$7E:39DA` into per-hole slots; the code that
+  picks the slot is not traced, so these sheets are **unconfirmed** even
+  where they look right. Leads: `$81:D082` (table `$81:D123`, eight slot
+  layouts reading `$7E:3DFA` upward), tileset loader entries 6, 11, 12, 14,
+  16, 20 and 23, and the queued decompress at `$87:D8C8`.
+- ~~Script-driven Kirby during play~~ -- captured live:
+  `build/sprites/emu/script_89_9295.png`, including the copy abilities from
+  the 20 demos. The code path pairing index and tiles is still unread.
+  Was: table `$89:9295` is rendered from the
+  demo object (type 197), which shows the same layouts with real uploads.
+  How the in-game Kirby pairs index and tiles is in the `$08` hook code;
+  `$87:9E7A` is one worked example of the parallel-table idiom.
+- **127 object types show no frame.** They set their index from a computed
+  value, or get their table from a spawner the trace cannot name. Their
+  tables are still on the table sheets.
+- **Palette per screen.** Everything is drawn with the course CGRAM image
+  plus the object's own partial loads. `$80:90E7` is a second palette entry
+  point that takes a list of loads in the caller's bank and is not handled.
+- **Which screen an object belongs to** is not known for any of them.
+- 145 of 890 `sub_vram_queue` sites are not reached from a thread object:
+  scene code in bank `$83` (66), the script-driven objects in `$87` (19),
+  engine code in `$80`-`$82` (51), a handful elsewhere.
 
 ## Dead ends worth not repeating
 
@@ -102,3 +151,64 @@ line with a pointer rather than repeated.
    resolves the five run-time loader tables.
 4. Work the `lead` half of `build/manifest.tsv`: anything a scene loader or
    course pointer does not reach needs another explanation.
+
+## Audio session, 2026-11-13
+
+Every song and effect now renders to WAV (`tools/render_audio.py`, 33 + 125
+files, 42.7 minutes). Method and validation are in
+[docs/audio.md](../docs/audio.md), "Rendering". Still open:
+
+- **Nothing was compared with hardware.** The renderer agrees with
+  `tools/brr.py` sample for sample and with VLC's libgme to an envelope
+  correlation of 0.999, but libgme's level is 1.30x ours and that
+  difference is not explained.
+- **Effect tempo in play.** Effects are rendered over song 0, as the SOUND
+  ROOM plays them. During a course an effect is clocked by whatever song is
+  running, and 12 of the 33 songs do not use song 0's tempo.
+- **Dropped ticks.** The driver loses a sequencer tick whenever a main-loop
+  pass takes 14 ms or more, so songs run later than the tempo formula says
+  (song 31 by 28%). Whether a console drops exactly the same ticks is
+  unconfirmed.
+- **Twelve songs have no fixed caller** (3, 6-14, 18, 27); that they are
+  started by a script opcode is an inference. Songs are still numbered, not
+  named.
+
+## Emulation session, 2026-11-13
+
+`tools/snesstep` runs the game headless (docs/emulation.md). Settled with
+it: the title tilemap (`$92:8550`), nine scene identities, actor id ==
+thread object type, live sprite sheets for every hole and demo (83 types,
+1,596 pictures), and 75.1% ROM coverage once executed code counts. Still open:
+
+- **Eleven scenes not reached** (3, 4, 7, 8, 9, 10, 14, 15, 17, 18, 19).
+  They need SRAM progress or a finished hole. Forcing the holed branch at
+  `$80:F37A` deadlocks two frames into the HOLE IN ONE sequence; finishing a
+  hole for real needs a shot that goes in, i.e. aiming. A save file with
+  progress would also open RANKING and the extra courses.
+- **`$87:EB44`'s graphics** (`$8E:EC7F`, `$8D:9400`, `$8F:E6A4`, palette
+  set 27) belong to one of the unreached screens.
+- **Per-line CGRAM** (HDMA palette gradients) is not in a snapshot, and
+  `ppu_render.py` does not model mosaic or hi-res.
+
+## Physics and course play, 2026-11-13
+
+Settled (docs/physics.md): the ball's state and one physics frame, the
+cup as run-time object type 74 spawned at the last enemy, the holing rule,
+defeat as a frame-table change, the screen projection, lives and the
+courses-cleared count, and the ending's entry (`$80:F20E` -> `$87:E767`).
+tools/snesstep/autoplay.py plays course 1 to the end with real hole-outs
+and reaches scenes 4 (ranking) and 8 (course result); a slow hole reaches
+scene 9 (GAME OVER, CONTINUE).
+
+Still open:
+
+- **The driver stops at course 2 hole 6.** Every hole so far has needed a
+  new rule (hovering enemies, one-cell paths, non-enemy actors, lodged
+  balls). The next step is to find the game's own "enemies left" count,
+  which the cup logic must use, instead of inferring defeat.
+- **The ending (scenes 18, 19)** needs 8 courses cleared. A forged save
+  reaches the DEDEDE map, which then ignores input.
+- Physics not read: slope acceleration (`$81:9001`, `$81:9444`,
+  `$81:9EB9`), the bounce (`$81:811B`), spin.
+- Scenes 3, 7, 10, 14, 15 and 17 are still unreached; 2-player results
+  are a likely source of some.

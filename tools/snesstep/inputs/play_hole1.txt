@@ -1,0 +1,23 @@
+# Blank SRAM -> a new member -> course 1, hole 1, two shots.
+#   title (scene 1) -> 1PLAY GAME -> PLAY COURSE -> MEMBERS LIST (scene 2,
+#   frame 638) -> NEW MEMBER -> NAME ENTRY (drawing pad, same scene) ->
+#   course map (scene 5, frame 1182) -> COURSE 1 intro (scene 11, 1528) ->
+#   hole 1 (scene 0, 2118-2120) -> shot panel -> Kirby rolling (~3050+).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+# Name entry: the pencil moves 2 units on a press, then every 2nd frame after
+# an 8-frame delay ($81:DFD9). A draws. The cursor area includes CLR
+# (x 4-$15, y $38-$45) and OK (x $28-$3B, y $38-$45), table $81:E0C7.
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start hole 1
+2800 A 2        # shot panel (A = panel, B = cancel)
+2840 A 2
+2900 A 2        # spin / power
+2960 A 2
+3020 A 2        # Kirby is hit and rolls; camera follows (3050-3400)

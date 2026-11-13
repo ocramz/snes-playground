@@ -152,9 +152,17 @@ def _replace_d(text, repl):
 
 
 def _replace_token(text, tok, repl):
-    parts = text.split(",")
-    parts = [repl if p.strip() == tok else p for p in parts]
-    return ",".join(parts)
+    """Replace an operand that is exactly `tok`.
+
+    The operand list starts after the mnemonic's space. Splitting the whole
+    line on commas alone leaves a single-operand form ("BEQ r") as one part
+    that never equals the token, which is how branches used to print a
+    literal `r` instead of their target."""
+    head, sep, ops = text.partition(" ")
+    if not sep:
+        return text
+    parts = [repl if p.strip() == tok else p for p in ops.split(",")]
+    return head + sep + ",".join(parts)
 
 
 def disassemble(mem, start, count=None, end=None, stop_at_ret=False):

@@ -1,0 +1,17 @@
+[package]
+name = "snesstep"
+version = "0.1.0"
+edition = "2021"
+description = "Headless SNES CPU/bus stepper: runs the game's code, snapshots PPU memory. std only."
+publish = false
+
+# No dependencies on purpose: the build must work offline.
+[dependencies]
+
+[profile.release]
+opt-level = 3
+debug = false
+overflow-checks = false
+panic = "abort"
+codegen-units = 1
+lto = true

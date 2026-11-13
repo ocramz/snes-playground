@@ -1,0 +1,16 @@
+# play_hole1's route into hole 1, then the pause menu: START during play
+# shows CONTINUE / COURSE SELECT SCREEN / QUIT; COURSE SELECT SCREEN goes
+# back to the course map (scene 5, frame 2552).
+400 START 2
+500 START 2
+600 A 2
+820 A 2
+1000 A+RIGHT 15
+1030 RIGHT 12
+1050 DOWN 40
+1100 A 2
+1500 A 2
+2100 A 2
+2400 START 2    # pause menu over the hole
+2500 DOWN 2     # cursor -> COURSE SELECT SCREEN
+2550 A 2        # back to the course map

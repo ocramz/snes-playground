@@ -63,18 +63,29 @@ Bytes are fetched one at a time by SPC $0BC1 and classified at $0AF1:
                 it is the real length table.
     $FB-$FF     no jump-table entry ($0E1E is 27 entries wide). Invalid.
 
+Timing
+------
+The sequencer tick is SPC $0A22, called from the main loop at $0884-$088F
+whenever `$51 += tempo * timer0_ticks` carries; timer 0 runs at 500 Hz
+($082F), so the tick rate is 500 Hz * tempo/256. Starting a sequence resets
+the tempo to $20 ($0A1C) and the first $E7 command replaces it. Songs and
+effects are advanced by the same tick, so an effect plays at the tempo of
+whatever song is running. sequence_timeline() turns that into seconds.
+
 Usage
 -----
     python3 tools/nspc.py --all                 # 33 songs + 125 effects
     python3 tools/nspc.py --song 2 --midi
     python3 tools/nspc.py --sfx 0x0B --spc
+    python3 tools/nspc.py --sfx 0x0B --spc --sfx-carrier silent
 
 Outputs under --out (default build/spc):
     songs/song_NN.txt/.json/.mid    one line per event, plus structure
-    songs/summary.tsv               per-song counts
+    songs/summary.tsv               per-song counts and timing
     sfx/sfx_NN.txt/.json/.mid/.spc  the same for sound effects
     sfx/index.tsv                   effect -> tracks, instruments, callers
     sfx_table.tsv                   the three SNES-side $80:B7C9 tables
+    song_callsites.tsv              every call into the play-song routines
 
 The MIDI export is lossy on purpose; see docs/audio.md.
 """
@@ -101,6 +112,35 @@ SONG_SLOT = 0x6502            # SPC; sub_spc_upload_song's fixed destination
 SFX_BLOCK = (0x3B00, 0x6502)  # SPC; the $96:8000 block, 10,754 bytes
 SFX_ID_MAX = 0x7D
 SONG_ID = 0x7E
+
+# Sequencer timing, all read out of the driver's main loop.
+TIMER0_HZ = 500.0             # 8 kHz / $10, the divider set at SPC $082F
+RESET_TEMPO = 0x20            # SPC $0A1C, on every sequence start
+SOUND_ROOM_TEMPO = 0x25       # song 0's $E7, what effects run at there
+# The first sequencer tick of a freshly built .spc, measured by watching
+# SPC $5E in tools/spcrender: three ticks at the power-on tempo $10 (32 ms
+# each: idle, start, voice reset), one at $20 (16 ms), then pattern load.
+SEQ_START_S = 0.117
+FADE_MS = 10000               # looping songs: fade after two passes
+SONG_TAIL_S = 2.0             # non-looping songs: room for release and echo
+SFX_TAIL_S = 0.1              # effects: release is 8 ms; this is headroom
+LOOP_FOREVER_MIN = 0x81       # SPC $0A4B-$0A4F: see pattern_order()
+
+# SNES side, bank $80. Three entry points share one body: all take the id
+# in a 16-bit A, upload the song when it is not the one in $1004, and differ
+# only in whether they then write $7E to port 0.
+SONG_PLAY = 0x0034AC          # $80:B4AC  upload if needed, then start
+SONG_RESTART = 0x0034F1       # $80:B4F1  start without uploading
+SONG_PRELOAD = 0x003521       # $80:B521  upload without starting
+SONG_ENTRIES = [(SONG_PLAY, "play"), (SONG_RESTART, "restart"),
+                (SONG_PRELOAD, "preload")]
+# Call sites that do not load a constant id, and where it comes from.
+COMPUTED_SONG_SITES = {
+    "$83:BA26": "SOUND ROOM BGM: id = $7E + the selected number "
+                "($83:BA20-$83:BA23)",
+    "$87:8580": "script opcode: id is the next byte of the stream at [$D0] "
+                "($87:8579-$87:857D)",
+}
 
 # SNES side, bank $80. sub_spc_sfx_trigger is a JSL with 16-bit A and X.
 SFX_TRIGGER = 0x003542        # $80:B542
@@ -722,12 +762,244 @@ def count_midi_notes(path):
 
 
 # --------------------------------------------------------------------------
+# timing: the pattern order the driver actually plays, and a tick timeline
+
+
+def pattern_order(ram, pointer, loops=2, bounds=None, max_patterns=4096):
+    """Walk a word list the way SPC $0A43-$0A5A does and return the
+    patterns in playing order.
+
+    A repeat word's low byte is a count kept in $42:
+
+        $0A4B  DEC $42
+        $0A4D  BPL $0A51      ; still counting down
+        $0A4F  MOV $42,A      ; went negative: (re)load the count
+        $0A51  CALL $09B9     ; read the jump target
+        $0A54  MOV X,$42
+        $0A56  BEQ $0A43      ; reached zero: carry on with the next word
+        $0A58  MOVW $40,YA    ; otherwise jump
+
+    $42 is zero when a song starts ($0A0F), so the first visit decrements
+    it to $FF and loads the count. A count of $01-$7F then jumps that many
+    times. A count of $81 or more decrements to a value that is still
+    negative, so it is reloaded on every visit and the jump is taken
+    forever. Every looping song in this ROM uses $C8, which reads as "200"
+    but never runs out. ($80 would jump 128 times.)
+
+    Returns a dict:
+        order    pattern addresses, the repeating part given `loops` times
+        intro    how many leading entries are played once
+        loop     length of the repeating part, 0 if the song ends
+        ended    True if the list reached its $0000 terminator
+        error    None, or why the walk stopped early
+    """
+    out = {"order": [], "intro": 0, "loop": 0, "ended": False, "error": None}
+    p = pointer
+    counter = 0
+    seen = {}
+    order = []
+    while len(order) < max_patterns:
+        if bounds and not (bounds[0] <= p < bounds[1]):
+            out["error"] = "word list left the block at ${:04X}".format(p)
+            break
+        w = u16(ram, p)
+        if w >> 8:
+            state = (p, counter)
+            if state in seen:
+                first = seen[state]
+                body = order[first:]
+                # The first pass through the body runs with $42 still at its
+                # start value, so the state repeats one pass late. Fold whole
+                # copies of the body back out of the intro.
+                while first >= len(body) and order[first - len(body):first] == body:
+                    first -= len(body)
+                out["intro"] = first
+                out["loop"] = len(body)
+                out["order"] = order[:first] + body * loops
+                return out
+            seen[state] = len(order)
+            order.append(w)
+            p += 2
+            continue
+        if w == 0:
+            out["ended"] = True
+            break
+        counter = (counter - 1) & 0xFF
+        if counter & 0x80:
+            counter = w & 0xFF
+        target = u16(ram, p + 2)
+        p += 4
+        if counter:
+            p = target
+    else:
+        out["error"] = "more than {} patterns without repeating".format(
+            max_patterns)
+    out["order"] = order
+    out["intro"] = len(order)
+    return out
+
+
+def tick_clock(tempos, initial=RESET_TEMPO):
+    """Return f(tick) -> seconds after tick 0, given (tick, tempo) changes.
+
+    One tick lasts 256 / (500 * tempo) seconds. A tempo command read on tick
+    t sets the length of the interval that follows t.
+    """
+    changes = []
+    cur = initial
+    for t, val in sorted(set(tempos)):
+        if val != cur and val:
+            changes.append((t, val))
+            cur = val
+    marks = [(0, 0.0, initial)]          # (tick, seconds at tick, tempo after)
+    for t, val in changes:
+        t0, s0, tempo = marks[-1]
+        marks.append((t, s0 + (t - t0) * 256.0 / (TIMER0_HZ * tempo), val))
+
+    def seconds(tick):
+        lo, hi = 0, len(marks) - 1
+        while lo < hi:                     # last mark at or before tick
+            mid = (lo + hi + 1) // 2
+            if marks[mid][0] <= tick:
+                lo = mid
+            else:
+                hi = mid - 1
+        t0, s0, tempo = marks[lo]
+        return s0 + (tick - t0) * 256.0 / (TIMER0_HZ * tempo)
+
+    return seconds
+
+
+def sequence_timeline(ram, song, loops=2, sfx=False, tempo=RESET_TEMPO):
+    """Every note-on of a parsed sequence, by sequencer tick.
+
+    For a song the patterns are laid end to end in pattern_order(); each
+    one lasts until its first track reaches end-of-track ($0AC0), and the
+    next pattern's first events are read on that same tick. An effect is a
+    single pattern whose tracks each run to their own end ($0AC6), so it
+    lasts as long as its longest track; pass sfx=True and the tempo of the
+    song it is played over.
+
+    Returns a dict:
+        order        pattern addresses as played
+        starts       the tick each of them starts on, plus the final tick
+        notes        (tick, voice, is_percussion, pitch index or drum number)
+        tempos       (tick, tempo) for every $E7 reached
+        seconds      f(tick) -> seconds after the first tick
+        loops        True if the song repeats forever
+        intro_ticks  ticks before the repeating part (all of it if none)
+        loop_ticks   ticks in one pass of the repeating part, else 0
+        end_tick     last tick of what was laid out
+        error        None, or why the layout stopped early
+    """
+    bounds = song["bounds"]
+    known = dict((p["addr"], p["tracks"]) for p in song["patterns"])
+    if sfx:
+        walk = {"order": [p["addr"] for p in song["patterns"][:1]],
+                "intro": 1, "loop": 0, "ended": True, "error": None}
+    else:
+        walk = pattern_order(ram, song["pointer"], loops, bounds)
+    notes = []
+    tempos = []
+    starts = []
+    error = walk["error"]
+    base = 0
+    for a in walk["order"]:
+        starts.append(base)
+        tracks = known.get(a) or [u16(ram, a + 2 * i) for i in range(8)]
+        voices = []
+        ends = []
+        for v, tp in enumerate(tracks):
+            if not tp >> 8:
+                continue
+            ns, end, ctrl = _render_track(ram, tp, bounds, base, 0)
+            voices.append((v, ns, ctrl))
+            ends.append(end)
+        if not ends:
+            error = "pattern ${:04X} has no tracks, so it never ends".format(a)
+            break
+        cut = max(ends) if sfx else min(ends)
+        for v, ns, ctrl in voices:
+            for start, _, pitch, _, perc in ns:
+                if start < cut:
+                    notes.append((start, v, perc, pitch))
+            for t, cmd, val in ctrl:
+                if cmd == 0xE7 and t <= cut:
+                    tempos.append((t, val))
+        base = cut
+    starts.append(base)
+    notes.sort()
+    intro, loop = walk["intro"], walk["loop"]
+    looping = bool(loop) and len(starts) > intro + loop
+    return {
+        "order": walk["order"], "starts": starts, "notes": notes,
+        "tempos": sorted(set(tempos)),
+        "seconds": tick_clock(tempos, tempo),
+        "loops": looping,
+        "intro_ticks": starts[intro] if looping else base,
+        "loop_ticks": starts[intro + loop] - starts[intro] if looping else 0,
+        "end_tick": base,
+        "error": error,
+    }
+
+
+def sequence_length(tl, sfx=False):
+    """Play length for the ID666 tag, from a sequence_timeline(loops=2).
+
+    Looping songs: the intro and two passes of the loop, then a fade.
+    Songs that end: the natural end plus room for release and echo, no fade.
+    Effects: the end of the longest track, no fade. The tag is in whole
+    seconds, so everything is rounded up; the exact figures are returned
+    alongside.
+    """
+    sec = tl["seconds"]
+    if tl["loops"]:
+        intro_s = sec(tl["intro_ticks"])
+        loop_s = sec(tl["intro_ticks"] + tl["loop_ticks"]) - intro_s
+        play_s = SEQ_START_S + sec(tl["intro_ticks"] + 2 * tl["loop_ticks"])
+        fade_ms = FADE_MS
+    else:
+        intro_s = sec(tl["end_tick"])
+        loop_s = 0.0
+        play_s = SEQ_START_S + intro_s + (SFX_TAIL_S if sfx else SONG_TAIL_S)
+        fade_ms = 0
+    length_s = max(1, int(-(-play_s // 1)))
+    return {"length_s": length_s, "fade_ms": fade_ms, "play_s": play_s,
+            "intro_s": intro_s, "loop_s": loop_s, "loops": tl["loops"]}
+
+
+def song_length(rom, ram, n):
+    """(timeline, length) for song n, straight from the ROM."""
+    sram, span = song_ram(rom, ram, n)
+    song = parse_song(sram, u16(sram, SEQ_TABLE + 2 * SONG_ID),
+                      span or (SONG_SLOT, 0x10000))
+    tl = sequence_timeline(sram, song, loops=2)
+    return tl, sequence_length(tl)
+
+
+def carrier_tempo(rom, ram, carrier="song0"):
+    """The tempo an effect is advanced at over the given carrier."""
+    if carrier != "song0":
+        return RESET_TEMPO
+    tl, _ = song_length(rom, ram, 0)
+    tempo = tl["tempos"][-1][1] if tl["tempos"] else RESET_TEMPO
+    if tempo != SOUND_ROOM_TEMPO:
+        raise ValueError(
+            "song 0 sets tempo ${:02X}, expected ${:02X}".format(
+                tempo, SOUND_ROOM_TEMPO))
+    return tempo
+
+
+# --------------------------------------------------------------------------
 # sound effects: the SNES trigger tables and a playable .spc per effect
 
-# A silent song planted at the song slot so the sequencer keeps ticking
-# while an effect plays. SPC $0A3A returns immediately when $04 (the
-# current song) is zero, so port 0 must name *something*; a one-word list
-# pointing at an all-unused pattern is the smallest thing that qualifies.
+# The old carrier: a silent song planted at the song slot so the sequencer
+# keeps ticking while an effect plays. SPC $0A3A returns immediately when
+# $04 (the current song) is zero, so port 0 must name *something*; a
+# one-word list pointing at an all-unused pattern is the smallest thing that
+# qualifies. It has no $E7, so effects run at the reset tempo $20, and no
+# $E5, so they play at the reset master volume $C0. The game never does
+# this; see make_sfx_spc.
 SILENT_SONG = struct.pack("<HH", SONG_SLOT + 6, 0x0000) + b"\x00" * 16
 
 
@@ -785,22 +1057,115 @@ def write_sfx_table(rom, path, sites):
         f.write("\n".join(rows) + "\n")
 
 
-def make_sfx_spc(ram, sfx_id, title):
+def song_call_sites(rom):
+    """Every JSL into the three play-song entry points, bank $80.
+
+    Like sfx_call_sites: A is 16 bits at the call ($80:B4B5 masks it with
+    #$00FF itself), so a constant id is the 3-byte `LDA #$00xx` directly
+    before the JSL. Anything else computes the id and is reported with
+    id None.
+    """
+    sites = []
+    for entry, kind in SONG_ENTRIES:
+        b, a = file_to_snes(entry)
+        pat = bytes([0x22, a & 0xFF, a >> 8, b])
+        i = 0
+        while True:
+            j = rom.find(pat, i)
+            if j < 0:
+                break
+            i = j + 1
+            sid = None
+            if j >= 3 and rom[j - 3] == 0xA9 and rom[j - 1] == 0x00:
+                sid = rom[j - 2]
+            sb, sa = file_to_snes(j)
+            sites.append({"offset": j, "snes": fmt_snes(sb, sa), "id": sid,
+                          "kind": kind, "entry": fmt_snes(b, a),
+                          "before": " ".join("{:02X}".format(x)
+                                             for x in rom[j - 6:j])})
+    sites.sort(key=lambda s: s["offset"])
+    return sites
+
+
+def write_song_callsites(rom, path):
+    """build/spc/song_callsites.tsv: which code starts which song.
+
+    The id is what the SNES passes: 0 stops the music, $7E + n is song n.
+    SOUND ROOM plays BGM n as id $7E + n ($83:BA20-$83:BA26), so its
+    numbering is the song number.
+    """
+    sites = song_call_sites(rom)
+    rows = ["\t".join(["site", "file_offset", "routine", "kind", "id",
+                       "song", "bytes_before", "note"])]
+    for s in sites:
+        if s["id"] is None:
+            sid, song = "-", "-"
+            note = COMPUTED_SONG_SITES.get(s["snes"], "id computed at run time")
+        elif s["id"] == 0:
+            sid, song, note = "$00", "-", "stop the music"
+        elif SONG_ID_BASE <= s["id"] < SONG_ID_BASE + SONG_COUNT:
+            sid = "${:02X}".format(s["id"])
+            song = "{:02d}".format(s["id"] - SONG_ID_BASE)
+            note = ""
+        else:
+            sid, song = "${:02X}".format(s["id"]), "-"
+            note = "below $7E: ignored by the routine"
+        rows.append("\t".join([s["snes"], fmt_file(s["offset"]), s["entry"],
+                               s["kind"], sid, song, s["before"], note or "-"]))
+    with open(path, "w") as f:
+        f.write("\n".join(rows) + "\n")
+    return sites
+
+
+def song_users(sites):
+    """song number -> [call-site address], constant ids only."""
+    out = {}
+    for s in sites:
+        if s["id"] is not None and s["id"] >= SONG_ID_BASE:
+            out.setdefault(s["id"] - SONG_ID_BASE, []).append(
+                s["snes"] if s["kind"] == "play"
+                else "{} ({})".format(s["snes"], s["kind"]))
+    return out
+
+
+def make_sfx_spc(rom, ram, sfx_id, title, carrier="song0", length_s=180,
+                 fade_ms=10000):
     """A .spc that plays one effect and nothing else.
 
-    Same port-table patch spc_extract.make_spc uses, but with the effect id
-    in the port-1 slot and a silent song in the port-0 slot. The song slot
-    must be empty in the base image; it is asserted rather than assumed.
+    Same port-table patch spc_extract.make_spc uses, with the effect id in
+    the port-1 slot. The port-0 slot must name a running song or the
+    sequencer never ticks (SPC $0A3A), and which song matters, because the
+    effect is advanced by that song's tick and scaled by its master volume:
+
+      "song0"   song 0 uploaded to the song slot, exactly as the game's
+                SOUND ROOM does before every FGM ($83:BA11 loads id $7E with
+                $1004 already $7E from $83:B9BB, then $83:BA1A triggers the
+                effect). Song 0 is a 72-tick rest on five muted voices that
+                loops forever; its first tick sets tempo $25 and master
+                volume $FF. Nothing here is synthetic except the port table.
+      "silent"  the old behaviour: a hand-made empty song, which leaves the
+                reset tempo $20 and master volume $C0 in force. Effects come
+                out 37/32 = 15.6% longer and (192/255)^2 = 0.57x as loud as
+                they do in the SOUND ROOM. Kept for comparison only.
     """
-    ram = bytearray(ram)
-    n = len(SILENT_SONG)
-    if any(ram[SONG_SLOT:SONG_SLOT + n]):
-        raise ValueError(
-            "SPC ${:04X} is not empty in the base image; refusing to plant "
-            "the silent song over real data".format(SONG_SLOT))
-    ram[SONG_SLOT:SONG_SLOT + n] = SILENT_SONG
-    return make_spc(ram, SONG_ID, title, sfx_id=sfx_id,
-                    comment="sfx ${:02X}, silent song".format(sfx_id))
+    if carrier == "song0":
+        image, span = song_ram(rom, ram, 0)
+        if span is None:
+            raise ValueError("song 0 has no block to upload")
+        comment = "sfx ${:02X} over song 0".format(sfx_id)
+    elif carrier == "silent":
+        image = bytearray(ram)
+        n = len(SILENT_SONG)
+        if any(image[SONG_SLOT:SONG_SLOT + n]):
+            raise ValueError(
+                "SPC ${:04X} is not empty in the base image; refusing to "
+                "plant the silent song over real data".format(SONG_SLOT))
+        image[SONG_SLOT:SONG_SLOT + n] = SILENT_SONG
+        comment = "sfx ${:02X}, silent song".format(sfx_id)
+    else:
+        raise ValueError("unknown carrier {!r}".format(carrier))
+    return make_spc(image, SONG_ID, title, sfx_id=sfx_id, comment=comment,
+                    length_s=length_s, fade_ms=fade_ms)
 
 
 # --------------------------------------------------------------------------
@@ -841,6 +1206,11 @@ def main():
     ap.add_argument("-o", "--out", default="build/spc")
     ap.add_argument("--midi", action="store_true", help="also write .mid")
     ap.add_argument("--spc", action="store_true", help="also write per-effect .spc")
+    ap.add_argument("--sfx-carrier", choices=("song0", "silent"),
+                    default="song0",
+                    help="song an effect .spc plays over: song 0 as the "
+                         "game's SOUND ROOM does (default), or the old "
+                         "synthetic silent song")
     ap.add_argument("--note-base", type=lambda s: int(s, 0), default=24,
                     help="MIDI note for N-SPC note 0 (default 24; the true "
                          "octave depends on each sample's recorded pitch)")
@@ -876,7 +1246,11 @@ def main():
                            "patterns", "words", "voices", "tracks",
                            "instruments", "percussion_base",
                            "percussion_instruments", "tempos", "events",
-                           "notes", "midi_notes", "loops", "status"])]
+                           "notes", "midi_notes", "loops", "status",
+                           "intro_ticks", "loop_ticks", "intro_s", "loop_s",
+                           "length_s", "fade_ms", "used_by"])]
+        users = song_users(write_song_callsites(
+            rom, os.path.join(out, "song_callsites.tsv")))
         for n in want_songs:
             sram, span = song_ram(rom, ram, n)
             ptr = u16(sram, SEQ_TABLE + 2 * SONG_ID)
@@ -884,6 +1258,10 @@ def main():
             song = parse_song(sram, ptr, bounds,
                               name="Kirby's Dream Course song {:02d}".format(n))
             st = song_stats(song)
+            tl = sequence_timeline(sram, song, loops=2)
+            ln = sequence_length(tl)
+            if tl["error"]:
+                song["errors"].append(tl["error"])
             base = os.path.join(out, "songs", "song_{:02d}".format(n))
             write_text(song, base + ".txt",
                        "song {:02d}  (SPC id ${:02X})".format(n, SONG_ID_BASE + n))
@@ -911,8 +1289,12 @@ def main():
                 ",".join(str(i) for i in st["percussion_instruments"]) or "-",
                 ",".join("${:02X}".format(t) for t in st["tempos"]) or "-",
                 str(st["events"]), str(st["notes"]), midi,
-                "yes" if song["loops"] else "no",
-                "ok" if not song["errors"] else "; ".join(song["errors"])]))
+                "yes" if tl["loops"] else "no",
+                "ok" if not song["errors"] else "; ".join(song["errors"]),
+                str(tl["intro_ticks"]), str(tl["loop_ticks"]),
+                "{:.3f}".format(ln["intro_s"]), "{:.3f}".format(ln["loop_s"]),
+                str(ln["length_s"]), str(ln["fade_ms"]),
+                " ".join(users.get(n, [])) or "-"]))
             problems.extend(_bad_instruments(st, "song {:02d}".format(n)))
             if song["errors"]:
                 problems.append("song {:02d}: {}".format(n, song["errors"][0]))
@@ -932,12 +1314,17 @@ def main():
         rows = ["\t".join(["id", "pointer", "patterns", "voices", "tracks",
                            "instruments", "percussion_instruments", "events",
                            "notes", "slot_mask", "priority", "call_sites",
-                           "status"])]
+                           "status", "ticks", "tempo", "play_s", "length_s"])]
+        tempo = carrier_tempo(rom, ram, args.sfx_carrier)
         for sid in want_sfx:
             ptr = u16(ram, SEQ_TABLE + 2 * sid)
             song = parse_song(ram, ptr, SFX_BLOCK,
                               name="Kirby's Dream Course sfx ${:02X}".format(sid))
             st = song_stats(song)
+            tl = sequence_timeline(ram, song, sfx=True, tempo=tempo)
+            ln = sequence_length(tl, sfx=True)
+            if tl["error"]:
+                song["errors"].append(tl["error"])
             base = os.path.join(out, "sfx", "sfx_{:02X}".format(sid))
             write_text(song, base + ".txt", "sfx ${:02X}".format(sid))
             write_json(song, base + ".json")
@@ -950,7 +1337,10 @@ def main():
                         "{}".format(sid, want, got))
             if args.spc:
                 with open(base + ".spc", "wb") as f:
-                    f.write(make_sfx_spc(ram, sid, "SFX ${:02X}".format(sid)))
+                    f.write(make_sfx_spc(
+                        rom, ram, sid, "SFX ${:02X}".format(sid),
+                        carrier=args.sfx_carrier, length_s=ln["length_s"],
+                        fade_ms=ln["fade_ms"]))
             rows.append("\t".join([
                 "${:02X}".format(sid), "${:04X}".format(ptr),
                 str(len(song["patterns"])),
@@ -962,7 +1352,9 @@ def main():
                 "${:02X}".format(rom[SFX_SLOTS + sid]),
                 "${:02X}".format(rom[SFX_PRIORITY + sid]),
                 " ".join(by_id.get(sid, [])) or "-",
-                "ok" if not song["errors"] else "; ".join(song["errors"])]))
+                "ok" if not song["errors"] else "; ".join(song["errors"]),
+                str(tl["end_tick"]), "${:02X}".format(tempo),
+                "{:.3f}".format(ln["play_s"]), str(ln["length_s"])]))
             problems.extend(_bad_instruments(st, "sfx ${:02X}".format(sid)))
             if song["errors"]:
                 problems.append("sfx ${:02X}: {}".format(sid, song["errors"][0]))

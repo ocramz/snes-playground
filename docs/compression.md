@@ -77,16 +77,30 @@ are the fixed screens:
 
 | source | dest | unpacked | what |
 |---|---|---|---|
-| `$8E:EC7F (0x076C7F)` | `$7F:7800` | 6,656 | title screen tiles |
-| `$8D:9400 (0x069400)` | `$7F:E000` | 6,848 | title screen tiles |
-| `$8F:E6A4 (0x07E6A4)` | `$7F:1FC0` | 4,160 | title screen tiles |
+| `$8E:EC7F (0x076C7F)` | `$7F:7800` | 6,656 | loaded by `$87:EB44` (palette set 27); screen not identified |
+| `$8D:9400 (0x069400)` | `$7F:E000` | 6,848 | loaded by `$87:EB44`, as above |
+| `$8F:E6A4 (0x07E6A4)` | `$7F:1FC0` | 4,160 | loaded by `$87:EB44`, as above |
 | `$92:8FDE (0x090FDE)` | `$7E:8BB0` | 4,096 | overwrites the course row-offset table; purpose unknown |
 | `$93:E7D5 (0x09E7D5)` | `$7E:39DA` | 2,144 | tileset loader entry 6 |
 | `$93:E1B6 (0x09E1B6)` | `$7E:39DA` | 2,880 | tileset loader entry 23 |
 | `$93:CE8D (0x09CE8D)` | `$7E:DADC` | 1,466 | a course backdrop tilemap; `$7E:DADC` is staged then DMA'd to VRAM `$3C00` by `$80:D7AC` |
 | `$94:F222 (0x0A7222)` | `$7E:DADC` | 2,048 | the same, on the `$7E:ED5B` variant path in `$80:D6A8` |
 
-All but the first are now accounted for: three are reached from the tileset
+The first three were once labelled "title screen tiles"; running the game
+(tools/snesstep, see [emulation.md](emulation.md)) showed otherwise. They
+are loaded together by `$87:EB44`, which is reached only through a jump
+table at `$87:8B85` and which none of the scripted runs reach. The title
+screen itself comes from three `sub_load_asset` calls at frames 259-273
+(logged with `--log-pc '$80:9F18'`):
+
+| source | staged at | goes to | what |
+|---|---|---|---|
+| `$92:C1F2 (0x0941F2)` | `$7F:0000` | VRAM `$5000` (3,072 bytes) | BG3 tiles |
+| `$8B:8000 (0x058000)` | `$7F:0C00` | VRAM `$0000` (16,384), `$5680` (624) | BG1/BG2 tiles |
+| `$92:8550 (0x090550)` | `$7F:0000` | VRAM `$4000`, `$4800` (2,048 each), `$5AC0` (256) | **the title tilemaps**: BG1, BG2, part of BG3 |
+
+with BG3's remaining map filled from `$83:B6F4`. Of the rest of the table,
+all but the fourth are accounted for: three are reached from the tileset
 jump table or the backdrop loader, which `tools/scenes.py loaders` walks —
 see [scenes.md](scenes.md). Only `$92:8FDE` is still unexplained, and it is
 notable because `$7E:8BB0` is where course table 7 (the row-offset

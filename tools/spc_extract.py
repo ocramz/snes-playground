@@ -46,6 +46,16 @@ correct rather than a copy-paste bug: the song table entry for 0x7E is the
 one that points at SPC $6502, which is where sub_spc_upload_song puts
 whichever song was selected. Verified by reading the table at SPC
 $3AFE + 2*id, where id 0x7E yields $6502 and 0x7F yields $3C00.
+
+The ID666 length and fade tags are each song's own: the intro plus two
+passes of the loop and a 10 s fade, or for a song that ends, its natural
+end plus a tail and no fade. What this script writes is the figure
+tools/nspc.py works out from the word list and the tempo
+(sequence_timeline / sequence_length), which is a lower bound: the driver
+drops sequencer ticks when it is busy, so real playback is longer, by a
+quarter for the busiest song. tools/render_audio.py measures the real
+length by playing the file and rewrites the two tag fields (set_length_tag)
+before rendering to them.
 """
 
 import argparse
@@ -161,15 +171,56 @@ def base_ram(d):
     return ram, log
 
 
+# ID666 text tag: play length in seconds (3 digits), fade in ms (5 digits).
+TAG_LENGTH = (0xA9, 0xAC)
+TAG_FADE = (0xAC, 0xB1)
+
+
+def _tag_fields(length_s, fade_ms):
+    if not (0 <= length_s <= 999 and 0 <= fade_ms <= 99999):
+        raise ValueError("length {} s / fade {} ms do not fit the ID666 "
+                         "text fields".format(length_s, fade_ms))
+    return (str(length_s).encode("ascii").ljust(3, b"\0"),
+            str(fade_ms).encode("ascii").ljust(5, b"\0"))
+
+
+def set_length_tag(spc, length_s, fade_ms):
+    """Return a copy of a .spc image with new ID666 length and fade."""
+    out = bytearray(spc)
+    out[TAG_LENGTH[0]:TAG_LENGTH[1]], out[TAG_FADE[0]:TAG_FADE[1]] = \
+        _tag_fields(length_s, fade_ms)
+    return bytes(out)
+
+
+def read_length_tag(spc):
+    """(length_s, fade_ms) from a .spc image's ID666 text tag."""
+    def num(lo, hi):
+        text = bytes(spc[lo:hi]).split(b"\0")[0].decode("ascii")
+        return int(text) if text.isdigit() else 0
+    return num(*TAG_LENGTH), num(*TAG_FADE)
+
+
+def same_but_for_length(a, b):
+    """True if two .spc images differ at most in their length/fade tag."""
+    lo, hi = TAG_LENGTH[0], TAG_FADE[1]
+    return len(a) == len(b) and a[:lo] == b[:lo] and a[hi:] == b[hi:]
+
+
 def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180,
              fade_ms=10000, sfx_id=0x00, comment="static rip, port0 patched"):
     """Build a .spc (v0.30 with ID666 text tags) from a RAM image.
+
+    length_s and fade_ms go into the ID666 text tag, which holds whole
+    seconds in three digits and milliseconds in five. The defaults are a
+    placeholder for callers that have no better number; the extractors pass
+    the real one.
 
     sfx_id lands in the port-1 slot of the constant table. The driver polls
     port 1 at SPC $1137 and starts that sequence through the same $1168
     entry songs use, so a nonzero sfx_id makes the file play one sound
     effect (see tools/nspc.py --sfx-spc, which pairs it with a silent song
     so the sequencer keeps ticking)."""
+    length_field, fade_field = _tag_fields(length_s, fade_ms)
     ram = bytearray(ram)
     # Patch: MOV A,$F4+X / CMP A,$F4+X / BNE  ->  MOV A,$05F0+X / NOP NOP NOP
     expect = bytes([0xF4, 0xF4, 0x74, 0xF4, 0xD0, 0xFA])
@@ -194,8 +245,8 @@ def make_spc(ram, song_id, title, game="Kirby's Dream Course", length_s=180,
     hdr[0x6E:0x7E] = text("snes-playground", 16)
     hdr[0x7E:0x9E] = text(comment, 32)
     hdr[0x9E:0xA9] = text("", 11)
-    hdr[0xA9:0xAC] = text(str(length_s), 3)
-    hdr[0xAC:0xB1] = text(str(fade_ms), 5)
+    hdr[TAG_LENGTH[0]:TAG_LENGTH[1]] = length_field
+    hdr[TAG_FADE[0]:TAG_FADE[1]] = fade_field
     hdr[0xB1:0xD1] = text("HAL Laboratory", 32)
     hdr[0xD1] = 0
     hdr[0xD2] = 0
@@ -374,17 +425,24 @@ def main():
                 with open(os.path.join(out, "blocks", "set{}_{:04X}.bin".format(i, addr)), "wb") as f:
                     f.write(data)
 
+    # Imported here, not at the top: nspc imports this module.
+    import nspc
+
     for n, sid, off, blks in songs(d):
+        _, length = nspc.song_length(d, ram, n)
         song_ram = bytearray(ram)
         for ln, addr, data in blks:
             song_ram[addr:addr + ln] = data
             with open(os.path.join(out, "songs", "song_{:02d}_id{:02X}.bin".format(n, sid)), "wb") as f:
                 f.write(data)
         b, a = file_to_snes(off)
-        log.append("song {:2d} id {:02X}  {} ({}) -> {}".format(
+        log.append("song {:2d} id {:02X}  {} ({}) -> {}  {} s + {} ms fade".format(
             n, sid, fmt_snes(b, a), fmt_file(off),
-            ", ".join("${:04X}..${:04X}".format(ad, ad + ln) for ln, ad, _ in blks)))
-        spc = make_spc(song_ram, SONG_ID_BASE, "Song {:02d} (id 0x{:02X})".format(n, sid))
+            ", ".join("${:04X}..${:04X}".format(ad, ad + ln) for ln, ad, _ in blks),
+            length["length_s"], length["fade_ms"]))
+        spc = make_spc(song_ram, SONG_ID_BASE,
+                       "Song {:02d} (id 0x{:02X})".format(n, sid),
+                       length_s=length["length_s"], fade_ms=length["fade_ms"])
         with open(os.path.join(out, "songs", "song_{:02d}_id{:02X}.spc".format(n, sid)), "wb") as f:
             f.write(spc)
 

@@ -124,7 +124,7 @@ TILE_HANDLERS = {
     (0x82, 0x80F6): ("surface overlay; tracks entering and leaving in $69CA+",
                      "mechanics only"),
     (0x82, 0x94D3): ("solid object standing 3 height steps tall", "solid"),
-    (0x82, 0xAD8E): ("rewrites gravity and object state; unused by any course",
+    (0x82, 0xAD8E): ("the cup: holes the ball (docs/physics.md); placed at run time, so in no course data",
                      "solid"),
 }
 for _a in (0x9FE3, 0x9FD1, 0x9FDA):
