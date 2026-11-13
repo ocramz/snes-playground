@@ -94,8 +94,10 @@ else:           $DA3C = $80:DD83 (0.9990)
                 $DA3E = $80:DD85 (0.9990), or $80:DD87 (0.8000) in state 6
 ```
 
-The defaults these replace are `$80:DD11` = `$5332` (0.65) and `$80:DD15` =
-`$6665` (0.80). `$DA3C` and `$DA3E` are the Q15 factors the landing code at
+The defaults these replace are `$DA3C` = `$7D6F` (0.98, from `$80:DD0F`)
+and `$DA3E` = `$5332` (0.65, from `$80:DD11`). Both are copied back from
+`$DA30`/`$DA32` on every airborne frame, so an override lasts only for the
+landing it was dispatched on (*emulated*, docs/physics.md). `$DA3C` and `$DA3E` are the Q15 factors the landing code at
 `$81:8975` applies on every bounce — **vx and vy are both scaled by `$DA3C`,
 vz by `$DA3E`**, through the fixed-point multiply `$81:9793`:
 
@@ -105,7 +107,7 @@ $8982  LDA $D9D6 / LDX $DA3C / JSL $81:9793 / STA $D9D6    ; vy *= $DA3C
 $898F  LDA $D9D8 / LDX $DA3E / ...                         ; vz *= $DA3E
 ```
 
-So raising `$DA3C` from 0.65 to 0.999 makes the ball keep almost all of its
+So raising `$DA3C` from 0.98 to 0.999 makes the ball keep almost all of its
 horizontal speed on each bounce — a slippery or fast surface. `$24` is
 deliberately less extreme than `$20-$23`.
 

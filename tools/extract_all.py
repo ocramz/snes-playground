@@ -21,8 +21,9 @@ Tracks, in the order they have to run:
                screen to build/screens/, executed-code coverage
     emuholes   play all 232 holes and the 20 demos, build sprite sheets
                from live state (about 30 minutes; only with --only emuholes)
-    emugame    play the whole game to the credits and snapshot the end
-               (about 10 minutes; only with --only emugame)
+    emugame    play the whole game, then the extra game, to the credits, and
+               a 2-player course; snapshot their screens (about 25 minutes;
+               only with --only emugame)
     coverage   which ROM bytes all of the above account for
 
 `--only` runs a subset. Everything is idempotent: re-running overwrites.
@@ -106,6 +107,8 @@ STEPS = [
     ("emuholes", "actor id -> object type check", ["actorids.py"]),
     ("emuholes", "Kirby's animations as seen in play, by state and angle",
      ["kirbyanim.py", "--live"]),
+    ("emuholes", "Kirby's animations as named clips: GIF, strip, clips.json",
+     ["kirbyanim.py", "--clips"]),
     ("emuholes", "course 1 played to the end: hole-outs, results, ranking",
      ["snesstep/autoplay.py", "--course", "0", "--frames", "17000"]),
     ("emuholes", "RANKING and a ranking entry's RESULT card, from that save",
@@ -114,6 +117,20 @@ STEPS = [
      ["snesstep/autoplay.py", "--frames", "135000", "--out", "build/emu/autoplay/game"]),
     ("emugame", "medal award, Dedede, ending and credits screens",
      ["snesstep/ending.py", "build/emu/autoplay/game"]),
+    ("emugame", "the extra game played from that save, to its ending",
+     ["snesstep/autoplay.py", "--extra", "--frames", "150000"]),
+    ("emugame", "the extra game's end screens",
+     ["snesstep/ending.py", "build/emu/autoplay/extra", "--prefix", "extra_"]),
+    ("emugame", "the extra game's map, intro, hole and course result",
+     ["snesstep/capture.py", "build/emu/autoplay/extra", "extra_course_map=1300",
+      "extra_course_intro=1800", "extra_hole=2700", "extra_course_result=14450"]),
+    ("emugame", "a 2-player course: scorecard and result",
+     ["snesstep/autoplay.py", "--two-player", "--frames", "14000"]),
+    ("emugame", "the 2-player screens",
+     ["snesstep/capture.py", "build/emu/autoplay/two_player", "two_player_hole=4400",
+      "two_player_scorecard=12590", "two_player_result=13100"]),
+    ("emugame", "hidden title-menu items from the extra-game save",
+     ["snesstep/screens.py", "map_select", "sound_room", "dance"]),
 ]
 # Tracks that run only when named in --only.
 OPT_IN = {"emuholes", "emugame"}

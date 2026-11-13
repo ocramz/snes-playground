@@ -52,6 +52,8 @@ $7E:1008	-	ram	ram_sfx_slot_value	6	3 channel slots x 2 bytes; each holds the tb
 $7E:100E	-	ram	ram_sfx_slot_priority	6	3 slots x 2 bytes written from tbl_sfx_priority at $80:B5C4; no reader found anywhere in banks $80-$87
 $7E:1014	-	ram	ram_sfx_disable	2	nonzero makes sub_spc_sfx_trigger refuse every request ($80:B554); cleared at $80:B687
 $7E:1018	-	ram	ram_thread_helpers	502	twelve helper routines copied here from dat_thread_helpers at boot so any bank can JSR them; they take inline operands. $1018 clone, $1030 frame+yield, $105E position, $1084/$10A3/$10C2/$10E7/$1104/$1151/$116A/$119D/$11D6 motion. See tools/objanim.py
+$7E:1803	-	ram	ram_player_x2	2	player whose turn it is, x 2 (0 or 2): the index into the interleaved per-player ball block $D87A-$D96E and $D7D4/$D7D6 (emulated, 2P game)
+$7E:1809	-	ram	ram_current_player	2	player whose turn it is, 0 or 1; stored as an enemy's owner when the ball takes it ($82:8A98)
 $7E:4E1C	-	ram	ram_thr_type	128	thread objects, 64 slots x 2: object type, $FFFF = free. Slot index is in dp $D2 (D = $1E00 in thread context)
 $7E:4E9C	-	ram	ram_thr_list	128	thread objects: scheduling list, the high byte of the type table's second word
 $7E:4F9C	-	ram	ram_thr_resume_pc	128	thread objects: address the thread resumes at; written by sub_thread_yield and by the $1030 helper
@@ -79,6 +81,11 @@ $7E:6A10	-	ram	ram_stars	4	enemies taken by player 1, player 2 ($82:8AA0); moved
 $7E:6A5A	-	ram	ram_course_number	2	course number; hole index = course*8 + hole
 $7E:6A5E	-	ram	ram_hole_in_course	2	hole 0-7 within the course
 $7E:6A68	-	ram	ram_enemy_hit_latch	4	per player: set on an enemy hit by $82:8967, cleared by $82:8A21 when the ball is in the enemy cell outside its middle half, so one pass counts once
+$7E:6A72	-	ram	ram_ball_mode_index	2	ball mode * 8 + class * 2 (class from tbl_friction_class): index into tbl_ball_gravity and tbl_roll_friction ($81:80E6)
+$7E:6ADC	-	ram	ram_shot_power	2	shot power P, from the power meter by sub_shot_power; launch speed in sub_launch_velocity (emulated: $1104 grounder, $1156 fly shot at the same meter value)
+$7E:6B3A	-	ram	ram_power_meter	2	power meter position during the shot panel, counts up to $6B3C and back; A latches it ($81:BFFE)
+$7E:6B50	-	ram	ram_spin_side	2	side-spin selector 0-12 (6 = none) during the spin stage: Left/Right move it every 8 frames ($81:C12E); copied to $D9B8 (emulated)
+$7E:6B52	-	ram	ram_spin_topback	2	top/back selector 0-12 (6 = none): moves by itself 6->0->12->0 in a fly shot only, latched by A ($81:C170) (emulated)
 $7E:6B90	-	ram	ram_course_shape	-	course grid layer 1: terrain shape id $00-$1B per cell; $00 = gap
 $7E:7390	-	ram	ram_course_height	-	course grid layer 3: elevation $00-$0F per cell
 $7E:7B90	-	ram	ram_course_flags	-	course grid layer 4: low nibble = wall flag per cell edge, N/E/S/W
@@ -92,24 +99,53 @@ $7E:B4B8	-	ram	ram_actor_kind	64	actor records (32 x 2, written by sub_spawn_act
 $7E:B4F8	-	ram	ram_actor_slot	64	actor records: thread slot of the spawned object, $FFFF for a cell recorded without one
 $7E:B538	-	ram	ram_actor_cell_x	64	actor records: spawn cell column
 $7E:B578	-	ram	ram_actor_cell_y	64	actor records: spawn cell row
+$7E:D78C	-	ram	ram_hit_code	2	hit reaction code for Kirby animation state 40 (burn / electrocuted) and the other hit states, from the other ball's ability
 $7E:D7BE	-	ram	ram_courses_cleared	2	0-8, set on the course map by $81:FBCD from SRAM. 8 in 1-player mode sends the main flow to the final stage ($80:F20E -> sub_final_stage)
 $7E:D7C4	-	ram	ram_kirby_facing8	2	Kirby's facing, 8 directions; switched on by the standing and aiming scripts
 $7E:D7CC	-	ram	ram_kirby_shot_angle	2	the shot's angle, 16 directions; state 6 (curl into the ball) switches on it
 $7E:D7D4	-	ram	ram_kirby_anim_state	2	player 1 animation state, 0-50: the Kirby animation thread runs $87:9ADE[state] on every change
 $7E:D7D6	-	ram	ram_kirby2_anim_state	2	player 2 animation state, table $87:B990
+$7E:D7F0	-	ram	ram_kirby_health	2	Kirby's health (the tomatoes): 4 at the start of a hole, -1 per shot ($83:AC12), +1 per enemy taken ($83:AC01); after a shot 1-2 -> animation state 11 (tired), 0 -> state 10 (asleep). Emulated
 $7E:D7F4	-	ram	ram_lives	2	lives; at 0 after a hole the main flow takes the game-over path ($80:F387): GAME OVER and CONTINUE / GAME END, scene 9
+$7E:D85A	-	ram	ram_copy_ability	2	player 1's copy ability, 0 none, 1-10; Kirby animation state 8 switches on it
+$7E:D866	-	ram	ram_p_spin	12	per player, interleaved by $1803: spin x $D866, spin y $D86A, pending $D86E, saved at $81:C2C4
+$7E:D95E	-	ram	ram_kirby_anim_index	2	Kirby's frame index as the animation scripts set it (player 2 $D960); copied to the script object's $0B7E by $82:F0F8 while the ball is in play
+$7E:D9B4	-	ram	ram_shot_aim	2	aim direction, degrees 0-359 (0 = +x, 90 = +y)
+$7E:D9B6	-	ram	ram_shot_elevation	2	launch elevation, degrees: 0 grounder ($81:B6BC), 60 fly shot ($81:B656), 65 Hi-Jump ($82:CC4F); non-zero also selects the fly-shot spin rules (emulated)
+$7E:D9B8	-	ram	ram_guide_spin_side	2	side-spin selector seen by the shot guide; reset to 6 when the shot kind changes
+$7E:D9BE	-	ram	ram_shot_over	2	1 once the ball has rolled slower than $DA46 for 30 frames ($81:A612); counter $D9C0 (emulated)
+$7E:D9C8	-	ram	ram_ball_mode	2	0 normal, 1-10 the copy abilities in DEMOPLAY order (emulated), up to 21; row of tbl_ball_gravity/tbl_roll_friction; $0A skips most physics
+$7E:D9CC	-	ram	ram_spin	4	fly shot: spin impulse x ($D9CC), y ($D9CE) added at the first bounce; grounder: $D9CC = curve rate (rad/65536 per frame). By sub_shot_spin (emulated)
+$7E:D9D0	-	ram	ram_spin_pending	2	non-zero while spin is still to apply; cleared at every landing ($81:895F) and step hit
 $7E:D9D4	-	ram	ram_ball_vel	6	ball velocity x, y, vertical (player block $D87A, $D87E, $D882)
+$7E:D9DA	-	ram	ram_ball_heading	2	direction of motion in degrees (sub_ball_heading); $D9DE 16-way, $D9E0 32-way, $D9E2 last heading while moving
+$7E:D9E4	-	ram	ram_edge_step_dir	2	edge (N/E/S/W = 0-3, N = -y) by which the ball entered a cell with a step, else $FFFF (sub_edge_crossing)
+$7E:D9E6	-	ram	ram_edge_wall_dir	2	edge of a layer-4 wall flag crossed this frame, else $FFFF
+$7E:D9EC	-	ram	ram_ball_airborne	2	1 airborne, 0 rolling (player block $D8A6)
 $7E:D9F0	-	ram	ram_ball_x	4	ball x: fraction $D9F0, cell $D9F2 (work copy; player block $D8AA/$D8AE). See docs/physics.md
 $7E:D9F4	-	ram	ram_ball_y	4	ball y: fraction $D9F4, cell $D9F6 (player block $D8B2/$D8B6)
 $7E:D9F8	-	ram	ram_ball_z	4	ball height 16.16, one height step = $5A82 (player block $D8BA/$D8BE)
 $7E:D9FE	-	ram	ram_probe_shape	2	sub_terrain_probe output: terrain shape under the active object
 $7E:DA00	-	ram	ram_probe_height	2	sub_terrain_probe output: elevation of that cell
+$7E:DA04	-	ram	ram_probe_surface	2	sub_terrain_probe output: surface code 0-8 under the ball (flat, 4 ramps, 4 diagonals)
 $7E:DA06	-	ram	ram_probe_ground_z	4	sub_terrain_probe output: 32-bit surface Z at the exact position
 $7E:DA0A	-	ram	ram_probe_tile	2	sub_terrain_probe output: layer-2 special-tile byte under the object
-$7E:DA3C	-	ram	ram_bounce_damp_xy	2	Q15 factor applied to vx and vy on each bounce; friction tiles rewrite it
-$7E:DA3E	-	ram	ram_bounce_damp_z	2	Q15 factor applied to vz on each bounce
+$7E:DA0C	-	ram	ram_ball_prev	32	previous frame's $D9EC-$DA0B, saved by $81:8751, restored in part by $81:87B2
+$7E:DA30	-	ram	ram_damp_defaults	8	sources of $DA3C, $DA3E, $DA40, $DA42 ($7D6F, $5332, $5332, $6665 emulated)
+$7E:DA38	-	ram	ram_gravity	2	added to vz every airborne frame ($81:899F); $FFC0 from tbl_ball_gravity[0]
+$7E:DA3A	-	ram	ram_roll_friction	2	rolling friction from tbl_roll_friction each rolling frame; decel = $DA3A/256 per frame along the heading
+$7E:DA3C	-	ram	ram_bounce_damp_xy	2	Q15 factor for vx and vy at a bounce ($81:8975); reloaded from $DA30 ($7D6F, 0.98) every airborne frame, so a friction tile override lasts one landing (emulated value)
+$7E:DA3E	-	ram	ram_bounce_damp_z	2	Q15 factor for vz at a bounce; reloaded from $DA32 ($5332, 0.65) every airborne frame (emulated value)
+$7E:DA40	-	ram	ram_step_damp	2	Q15 factor for the velocity component normal to a step the ball runs into ($81:941E), $5332
+$7E:DA42	-	ram	ram_step_damp_z	2	Q15 factor for vz when the ball hits a step in the air ($81:88DD), $6665
+$7E:DA46	-	ram	ram_rest_speed	2	|vx|+|vy| below this for 30 frames ends the shot ($81:A5F8); 1
+$7E:DA48	-	ram	ram_air_frames	2	frames since the last bounce; under $10 at a landing the ball settles (emulated)
 $7E:DA4A	-	ram	ram_ball_holed	2	1 = holed (set by $82:AE2E), 2 after the hole-out; player copy $D956
+$7E:DA4C	-	ram	ram_edge_step	2	step height at a cell edge crossed this frame, half steps: > 0 a step up (bounce), < 0 a drop (launch)
+$7E:DA4E	-	ram	ram_ball_events	6	this frame: $DA4E bounced, $DA50 hit a step, $DA52 hit a wall
+$7E:DA76	-	ram	ram_button_mod	6	A/Y pressed while moving: kind $DA76 (0 A, 2 Y, $FFFF none), window $DA78 (22), timer $DA7A (15 air / 3 ground) (emulated)
 $7E:EAA9	-	ram	ram_medal_flags	12	six words set by sub_medal_flags: every normal course has a medal value >= 1, >= 2, >= 3 ($EAA9/$EAAB/$EAAD), then the same for the extra courses ($EAAF/$EAB1/$EAB3). Gate the title menu's MAP SELECT ($EAAD), SOUND ROOM ($EAAF), DANCE SELECT ($EAB1) and the 1P/2P extra-course items
+$7E:EAB9	-	ram	ram_extra_game	2	0 normal courses, 1 the extra game: set from the 1PLAY GAME and MAP SELECT menus ($83:B7EF, $83:B967); halves King Dedede's damage ($87:878E)
 $7E:ED2D	-	ram	ram_dedede_hp	2	King Dedede's hit points: 24 at the start ($87:E6B4); each hit subtracts ram_dedede_damage (halved in the extra game, $87:878E); 0 ends the fight (emulated: 4 hits of 6)
 $7E:ED2F	-	ram	ram_dedede_pos	12	King Dedede: x fraction:cell ($ED2F/$ED31), y ($ED33/$ED35), height 16.16 ($ED37/$ED39)
 $7E:ED49	-	ram	ram_dedede_damage	2	damage of the last hit, from the ball's height above the ground through tbl_dedede_damage ($87:EF62)
@@ -189,6 +225,12 @@ $80:9F0C	0x001F0C	ptr	tbl_obj_type_scripts	12	4 entries x (addr16, bank8): objec
 $80:9F18	0x001F18	code	sub_hal_decompress	286	HAL LZ decompressor. A=src bank, X=src addr, Y=dest addr, DBR=dest bank. JSL/RTL
 $80:A032	0x002032	code	sub_decompress_queue	-	queue an asset for the resumable decompressor; writes the $7E:531C..$579C arrays
 $80:A206	0x002206	code	sub_hal_decompress_resume	-	resumable variant of sub_hal_decompress; state in DP $AB/$AD/$AF, $B1 bytes per call
+$80:A342	0x002342	code	sub_mul_16x8	-	JSL; A * (signed low byte of X) through $211B/$211C -> $389E (24-bit); $389F = A*X/256
+$80:A378	0x002378	code	sub_mul_16x16	-	JSL; signed A * X -> 32-bit $389E-$38A1; $38A0 = A*X/65536
+$80:A4B3	0x0024B3	code	sub_cos_deg	-	JSL; A = cos(A degrees), Q15, from $80:A656
+$80:A4BA	0x0024BA	code	sub_sin_deg	-	JSL; A = sin(A degrees), Q15, from tbl_sin_deg
+$80:A4C1	0x0024C1	code	sub_atan2_deg	-	JSL; A = heading in degrees 0-359 of the vector (A, X) (emulated: 180 for (-v, 0))
+$80:A5A2	0x0025A2	tbl	tbl_sin_deg	900	sin of 0-449 degrees, Q15 words ($7FFF at 90); $80:A656 (+90) is the cosine table
 $80:AA30	0x002A30	code	sub_spc_ipl_upload	105	SPC700 IPL boot handshake; uploads the driver from tbl_spc_ipl_blocks
 $80:AA99	0x002A99	data	tbl_spc_ipl_blocks	2575	one block: len $0A0B -> SPC $0800, then a $0000 terminator whose addr is the entry point
 $80:AA9D	0x002A9D	data	dat_spc_driver	2571	N-SPC driver image, loaded to SPC $0800. Contains the string *Ver S1.20* at +$092D
@@ -236,6 +278,7 @@ $80:BE17	0x003E17	code	loc_course_row_copy	60	copy one column of the course tile
 $80:BE65	0x003E65	code	loc_course_col_upload_bg1	-	queue the BG1 row buffer to VRAM $5000 + column
 $80:BE9A	0x003E9A	code	loc_course_col_upload_bg2	-	as above for BG2, VRAM $5800
 $80:C307	0x004307	code	sub_course_enter	58	course entry: load graphics sets and tilesets, then JSL sub_course_load_bg
+$80:C75A	0x00475A	code	sub_shot_end_state	-	after a shot (X = $1803): Kirby's animation state 11 (tired, health 1-2, $80:C7AE) or 10 (asleep, health 0, $80:C7E6). State 9 (wait for the next turn) is set by the routine just before it, at $80:C756
 $80:CA9F	0x004A9F	code	sub_load_asset	10	decompress a stream to $7F:0000 (bank pushed as $7E7F); A=bank X=addr Y=dest
 $80:CAA9	0x004AA9	code	sub_load_asset_vram	19	as sub_load_asset to $7F:0000, then pass the Y parameter block to sub_vram_queue
 $80:CABC	0x004ABC	code	sub_scene_screen_setup	-	A = scene number; index tbl_scene_screen_blocks and apply the block via $80:903A
@@ -258,13 +301,26 @@ $80:D788	0x005788	data	dat_vram_records_backdrop_tiles	9	one record: 3072 bytes 
 $80:D791	0x005791	data	dat_vram_records_backdrop_tiles2	9	second copy of the backdrop tile record, used by the course-indexed path
 $80:D7A3	0x0057A3	data	dat_vram_records_backdrop_alt	9	2048 bytes from $7F:0000 to VRAM word $4C00; the $7E:ED5B non-zero variant
 $80:D7AC	0x0057AC	data	dat_vram_records_backdrop_map	9	one record: 2048 bytes from $7E:DADC to VRAM word $3C00, the backdrop tilemap
-$80:DB6D	0x005B6D	data	dat_gravity	2	$FFC0 (-64), added to the ball's vz every frame by $81:899F
+$80:DB6D	0x005B6D	tbl	tbl_ball_gravity	176	22 ball modes x 4 classes (flat, ramp, diagonal, shapes $08-$0B), indexed by $6A72: g for the slope acceleration in $81:8A56; entry 0 = $FFC0 is also the airborne gravity copied to $DA38 ($80:C710)
+$80:DC49	0x005C49	tbl	tbl_roll_friction	176	22 ball modes x 4 classes, rolling friction per mode and surface class (mode 0: $0C00 flat, $07B0 slopes), indexed by $6A72
 $80:DCFD	0x005CFD	data	dat_bounce_min_frames	2	$0010; below this many frames since the last bounce the ball comes to rest
-$80:DD11	0x005D11	data	dat_bounce_damp_xy	2	$5332 (Q15 0.65); default vx/vy factor per bounce, copied to $7E:DA3C
-$80:DD15	0x005D15	data	dat_bounce_damp_z	2	$6665 (Q15 0.80); default vz factor per bounce, copied to $7E:DA3E
+$80:DD01	0x005D01	data	dat_rest_speed	2	$0001, to $DA46
+$80:DD03	0x005D03	data	dat_power_scale	2	$1300; P = $1300 * tbl_power[meter] >> 14 (sub_shot_power)
+$80:DD05	0x005D05	data	dat_fly_spin_base	2	$04AD; fly-shot spin scale K = 2 * (P/2 + P/4 + $04AD)
+$80:DD0D	0x005D0D	data	dat_roll_friction_default	2	$0C00, to $DA2E/$DA3A at set-up
+$80:DD0F	0x005D0F	data	dat_bounce_damp_xy	2	$7D6F (Q15 0.98): default vx/vy factor per bounce, to $DA30/$DA3C (emulated)
+$80:DD11	0x005D11	data	dat_bounce_damp_z	2	$5332 (Q15 0.65): default vz factor per bounce, to $DA32/$DA3E at $80:C6B4 (emulated: $DA3E = $5332)
+$80:DD13	0x005D13	data	dat_step_damp	2	$5332 (Q15 0.65): to $DA34/$DA40, the normal-component factor at a step hit
+$80:DD15	0x005D15	data	dat_step_damp_z	2	$6665 (Q15 0.80): default vz factor when the ball hits a step in the air, to $DA36/$DA42 ($81:88DD)
+$80:DD17	0x005D17	tbl	tbl_spin_ground_tb	13	signed bytes 96..-96 by 16: grounder top/back spin, P*v/256 into $D9CE; the selector never moves for a grounder, so always 0
+$80:DD24	0x005D24	tbl	tbl_curve	13	signed bytes 42..-42 by 7: grounder curve, $D9CC = $4000 * v / 256 = 64v (emulated: 2 -> $0700)
+$80:DD33	0x005D33	tbl	tbl_spin_fly_tb	26	words 120,100,80,60,40,20,0,-16,-32,-64,-96,-128,-160: fly-shot top/back spin by $6B52 (emulated: 0 -> +2104, 11 -> -2245 at K = 9050)
+$80:DD4D	0x005D4D	tbl	tbl_spin_fly_side	13	signed bytes -60..60 by 10: fly-shot side spin by $6B50 (emulated: 2 -> $D9CE = 707)
 $80:DD7D	0x005D7D	data	tbl_tile_friction	14	coefficients the $20-$24 friction tiles write into $DA3A/$DA3C/$DA3E
 $80:DDE3	0x005DE3	data	tbl_kicker_clamp	4	impulse clamp for the $10-$13 kicker tiles
 $80:DDEF	0x005DEF	data	tbl_tile_impulse	10	impulse magnitudes for the $70-$7B toggled tiles
+$80:DF29	0x005F29	tbl	tbl_ability_hit_code_air	-	copy ability -> hit code, ball in the air
+$80:DF55	0x005F55	tbl	tbl_ability_hit_code_ground	-	copy ability -> hit code, ball on the ground
 $80:DFBA	0x005FBA	code	sub_thread_spawn	88	A = object type: claim a slot, load entry and list from tbl_thread_types. JSL/RTL, returns the new slot in Y
 $80:E060	0x006060	code	sub_thread_exit	36	free the running slot; reached by JML from 326 sites
 $80:E445	0x006445	code	sub_thread_yield	19	A = frames to wait. Pops its own return address into ram_thr_resume_pc/bank, so the thread continues after the JSL. 2551 call sites
@@ -286,23 +342,58 @@ $81:811B	0x00811B	code	sub_tile_land	27	dispatch the layer-2 byte in A through t
 $81:8136	0x008136	ptr	tbl_tile_on_land	768	256 long pointers, indexed by the layer-2 byte; behaviour on landing
 $81:8436	0x008436	code	sub_tile_hit	27	dispatch the layer-2 byte in A through tbl_tile_on_hit
 $81:8451	0x008451	ptr	tbl_tile_on_hit	768	256 long pointers; behaviour when the ball hits the cell from the side
-$81:8905	0x008905	code	sub_tile_none_land	-	default on-land handler, 112 of the 256 tile values
-$81:8975	0x008975	code	sub_damp_velocities	-	vx,vy *= $7E:DA3C and vz *= $7E:DA3E via sub_mul_fixed_signed
-$81:8980	0x008980	code	sub_ball_damp	-	damp y and vertical velocity by $DA3C/$DA3E (v*f/256 via $81:9793), then add gravity $DA38
+$81:8751	0x008751	code	sub_ball_save_prev	97	JSL; copy $D9EC-$DA0B to $DA0C-$DA2B (previous-frame state)
+$81:87B2	0x0087B2	code	sub_ball_restore_prev	73	JSL; restore x, y, cell and probe fields from $DA10-$DA2B (not z, not velocity)
+$81:8805	0x008805	code	sub_ball_integrate_air	-	JSL; x, y, z += velocity, then air drag on vx, vy: v -= (|v|+$80)>>8 toward 0, skipped in mode $0A (emulated)
+$81:88AF	0x0088AF	code	sub_air_wall_hit	-	JSL; airborne hit: wall flag -> sub_wall_bounce; else step -> sub_step_bounce, vz *= $DA42, clear spin, hit-stop; then gravity
+$81:8905	0x008905	code	sub_tile_none_land	-	default on-land handler (112 tile values; JML target, RTL): the bounce when z < ground (loc_bounce), else gravity only
+$81:891B	0x00891B	code	loc_bounce	-	the landing: z = ground, sub_reflect_surface($DA04), $DA4E = 1, hit-stop and sub_spin_impulse (modes 0/7), settle if $DA48 < $10 else damp (emulated)
+$81:8975	0x008975	code	loc_bounce_damp	-	fall-through from loc_bounce: vx,vy *= $DA3C, vz *= $DA3E via sub_mul_q15s (Q15, toward 0), $DA48 = 0, then $81:899F adds gravity (emulated)
 $81:89AA	0x0089AA	code	sub_check_fell_out	24	world Z < -$110000: set $7E:D9D2 bit 0 and zero all three velocities
 $81:89C2	0x0089C2	code	sub_ball_integrate	-	position += velocity (16-bit fractions, carry into the cell), height = ground height
-$81:8A56	0x008A56	code	sub_tile_none_hit	-	default on-hit handler, the same 112 values
+$81:8A03	0x008A03	code	sub_roll_edge_hit	-	JSL; rolling: wall flag -> sub_wall_bounce; step up -> sub_step_bounce (clears spin); drop -> loc_launch
+$81:8A56	0x008A56	code	sub_tile_none_hit	-	default on-hit handler (112 tile values) = the rolling step: button modifiers, friction along the heading, slope acceleration, then loc_roll_curve (emulated)
+$81:8B78	0x008B78	code	loc_launch	-	ball leaves the ground: vz = (vx*tbl_launch_x[c] + vy*tbl_launch_y[c]) >> 16, c = $DA24 (or A at $81:8B7B), halved off cardinal ramps; airborne = 1 (emulated flat drop)
+$81:8C12	0x008C12	tbl	tbl_friction_class	20	surface code 0-9 -> class offset: 0 flat, 2 ramps 1-4, 4 diagonals 5-8, 6 code 9 (shapes $08-$0B)
+$81:8C48	0x008C48	code	sub_hitstop_step	49	JSR; step hit with |vx|+|vy| >= $300 at edge 0/1: freeze the physics 2 frames (Kirby state $0C)
+$81:8C79	0x008C79	code	sub_hitstop_land	105	JSR; landing with |vz| >= $900 and $6A70 = 0: freeze 4 frames via $80:8F78, Kirby state $0C then $0E (emulated)
+$81:8CE2	0x008CE2	code	sub_spin_impulse	53	JSL; fly shot ($D9B6 != 0) with spin pending: vx += $D9CC, vy += $D9CE at the first landing, then clear (emulated)
+$81:8D17	0x008D17	code	loc_roll_curve	59	end of the rolling step (JML, RTL): grounder curve, vx += (~w*vy)>>16, vy += (w*vx)>>16, w = $D9CC (emulated)
+$81:8D53	0x008D53	code	sub_spin_decay_unused	87	decays $D9CE by |v|/64+1 and clears the spin under $40; no caller found
+$81:8DAB	0x008DAB	code	sub_reflect_long	4	JSL wrapper of sub_reflect
+$81:8DAF	0x008DAF	code	sub_reflect	-	JSR; v = M v with the Q15 3x3 matrix in dp $4C-$5C (sub_mul_q15, zero entries skipped; vz column only when airborne)
+$81:8E60	0x008E60	code	sub_ball_heading	-	JSL; $D9DA = atan2 degrees of (vx, vy), or the last heading when still; $D9E0/$D9DE 32/16 directions
+$81:8E98	0x008E98	tbl	tbl_deg_to_dir32	361	degrees 0-360 -> 32-way direction, round(deg*32/360) mod 32
+$81:9001	0x009001	code	sub_edge_crossing	-	JSL; cell-edge test: A = $DA4C step height (half steps), $D9E4 step edge, $D9E6 wall-flag edge, $6A78 direction of motion
 $81:925E	0x00925E	code	sub_edge_step_height	40	surface step across a cell edge: 2*elevation + tbl_terrain_edge_h[shape*4+dir]
 $81:92AC	0x0092AC	code	sub_edge_wall_flags	36	the only read of course grid layer 4; masks its low nibble by direction 0-3
 $81:9310	0x009310	data	tbl_terrain_edge_h	112	28 shapes x 4 bytes: surface level at the N/E/S/W edge midpoint, in half steps
+$81:9390	0x009390	code	sub_wall_bounce	16	JSL; restore the previous position, reflect with matrix 9 + $D9E6 (no loss)
+$81:93D1	0x0093D1	code	sub_step_bounce	115	JSL; restore position, clamp to the edge, reflect with 9 + $D9E4, normal component *= $DA40 (emulated)
+$81:9444	0x009444	code	sub_reflect_surface	53	JSL; A = matrix index (surface code 0-8, or 9 + edge): load tbl_reflect_matrix and apply sub_reflect
 $81:9479	0x009479	code	sub_terrain_probe	-	JSL; world position -> cell index, shape, elevation, quadrant, 32-bit surface Z
 $81:952A	0x00952A	ptr	tbl_surface_handler	10	5 targets for JMP ($952A,X): flat, then ramps rising with +y, -x, -y, +x
 $81:9569	0x009569	data	tbl_terrain_quad_diag	-	per-quadrant Z for shapes $10-$1B; $FFFF means evaluate a diagonal ramp
 $81:9583	0x009583	ptr	tbl_surface_handler_diag	18	9 targets for the diagonal surface codes; 1-4 are unreachable traps
 $81:95E4	0x0095E4	data	tbl_shape_handler_idx	9	surface shape code 0-8 -> tbl_surface_handler index; $FF for the diagonals
 $81:9629	0x009629	data	tbl_terrain_diag_bias	-	Z bias subtracted for shapes $10-$1B; $5A82 for $14-$17, else $0000
-$81:9793	0x009793	code	sub_signed_mul_8	-	A = A * X / 256, signed, through the PPU multiplier $211B/$211C
+$81:9793	0x009793	code	sub_mul_q15s	-	JSL; A = A * X / 32768, sign-magnitude (rounds toward 0), via sub_mul_q15. Used for the bounce factors
+$81:97A9	0x0097A9	code	sub_mul_q15	98	JSL; signed A * X >> 15 (floor) through the PPU multiplier $211B/$211C
+$81:980B	0x00980B	code	sub_ramp_launch_test	-	JSL; carry set = the ball leaves the ground at a surface change (then $81:8B7B), sets $6A7A; partly read
 $81:9D81	0x009D81	data	tbl_terrain_quad	224	28 shapes x 4 words: surface shape code per quadrant, quadrant order N/E/S/W
+$81:9E61	0x009E61	tbl	tbl_launch_x	18	surface code 0-8 -> vz per unit vx when leaving the ground, 0 or +-$5A82 (/65536)
+$81:9E73	0x009E73	tbl	tbl_launch_y	18	the same for vy
+$81:9E85	0x009E85	tbl	tbl_slope_accel_x	18	surface code 0-8 -> Q15 slope factor for vx, 0 or +-$2838 (0.3142); times tbl_ball_gravity (emulated: -43/frame)
+$81:9E97	0x009E97	tbl	tbl_slope_accel_y	18	the same for vy
+$81:9EA9	0x009EA9	tbl	tbl_step_damp_mask	16	two 4-word masks by edge ($9EA9 for vx, $9EB1 for vy): non-zero = scale that axis by $DA40 at a step hit
+$81:9EB9	0x009EB9	tbl	tbl_reflect_index	32	matrix index -> byte offset (index * 18) into tbl_reflect_matrix; 13-15 point past it and are never used
+$81:9ED9	0x009ED9	tbl	tbl_reflect_matrix	234	13 Q15 3x3 Householder reflections: flat, 4 ramps, 4 diagonals, 4 wall edges (emulated: flat and ramp)
+$81:A804	0x00A804	code	loc_aim_state	-	sets Kirby's animation state 4/5 (aiming, looking around) during the aiming stage
+$81:AF82	0x00AF82	code	sub_guide_step	-	shot guide: a copy of the physics step run while aiming to predict the path; $6AC6 = point kind (unconfirmed)
+$81:BA0B	0x00BA0B	code	sub_launch_velocity	-	JSL; vz = P sin e, h = P cos e, vx = h cos(aim), vy = h sin(aim); P = $6ADC (entry $81:BA0E with A = P), e = $D9B6 (emulated)
+$81:C12E	0x00C12E	code	sub_spin_side_input	-	JSR; Left/Right move $6B50 every 8 frames; in a fly shot also steps $6B52 (6->0->12->0)
+$81:C1D5	0x00C1D5	code	sub_shot_spin	273	JSR; $D9CC/$D9CE/$D9D0 from $6B50/$6B52, power and aim: grounder curve or fly-shot impulse (emulated)
+$81:C2E6	0x00C2E6	code	sub_shot_power	42	JSL; $6ADC = $1300 * tbl_power[$6B3A] >> 14; tbl_power $88:A670 grounder, $88:A6F0 fly shot
 $81:C7AF	0x00C7AF	code	sub_medal_flags	54	ram_medal_flags from every save slot (OR over the five members); $81:C7E5 does one slot ($EAB7)
 $81:E0C7	0x00E0C7	tbl	tbl_name_entry_zones	-	name entry: cursor hit zones (CLR x 4-$15 y $38-$45, OK x $28-$3B), read by $81:DFD9
 $81:F6B6	0x00F6B6	code	sub_members_ranking	-	members list option RANKING (jump table $81:FC23, $EAB5 = 3): the per-course ranking table; A on an entry -> sub_ranking_result_card
@@ -335,6 +426,12 @@ $82:B20C	0x01320C	code	sub_course_load_grids	100	decompress course tables 1-4 (w
 $82:B320	0x013320	code	sub_spawn_course_actors	-	load-time sweep of layer 2; looks each value up in tbl_tile_actor
 $82:B3AF	0x0133AF	code	sub_spawn_actor	-	A = actor id from tbl_tile_actor: spawns thread object type A via sub_thread_spawn_below at the cell ($6A82/$6A86); $8000 records the cell without spawning. Actor id == object type (emulated: all 232 holes)
 $82:BDBC	0x013DBC	data	tbl_tile_actor	512	256 words, layer-2 byte -> actor id; $FFFF means no actor
+$82:C84E	0x01484E	code	loc_roll_state_by_spin	-	picks Kirby's rolling animation state 14, 16 or 15 from how far $6B54/$6B58 (0-12, centre 6) are from 6
+$82:C90A	0x01490A	tbl	tbl_ability_states	-	copy ability -> Kirby animation state
+$82:DA51	0x015A51	code	sub_shot_buttons	-	JSR, from $82:CDFF; A or Y pressed while the ball moves arms $DA76/$DA78/$DA7A
+$82:DB20	0x015B20	code	sub_shot_buttons_apply	85	JSR; on a bounce/step/wall event: vx, vy, vz += v*k/256, k = +39 (A) or -25 (Y) from $82:DB75 (emulated)
+$82:DB9A	0x015B9A	code	sub_kirby_hit_dispatch	-	a ball hit by another ball's ability: Kirby animation states 40-50 via tbl_hit_reactions
+$82:DBDE	0x015BDE	tbl	tbl_hit_reactions	-	hit code -> Kirby animation state (40-50)
 $82:F903	0x017903	code	sub_map_select	-	scene 17, MAP SELECT: course (NORMAL/EXTRA), course number and hole number, then plays that hole. From the title menu's MAP SELECT ($83:B95B)
 $83:ABC5	0x01ABC5	code	sub_ball_lost	-	consequence of a hazard tile or of falling out of the world; not traced
 $83:B406	0x01B406	code	sub_text_draw	-	walk a string, OR $3C00 (palette 7, priority) into each glyph and store into the BG3 tilemap buffer; $FE = newline, $F0-$FF dispatch through tbl_text_control
@@ -359,6 +456,8 @@ $87:EF88	0x03EF88	data	tbl_dedede_damage	16	(lo, hi) height thresholds above the
 $88:8000	0x040000	data	tbl_height_z_lo	200	Z(h) = h * $5A82, low words, indexed by elevation*2
 $88:80C8	0x0400C8	data	tbl_height_z_hi	200	Z(h) = h * $5A82, high words, indexed by elevation*2
 $88:8190	0x040190	data	tbl_slope_ramp	2048	1024-entry linear ramp 22..46316; 0-511 spans one height step, 0-1023 two
+$88:A670	0x042670	tbl	tbl_power_grounder	128	power meter 0-63 -> power factor, grounder
+$88:A6F0	0x0426F0	tbl	tbl_power_fly	128	power meter 0-63 -> power factor, fly shot
 $88:A770	0x042770	ptr	tbl_course_header	768	256 long pointers to 28-byte uncompressed hole headers (8 words + 12-char name)
 $88:AA70	0x042A70	ptr	tbl_course_grid1	768	256 long pointers; w*h grid layer -> $7E:6B90 (size = header word 0)
 $88:AD70	0x042D70	ptr	tbl_course_grid2	768	256 long pointers; w*h grid layer -> $7E:8390 (size = header word 0)

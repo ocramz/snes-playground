@@ -333,9 +333,13 @@ python3 tools/actorids.py                    # actor id == object type, checked
 python3 tools/kirbyanim.py --state 6         # Kirby's animation script for one state
 python3 tools/kirbyanim.py --make-base && python3 tools/kirbyanim.py   # all 51, rendered
 python3 tools/kirbyanim.py --live            # the same from play, by state and angle
+python3 tools/kirbyanim.py --clips           # one GIF/strip/JSON clip per state x arm -> build/sprites/kirby/clips
 python3 tools/snesstep/autoplay.py --course 0   # play course 1 to the end, real hole-outs
 python3 tools/snesstep/autoplay.py --frames 135000 --out build/emu/autoplay/game  # the whole game (~5 min)
 python3 tools/snesstep/ending.py build/emu/autoplay/game   # medal award, Dedede, ending, credits
+python3 tools/snesstep/autoplay.py --extra --frames 150000   # the extra game, from that save
+python3 tools/snesstep/autoplay.py --two-player --frames 14000   # a 2-player course (pad 2 = "2:A")
+python3 tools/snesstep/capture.py build/emu/autoplay/two_player two_player_result=13100   # named frames
 python3 tools/snesstep/screens.py ranking map_select       # screens that need a save or medal flags
 python3 tools/emusheets.py SNAPDIRS...       # sprite sheets from live object state
 
@@ -376,9 +380,11 @@ matching:
 - [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,
   and where the strings are.
 - [docs/physics.md](docs/physics.md) — the ball's state and one physics
-  frame, the game's enemy list and how the last enemy becomes the cup, the
-  hit and holing rules, King Dedede, the screen projection, and the
-  driver that plays the whole game.
+  frame (friction, slope acceleration, the bounce as a reflection in the
+  surface normal, walls and steps, the shot's power and spin), the game's
+  enemy list and how the last enemy becomes the cup, the hit and holing
+  rules, King Dedede, the screen projection, and the driver that plays the
+  whole game, the extra game and a 2-player course.
 - [docs/emulation.md](docs/emulation.md) — the headless stepper: what is
   emulated, how it was validated against the static facts, input scripts,
   pokes, and which screens they reach.

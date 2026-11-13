@@ -159,6 +159,8 @@ pub struct InputSpan {
     pub start: u64,
     pub end: u64,
     pub mask: u16,
+    /// Controller port: 0 = pad 1, 1 = pad 2.
+    pub port: u8,
 }
 
 pub struct Bus {
@@ -201,6 +203,10 @@ pub struct Bus {
     pub inputs: Vec<InputSpan>,
     pub pad: u16,
     joy1: u16,
+    // Pad 2. Not in save states: both are recomputed from the input script
+    // at the next vblank, before the game can read them.
+    pad2: u16,
+    joy2: u16,
     joy_busy_until: u64,
     joy_strobe: bool,
     joy_shift: [u16; 2],
@@ -274,6 +280,8 @@ impl Bus {
             inputs: Vec::new(),
             pad: 0,
             joy1: 0,
+            pad2: 0,
+            joy2: 0,
             joy_busy_until: 0,
             joy_strobe: false,
             joy_shift: [0; 2],
@@ -641,17 +649,17 @@ impl Bus {
 
     // --- joypads -----------------------------------------------------------
 
-    fn pad_for_frame(&self, frame: u64) -> u16 {
+    fn pad_for_frame(&self, frame: u64, port: u8) -> u16 {
         self.inputs
             .iter()
-            .filter(|s| s.start <= frame && frame < s.end)
+            .filter(|s| s.port == port && s.start <= frame && frame < s.end)
             .fold(0, |m, s| m | s.mask)
     }
 
     fn write_joyser(&mut self, v: u8) {
         let strobe = v & 1 != 0;
         if strobe {
-            self.joy_shift = [self.pad, 0];
+            self.joy_shift = [self.pad, self.pad2];
             self.joy_bits = [0, 0];
         }
         self.joy_strobe = strobe;
@@ -659,7 +667,8 @@ impl Bus {
 
     fn read_joyser(&mut self, port: usize) -> u8 {
         let bit = if self.joy_strobe {
-            u8::from(port == 0 && self.pad & 0x8000 != 0)
+            let p = if port == 0 { self.pad } else { self.pad2 };
+            u8::from(p & 0x8000 != 0)
         } else if self.joy_bits[port] >= 16 {
             1
         } else {
@@ -700,7 +709,9 @@ impl Bus {
             0x4217 => (self.rdmpy >> 8) as u8,
             0x4218 => self.joy1 as u8,
             0x4219 => (self.joy1 >> 8) as u8,
-            0x421A..=0x421F => 0,
+            0x421A => self.joy2 as u8,
+            0x421B => (self.joy2 >> 8) as u8,
+            0x421C..=0x421F => 0,
             0x4300..=0x437F => {
                 let c = &self.dma[((off >> 4) & 7) as usize];
                 match off & 0xF {
@@ -1065,9 +1076,11 @@ impl Bus {
                 self.nmi_pending = true;
             }
             self.ppu.vblank_oam_reload();
-            self.pad = self.pad_for_frame(self.frame);
+            self.pad = self.pad_for_frame(self.frame, 0);
+            self.pad2 = self.pad_for_frame(self.frame, 1);
             if self.nmitimen & 1 != 0 {
                 self.joy1 = self.pad;
+                self.joy2 = self.pad2;
                 self.joy_busy_until = self.line_start + 130 + 4224;
             }
             self.vblank_event = true;

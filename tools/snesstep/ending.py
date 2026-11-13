@@ -23,6 +23,7 @@ whole in `build/screens/ending/`, and a few named screens are copied to
 
     python3 tools/snesstep/autoplay.py --frames 135000 --out build/emu/autoplay/game
     python3 tools/snesstep/ending.py build/emu/autoplay/game
+    python3 tools/snesstep/ending.py build/emu/autoplay/extra --prefix extra_
 """
 
 import argparse
@@ -42,7 +43,15 @@ STEP = 45               # credits snapshot spacing
 
 def replay(run, out, frames, extra, inp=None):
     shutil.rmtree(out, ignore_errors=True)
-    subprocess.run([BIN, "--frames", str(frames),
+    # A run that booted from a save (autoplay.py --extra) replays from it.
+    sram = []
+    cfg = os.path.join(run, "run.json")
+    if os.path.exists(cfg):
+        with open(cfg) as f:
+            path = json.load(f).get("sram")
+        if path:
+            sram = ["--sram", path]
+    subprocess.run([BIN, "--frames", str(frames)] + sram + [
                     "--input", inp or os.path.join(run, "input.txt"),
                     "--pokes", os.path.join(run, "pokes.txt"),
                     "--no-dsp", "--quiet", "--out", out] + extra, check=True)
@@ -71,6 +80,8 @@ def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run", help="an autoplay.py output directory played past the ending")
+    ap.add_argument("--prefix", default="",
+                    help="prefix for the screen names, e.g. extra_ for the extra game")
     a = ap.parse_args()
     run = os.path.abspath(a.run)
     work = os.path.join(run, "ending")
@@ -126,7 +137,7 @@ def main():
         where["medal_award"] = medal
 
     dest = os.path.join(ROOT, "build", "screens")
-    seq = os.path.join(dest, "ending")
+    seq = os.path.join(dest, a.prefix + "ending")
     shutil.rmtree(seq, ignore_errors=True)
     os.makedirs(seq)
     for i, fr in enumerate(credits):
@@ -134,7 +145,7 @@ def main():
                os.path.join(seq, "credits_{:03d}.png".format(i)))
     for name, fr in named.items():
         render(os.path.join(where[name], "f{:06d}".format(fr)),
-               os.path.join(dest, name + ".png"), layers=True)
+               os.path.join(dest, a.prefix + name + ".png"), layers=True)
     print("{} named screens and {} credits frames -> {}".format(
         len(named), len(credits), os.path.relpath(dest, ROOT)))
     return 0

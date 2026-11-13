@@ -132,6 +132,8 @@ JSL return address.
 | 15 | medal award ("a gold medal for all courses") | `$83:F9FB` | autoplay, whole game, after course 8 |
 | 18 | the ending, Dedede over the clouds | `$87:F02F` | autoplay, whole game, King Dedede beaten |
 | 19 | the credits, drawn in stars, then END | `$84:FB31` | the same |
+| 8 | 2-player result: stars per player, WIN / LOSE (after a per-hole star scorecard drawn over the hole scene) | `$83:BF66` | autoplay `--two-player` |
+| 5, 11, 0, 8, 15, 18, 19 | the extra game: "EXTRA n" map, EXTRA COURSE intro, holes, results, EXTRA medal award, ending | | autoplay `--extra` |
 
 Each is rendered with tools/ppu_render.py and copied, named, to
 `build/screens/<name>.png`, with its whole BG tilemaps, sprite layer and
@@ -163,7 +165,9 @@ attract-mode hole asks for `$7E`, song 0, the silent carrier.
 `--input FILE`, one entry per line: `FRAME BUTTONS [HOLD]`, buttons
 `B Y SELECT START UP DOWN LEFT RIGHT A X L R` joined with `+`, `HOLD`
 frames (default 1), `#` comments. The pad state for frame F is latched at
-F's vblank. Pad 1 only.
+F's vblank. Buttons are pad 1's; prefix them with `2:` for pad 2
+(`2:A+B`). Pad 2 is not stored in save states: it is recomputed from the
+script at the next vblank.
 
 | script | reaches |
 |---|---|
@@ -176,6 +180,7 @@ F's vblank. Pad 1 only.
 | `map_select.txt` | title menu with the hidden items → MAP SELECT → NORMAL COURSE → the MAP SELECT screen (scene 17); needs the medal-flag pokes |
 | `sound_room.txt` | title menu → SOUND ROOM (drawn over the title); needs the medal-flag pokes |
 | `dance.txt` | title menu → DANCE SELECT → 1PLAY DANCE → DANCE01: Kirby's dance on the scene-8 stage, then the title; needs the medal-flag pokes |
+| `play_extra.txt` | from a finished-game save: 1PLAY GAME → PLAY EXTRA COURSE → member 1 → extra course 1 (hole at 2279) |
 | `ranking.txt` | members list → RANKING (scene 2) → A on entry 01 → its RESULT card (scene 3); needs a save with a cleared course |
 
 Facts the scripts depend on, found with the stepper:

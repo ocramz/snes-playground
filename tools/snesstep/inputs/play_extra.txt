@@ -1,0 +1,13 @@
+# Extra game, from a save that has finished the normal game (autoplay.py
+# --frames 135000 leaves one in build/emu/autoplay/game/sram.bin): title ->
+# 1PLAY GAME -> PLAY EXTRA COURSE (offered once $7E:EAAB is set) -> members
+# list (scene 2) -> MEMBERS -> member 1 -> the extra course map (scene 5,
+# "EXTRA 1") -> EXTRA COURSE 1 intro (scene 11, 1528) -> hole (scene 0, 2279).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> PLAY COURSE / PLAY EXTRA COURSE
+560 DOWN 2      # cursor -> PLAY EXTRA COURSE
+620 A 2         # members list, cursor on MEMBERS
+800 A 2         # the member rows
+900 A 2         # member 1 -> extra course map
+1150 A 2
+1500 A 2        # enter extra course 1 -> intro

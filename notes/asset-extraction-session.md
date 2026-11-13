@@ -263,3 +263,11 @@ Still open:
   - slope acceleration (`$81:9001`, `$81:9444`, `$81:9EB9`);
   - the bounce (`$81:811B`);
   - spin.
+
+## Extra game and 2 players, 2026-11-13
+
+- **The extra game** (`autoplay.py --extra`, booting from the finished-game save) plays to its own medal award, Dedede (8 hits of 3) and the same ending. Its save unlocks all six title-menu items without pokes.
+- **A 2-player course** (`autoplay.py --two-player`) plays to the star scorecard and the 2P result (scene 8).
+  - The stepper now has pad 2 (`2:A`).
+  - The per-player ball block interleaves the players by word.
+- Not done: the other three 2P courses (Mr. Shine & Mr. Bright, Kracko, Gordo), and a 2P game in which player 2 scores.

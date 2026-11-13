@@ -35,6 +35,7 @@ usage: snesstep [ROM] [options]
   --out DIR              output directory (default build/emu/run)
   --input FILE           input script: 'FRAME BUTTONS [HOLD]' per line,
                          buttons B Y SELECT START UP DOWN LEFT RIGHT A X L R
+                         joined with +; prefix 2: for pad 2 (2:A)
                          joined with '+'; '#' starts a comment
   --snap-at F,F,...      snapshot at the start of vblank of these frames
   --snap-every N         snapshot every N frames
@@ -288,8 +289,13 @@ fn parse_input(path: &Path) -> Result<Vec<InputSpan>, String> {
         } else {
             1
         };
+        // "2:A+B" is pad 2; pad 1 otherwise.
+        let (port, names) = match f[1].strip_prefix("2:") {
+            Some(rest) => (1u8, rest),
+            None => (0u8, f[1]),
+        };
         let mut mask = 0u16;
-        for b in f[1].split('+') {
+        for b in names.split('+') {
             let b = b.to_ascii_uppercase();
             if b == "NONE" {
                 continue;
@@ -305,6 +311,7 @@ fn parse_input(path: &Path) -> Result<Vec<InputSpan>, String> {
             start,
             end: start + hold,
             mask,
+            port,
         });
     }
     Ok(spans)

@@ -60,11 +60,14 @@ NAMED = [
 
 # The title menu's hidden items (MAP SELECT, SOUND ROOM, DANCE SELECT) are
 # gated on the medal flags that sub_medal_flags $81:C7AF computes from the
-# save; setting them right after it returns ($83:B720) shows all three.
-# This is a steer, not play: the flags normally need medals on all courses.
-MEDAL_FLAGS = []
+# save. The save left by playing the extra game to the end (autoplay.py
+# --extra) earns all three. Without it, the flags are set right after
+# sub_medal_flags returns ($83:B720): a steer, not play.
+EXTRA_SRAM = os.path.join(ROOT, "build", "emu", "autoplay", "extra", "sram.bin")
+FLAG_POKES = []
 for _a in ("EAA9", "EAAB", "EAAD", "EAAF", "EAB1", "EAB3"):
-    MEDAL_FLAGS += ["--poke-at-pc", "$83:B720,$7E:{}=0001".format(_a)]
+    FLAG_POKES += ["--poke-at-pc", "$83:B720,$7E:{}=0001".format(_a)]
+MEDAL_FLAGS = ["MEDALS"]        # resolved in run_script
 # A save with course 1 cleared, written by tools/snesstep/autoplay.py.
 COURSE1_SRAM = os.path.join(ROOT, "build", "emu", "autoplay", "course1", "sram.bin")
 
@@ -105,6 +108,10 @@ def run_script(name, render):
     if "--sram" in extra and not os.path.exists(extra[extra.index("--sram") + 1]):
         print("{}: skipped, no save (run tools/snesstep/autoplay.py --course 0)".format(name))
         return []
+    if extra == MEDAL_FLAGS:
+        extra = ["--sram", EXTRA_SRAM] if os.path.exists(EXTRA_SRAM) else FLAG_POKES
+        print("{}: hidden menu items from {}".format(
+            name, "the extra-game save" if extra[0] == "--sram" else "flag pokes"))
     out = os.path.join(OUT, name)
     os.makedirs(out, exist_ok=True)
     cmd = [BIN, "--frames", str(frames), "--out", out,

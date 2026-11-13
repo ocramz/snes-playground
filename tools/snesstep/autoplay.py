@@ -68,13 +68,39 @@ def w16(w, a):
     return w[a] | (w[a + 1] << 8)
 
 
-def mash_input(path, until):
-    lines = [l for l in open(os.path.join(HERE, "inputs", "play_hole1.txt"))
+def mash_input(path, until, boot="play_hole1.txt", mash_from=3400, pad2=False):
+    lines = [l for l in open(os.path.join(HERE, "inputs", boot))
              if l.strip() and not l.startswith("#")]
     with open(path, "w") as f:
         f.writelines(lines)
-        for fr in range(3400, until, 20):
+        for fr in range(mash_from, until, 20):
             f.write("{} A 2\n".format(fr))
+            if pad2:
+                # Player 2 shoots with pad 2.
+                f.write("{} 2:A 2\n".format(fr + 10))
+
+
+def for_player(pokes, px):
+    """Move ball-block pokes to another player's copy.
+
+    The per-player block `$7E:D87A`-`$D96E` interleaves the players: each
+    field is a word per player, so player 2's copy is 2 bytes on
+    (`$82:F030` loads it with X = `$7E:1803`, 0 or 2).
+    """
+    if not px:
+        return pokes
+    out = []
+    for p in pokes:
+        if p.startswith("--"):
+            out.append(p)
+            continue
+        fr, rest = p.split(":", 1)
+        addr, val = rest.split("=")
+        a = int(addr.split(":")[1], 16)
+        if 0xD87A <= a <= 0xD96F:
+            a += px
+        out.append("{}:$7E:{:04X}={}".format(fr, a, val))
+    return out
 
 
 def enemy_list(w):
@@ -273,15 +299,47 @@ def main():
     ap.add_argument("--resume", metavar="DIR",
                     help="continue a finished run in DIR (its state.bin, pokes.txt "
                          "and last segment) instead of booting")
+    ap.add_argument("--extra", action="store_true",
+                    help="play the extra game: boot through the menus with "
+                         "inputs/play_extra.txt from a save that has finished "
+                         "the normal game (--sram)")
+    ap.add_argument("--two-player", action="store_true",
+                    help="play a 2-player game (inputs/two_player.txt, course "
+                         "Whispy Woods), steering whichever player's ball rolls")
+    ap.add_argument("--sram", default=None,
+                    help="battery RAM at power-on (default with --extra: "
+                         "build/emu/autoplay/game/sram.bin)")
     args = ap.parse_args()
+    if args.extra and not args.sram:
+        args.sram = os.path.join(ROOT, "build", "emu", "autoplay", "game", "sram.bin")
+    sram = ["--sram", os.path.abspath(args.sram)] if args.sram else []
     out = args.out or os.path.join(ROOT, "build", "emu", "autoplay",
+                                   "extra" if args.extra else
+                                   "two_player" if args.two_player else
                                    "course{}".format(args.course + 1))
     shutil.rmtree(out, ignore_errors=True)
     os.makedirs(os.path.join(out, "screens"))
     seg = os.path.join(out, "seg")
     state = os.path.join(out, "state.bin")
     inp = os.path.join(out, "input.txt")
-    mash_input(inp, args.frames + 100)
+    if args.two_player:
+        start = 1750
+        mash_input(inp, args.frames + 100, "two_player.txt", 1900, pad2=True)
+        course_pokes = []
+    elif args.extra:
+        # The menus pick the course; the extra map starts on the first
+        # course not yet cleared. No course poke.
+        start = 2300
+        mash_input(inp, args.frames + 100, "play_extra.txt", 2400)
+        course_pokes = []
+    else:
+        start = START
+        mash_input(inp, args.frames + 100)
+        course_pokes = ["--poke", "{}:$7E:6A5A={:04X}".format(START, args.course),
+                        "--poke", "{}:$7E:6A5E={:04X}".format(START, args.hole)]
+    with open(os.path.join(out, "run.json"), "w") as f:
+        json.dump({"sram": sram[1] if sram else None, "extra": args.extra,
+                   "two_player": args.two_player}, f)
 
     if args.resume:
         # The earlier run's last segment snapshot is frame end - 1.
@@ -293,31 +351,31 @@ def main():
             prefix = [l.strip() for l in f if l.strip()]
     else:
         # Boot to the course intro and pick the course.
-        subprocess.run([BIN, "--frames", str(START + 1), "--input", inp,
-                        "--poke", "{}:$7E:6A5A={:04X}".format(START, args.course),
-                        "--poke", "{}:$7E:6A5E={:04X}".format(START, args.hole),
-                        "--save-state", state, "--no-dsp", "--quiet", "--out", seg],
+        subprocess.run([BIN, "--frames", str(start + 1), "--input", inp] +
+                       course_pokes + sram +
+                       ["--save-state", state, "--no-dsp", "--quiet", "--out", seg],
                        check=True)
-        frame = START + 1
+        frame = start + 1
     visited = set()
     elev, actor_cells = {}, []
     tries = {}
     left_seen = None
-    last_pos, last_rolling, still_since = None, None, START
+    last_pos, last_rolling, still_since = None, None, frame
     placed = None                # (frame, x, y) of the last enemy approach
     boss_hole = None             # hole index of the final stage, once seen
     log = []
     pokes = []
-    all_pokes = ["--poke", "{}:$7E:6A5A={:04X}".format(START, args.course),
-                 "--poke", "{}:$7E:6A5E={:04X}".format(START, args.hole)]
+    all_pokes = list(course_pokes)
     if args.resume:
         all_pokes = []
         for p in prefix:
             all_pokes += ["--poke", p]
     hole_seen = None
     seg_len = SEG
+    px = 0                       # the player whose ball it is, x 2
     while frame < args.frames:
         end = frame + seg_len
+        pokes = for_player(pokes, px)
         shutil.rmtree(seg, ignore_errors=True)
         subprocess.run([BIN, "--load-state", state, "--save-state", state,
                         "--frames", str(end), "--input", inp, "--snap-at", str(end - 1),
@@ -344,7 +402,8 @@ def main():
             elev, actor_cells = load_course(hole)
             log.append({"frame": frame, "event": "hole", "index": hole})
             print("frame {}: hole index {}".format(frame, hole), flush=True)
-        st = w16(w, 0xD7D4)
+        px = w16(w, 0x1803) & 2
+        st = w16(w, 0xD7D4 + px)
         # Rescue: a ball placed in the air next to a wall can lodge there,
         # airborne and still, and the hole never moves on. If it sits
         # outside a rolling state at one position for STUCK frames, put it
@@ -466,7 +525,7 @@ def main():
             f.write(all_pokes[i + 1] + "\n")
     # Replay everything in one run and keep each screen the game set up.
     shots = os.path.join(out, "replay")
-    subprocess.run([BIN, "--frames", str(args.frames), "--input", inp,
+    subprocess.run([BIN, "--frames", str(args.frames), "--input", inp] + sram + [
                     "--snap-scenes", "--scene-settle", "20", "--log-pc", "$80:CABC",
                     "--no-dsp", "--quiet", "--out", shots,
                     "--pokes", os.path.join(out, "pokes.txt"),

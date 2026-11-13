@@ -189,11 +189,11 @@ These screens were named by running the game and looking at what it shows
 | 2 | members list, name entry, and the per-course RANKING table | 1PLAY GAME |
 | 3 | one ranking entry's per-hole RESULT card, over its course's scenery (`$81:F92B`) | members list, RANKING, A on an entry; needs a save with a cleared course |
 | 4 | course ranking after a course | autoplay |
-| 5 | course map | |
+| 5 | course map, and the extra game's "EXTRA n" map | |
 | 6 | 2-player course select | |
-| 8 | course result, BEST SCORE / YOUR SCORE; also the stage of DANCE SELECT's Kirby dance | autoplay; DANCE SELECT |
+| 8 | course result, BEST SCORE / YOUR SCORE; the 2-player result (stars, WIN / LOSE); the stage of DANCE SELECT's Kirby dance | autoplay; autoplay --two-player; DANCE SELECT |
 | 9 | GAME OVER, then CONTINUE / GAME END | autoplay without the lives poke |
-| 11 | course intro | |
+| 11 | course intro (COURSE n / EXTRA COURSE n) | |
 | 12 | 2-player handicap | |
 | 13 | DEMOPLAY SELECT | |
 | 15 | medal award: "You got a medal for all courses! Go to the Title Screen and look at the menu!" (six texts, `$83:FB02`-`$83:FD4F`) | after the last course whose result completes a medal level on every course (`sub_medal_award $83:F985`) |
@@ -218,7 +218,8 @@ the 2PLAY GAME submenu once `$EAA9` is set. The values are 1 = bronze,
 2 = silver, 3 = gold: the award text for "all three flags set" is "You got
 a gold medal for all courses". *Emulated*: the whole game played by
 tools/snesstep/autoplay.py stores 3 for every course. With that save, the
-title menu shows MAP SELECT with no pokes.
+title menu shows MAP SELECT with no pokes. After the extra game is played
+too (`autoplay.py --extra`), it shows all six items.
 
 **Scenes 7, 10 and 14 are never requested.**
 * All 21 `JSL $80:CABC` sites pass a literal scene number, and none passes

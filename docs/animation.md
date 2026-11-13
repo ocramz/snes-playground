@@ -464,36 +464,218 @@ operand layouts, is the docstring of `tools/kirbyanim.py`.
 switches on a facing variable and each arm uploads different art into the
 same tile slots under the same layout. The variables:
 
-| variable | arms | used by |
+| variable | arms | what the value is |
 |---|---|---|
-| `$7E:D7C4` | 8 | standing and aiming (states 4, 5) |
-| `$7E:D7CC` | 16 | the shot: curling into the ball (state 6) |
-| `$7E:D8D2` | 11 | unrolling (state 7) |
-| `$7E:D75E`, `$7E:D75A` | 16, 8, 2 | the copy abilities (states 20-36) |
+| `$7E:D7C4` | 8 | Kirby's facing: aiming, waiting (states 4, 5, 9). 3 faces the camera, 7 away, 4 down-right: screen direction ≈ `135 + 45·v` degrees (0 = right, counter-clockwise), estimated from the pictures |
+| `$7E:D7CC` | 16 | the shot's angle: the curl and the unroll (6, 7). Arms 7 and 15 are unique and `k`/`14-k` mirror each other: ≈ `112.5 + 22.5·v` degrees, estimated |
+| `$7E:D85A` | 11 | the copy ability (state 8): 0 none, 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. The order is `$82:C90A`'s jump table, which sets each ability's state, and matches demos 10-19. Values 12-21 are hit codes (below) |
+| `$7E:D7F0` | 3 | Kirby's health (state 11): 4 at a hole's start, -1 per shot (`$83:AC12`), +1 per enemy (`$83:AC01`) -- *emulated*, hole1long |
+| `$7E:D8A6` | 2 | 0 on the ground, 1 airborne (state 13) |
+| `$7E:D78C` | 5 | hit code - 12 (state 40): 0 Fireball, 3 Spark reach it |
+| `$7E:D75E` | 16 / 9 | copy-ability direction index (`$82:D8A8` copies `$DA04`); degrees not established |
+| `$7E:D75A` | 2 / 8 / 16 | per ability: a 2-way variant (Stone, Needle, Hi-Jump), the UFO's 8 poses, and in 33/34 the tornado's **spin phase**, which the script itself steps (`inc`, `and #$0F`) every frame |
+| `$7E:D8D2`, `$7E:6A6E` | 11 | squash variant of the ball (6, 7, 12); meaning unknown |
 
 **The curl is drawn by a stand-in.** For about 30 frames from the shot
 (state 6, set by `$81:BEF1`), `$84:CA0C` hides script object 0 (index
 `$FFFF`) and thread object type 26 (`$84:C9C7`, table `$89:92F3`) draws
-Kirby, while state 6's script uploads the curl's tiles. `$84:CAB8` restores
-the index afterwards. A renderer that follows only object 0 never sees the
-curl.
+Kirby, while state 6's script uploads the curl's tiles. `$84:CAB8`
+restores the index afterwards. A renderer that follows only object 0
+never sees the curl.
 
-What each state is, named from where the game sets it and what the live
-frames show, is the `STATE_NAMES` table in `tools/kirbyanim.py` and the
-`name` and `evidence` columns of `build/sprites/kirby/states.tsv`. **The
-names are interpretations.** 28 of the 51 states were seen running (hole 1
-and the 20 demos); the rest are named from their script alone or not at
-all.
+**The state table.** Every writer of `$7E:D7D4` was found two ways: the
+`STA $D7D4,X` sites in the ROM (an immediate load before each, so the
+value is readable) and `snesstep --watch-write '$7E:D7D4-$7E:D7D5'` over
+recorded runs. *seen* says how the pictures were obtained: **play**, the
+game reached it in a recorded run (run and frame in the evidence);
+**forced**, no run reached it, so the state was poked into `$7E:D7D4` at
+`$82:C851` (the start of hole 1's roll, which leaves the state alone until
+frame 3401) or `$81:A807` (aiming) and the game's own interpreter ran the
+script -- the pictures are the game's, the situation is not; **script**,
+never shown, described from the script. Runs: *full game* is
+`build/emu/autoplay/game` (135,000 frames; its ball moves are teleports,
+so no shot ever ends on the course and only states 0, 1, 3, 4, 6, 12, 13,
+14, 30 occur); *hole1long* is hole 1 with A pressed every 60 frames;
+*2P* is `inputs/two_player.txt` plus A presses; *dNN* is DEMOPLAY demo
+NN. The names are interpretations of those pictures and of the setting
+code. The `STATES` table in `tools/kirbyanim.py` is the source.
+
+| state | name | seen | switch | clips | evidence |
+|---|---|---|---|---|---|
+| 0 | hold: no script | play | - | - | script `$87:9B44` is a bare halt, so the pose is whatever was last shown; set by `$80:C4CE` as each hole starts (63 times in the full game) |
+| 1 | holed out: no script | play | - | - | same script as 0; set by `$82:AEDB`/`$82:B041` when the ball is holed (64 times in the full game, from 13 or 14) |
+| 2 | hold the pose a script left | play | - | - | same script as 0; stored by the scripts of 8, 20 and by `$85:B4D2` (parasol); stone alternates 20/2 every frame (d10 2066-2096) |
+| 3 | hold for native code | play | - | - | same script as 0; set by `$82:DA4D` when a copy ability is taken (d10 2065, just before the ability's state; Spark has no state of its own and stays here, d16 2202), by `$82:E221` when health runs out (hole1long 7195), `$87:9239`, `$87:E8D8` |
+| 4 | aim, standing still | play | `$7E:D7C4` (8) | 8 script | set every frame by `$81:A804` while aiming with no d-pad/L/R held; switch on the facing `$7E:D7C4` |
+| 5 | aim, turning | play | `$7E:D7C4` (8) | 8 script | `$81:A804` while the d-pad or L/R is held (`$67` & `$0F00`, `$6B` & `$30`); alternates with 4 in d01-d04 |
+| 6 | curl into the ball at the shot | play | `$7E:D7CC` (16) | 16 live | `$81:BEF1` at the shot (hole 1 frame 2823); switch on the shot angle `$7E:D7CC`; drawn by object type 26 while it runs |
+| 7 | unroll after the ball stops | play | `$7E:D7CC` (16) | 16 script | `$81:C08F` when the ball comes to rest (d00 frame 1876, d05 2912): squash, Kirby unrolls, stands; then 4 |
+| 8 | copy ability gained | play | `$7E:D85A` (11) | 11 live | `$82:D9E9` on swallowing an enemy (demos 10-19); switch on the ability `$7E:D85A`; flashes and the ability's first pose; ends in 2 |
+| 9 | stand and wait for the next turn | play | `$7E:D7C4` (8) | 8 script | `$80:C756` at the end of a shot, dropping the copy ability unless `$80:DEFD` keeps it; 2P run frame 2744 (player 1 waits while player 2 shoots), held 183+ frames; switch on the facing `$7E:D7C4` |
+| 10 | fall asleep | forced | - | 1 script | `$80:C7E6` at the end of a shot when health `$7E:D7F0` is 0 and `$6932` is 0; not reached in play; forced: eyes closed, slow breathing 48/8/64/8 frames, sfx 51 three times |
+| 11 | tired, panting (low health) | play | `$7E:D7F0` (3) | 3 script | `$80:C7AE` at the end of a shot when health `$7E:D7F0` is 1 or 2; hole1long 5598 (health 2: one pant) and 6356 (health 1: four pants); switch on `$7E:D7F0` |
+| 12 | ball squashed on a bounce | play | `$7E:6A6E` (11) | 11 script | `$81:8CA2` for 4 frames, back to 14 by `$81:8CD2` (d02 2931, d07 2176); switch on `$7E:6A6E` |
+| 13 | hop (A pressed mid-roll) | play | `$7E:D8A6` (2) | 2 script | `$82:DAAE` on each A press while rolling (hole1long 3920, 3980, ... every 60 frames, as pressed); its script returns to 14 after 17 frames; call switch on `$7E:D8A6` |
+| 14 | ball rolling | play | - | 1 script | `$82:C84E` at the start of the roll (hole 1 frame 2984) when max(/`$6B54`-6/, /`$6B58`-6/) < 3; restored by many routines |
+| 15 | ball rolling, strong spin | play | - | 1 script | `$82:C84E` when max(/`$6B54`-6/, /`$6B58`-6/) >= 4 (d06 2088 with `$6B58` = 0; d09 3487 with `$6B54` = 0); `$6B54`/`$6B58` are 0-12 shot settings centred on 6, taken to be the spin (unconfirmed) |
+| 16 | ball rolling, medium spin | forced | - | 1 script | `$82:C843` when that maximum is exactly 3; not reached in play; forced: ball with spin streaks |
+| 17 | ball rolling, fast (1-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; script: blocks `$87:ABD8-$ABF3`, 1 frame each |
+| 18 | ball rolling (2-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; same blocks as 17, 2 frames each |
+| 19 | ball sinking | forced | - | 1 script | `$82:D87A` (on the $60-$6F surface overlay: `$69DA`, `$69D8` set, `$69CA` clear), `$82:D936`, `$82:E1B0`, each counting `$D76C`; not reached in play; forced in a roll: a dark disc rises over the ball in 4 steps of 4 frames, then 14 |
+| 20 | stone | play | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | `$82:C95B` (ability 1, d10 2065), then 20/2 alternate every frame (`$82:D5D5` and the script's store) |
+| 21 | fireball | play | `$7E:D75E` (16) | 16 script | `$82:CA4D` (d12 2233); switch on `$7E:D75E` |
+| 22 | needle | play | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | `$82:CAF7` (d13 2109) |
+| 23 | needle (same script as 22) | script | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | no writer found in the ROM; not seen; entry `$87:A621` = 22's |
+| 24 | hi-jump: take-off | play | `$7E:D75A` (2), `$7E:D75E` (16) | 32 script | `$82:CC80` (d17 2051) |
+| 25 | hi-jump: in the air | play | `$7E:D75E` (16) | 16 script | `$82:D1F8` (d17 2108) |
+| 26 | wheel: start | play | `$7E:D75E` (16) | 16 script | `$82:CBBC` (d15 1969) |
+| 27 | wheel: rolling | play | `$7E:D75E` (16) | 16 script | `$82:D09B` (d15 2009) |
+| 28 | wheel: stop | play | - | 1 script | `$82:D127` (d15 2061) |
+| 29 | parasol: open | play | - | 1 script | `$82:C9A1` (d11 2190) |
+| 30 | parasol: floating | play | - | 1 script | `$85:B342`/`$85:B63F` (d11 2250, 3090); also `$86:A991` before hole 1 (frame 1974) |
+| 31 | parasol: other pose | forced | - | 1 script | `$85:B425` (parasol object); not reached in play; script uploads `$87:B955` under the index the previous state left |
+| 32 | tornado: start | play | - | 1 script | `$82:CB6D` (d14 1991) |
+| 33 | tornado: spinning | play | - | 1 script | `$82:D72A` by speed (table `$82:D790`), d14 2035 |
+| 34 | tornado: slowing | play | - | 1 script | `$82:D72A`, d14 2682 |
+| 35 | tornado: stop, back to the ball | forced | - | 1 script | `$82:D6E3` when the tornado's speed reaches 0; not reached in play; index 13 for 20 frames, then 14 |
+| 36 | freeze | play | `$7E:D75E` (9) | 9 script | `$82:CCDB` (d18 2002) |
+| 37 | UFO | play | `$7E:D75A` (8) | 8 script | `$82:CD07` (d19 2125) |
+| 38 | UFO: end (empty script) | script | - | - | `$82:D8D3` on the UFO path; the script is a bare halt |
+| 39 | UFO: wearing off | play | - | 1 script | `$82:D8EA`/`$82:D31A`/`$82:D34D` (d19 3000, after 37): the UFO's eyes flash, frames 41/42 every 6 frames, until `$82:D90C` sets 14 (d19 3087) |
+| 40 | hit: burning / electrocuted | forced | `$7E:D78C` (5) | 5 script | `$82:DC11` from the hit dispatch `$82:DBDE` (code `$D85A` - 12 in `$7E:D78C`: 0 = Fireball, 3 = Spark); codes come from the other player's ability via `$80:DF29`/`$80:DF55` (`$82:DB79`, ball contact); not reached in play; forced: Kirby in flames (arm 3: sparks) |
+| 41 | spinning, eyes shut | forced | - | 1 script | `$82:DE8F`, the shooter's side of a Fireball/Spark hit (codes 12/15 in `$D9C6`) once `$DA4E` is set; 40 frames, then 14; not reached in play |
+| 42 | hit: spun round (Tornado) | forced | - | 1 script | `$82:DC31`, hit code 13 (Tornado); not reached in play; forced: Kirby turns through 16 facings |
+| 43 | hit: run over (Wheel) | forced | setter index (4) | 4 script | `$82:DC66`, hit code 14 (Wheel); index 19-22 from `$82:DCA1` by the wheel's direction; not reached in play; forced: flattened, star-eyed |
+| 44 | hit: frozen in ice (Freeze) | forced | - | 1 script | `$82:DCBF`, hit code 16 (Freeze); not reached in play; forced: Kirby turns blue and an ice block closes round him |
+| 45 | thaw | forced | - | 1 script | `$80:C898` at the end of a shot while frozen (`$D85A` = 16) and `$82:E1DB`; not reached in play; forced: ice shatters, Kirby shivers purple, pink again |
+| 46 | hit: squashed (Stone from above) | forced | - | 1 script | `$82:DD0B`, hit code 17 (Stone in the air); index 20; not reached in play; forced: flattened, star-eyed |
+| 47 | red-faced | forced | - | 1 script | `$82:E03F`, the Stone user's side after hit code 17 (`$82:E00D`), after a 90-frame pause; the other ball is thrown up; palette `$98:C7BE`; not reached in play |
+| 48 | recover from red | forced | - | 1 live | `$82:E0BA` after 47; palette fades back (`$98:C7CA-$C7FA`), then the native call `$87:9E62` (forced run: 9 follows); not reached in play |
+| 49 | dizzy (bumped) | play | - | 1 script | `$82:DD73` (code 19) and `$82:DDA1` (code 20, ball-to-ball bump); d08 2372: black/white flash, then spinning eyes, then 14 |
+| 50 | plain ball | forced | - | 1 script | `$82:DDE7`, hit code 21 (from `$82:A4DB`); shows index 0 with block `$87:AB7E`; not reached in play |
+
+Notes on what the table rests on:
+
+* **States 0-3 and 38 have no animation**: their script is a bare `halt`
+  (0-3 all point at `$87:9B44`). The picture is whatever was shown last,
+  or native code draws Kirby. The old names "stone: transform" and
+  "spark: charged ball" for 2 and 3 described what was on screen while
+  these do-nothing states were set.
+* **4 vs 5** is the d-pad: `$81:A7E6`-`$A804` stores 5 while a direction
+  or L/R is held, else 4.
+* **13 is the hop on A** (not "in the air"): in hole1long it is set on
+  every press, 60 frames apart, and its script returns to 14 after 17
+  frames.
+* **14 / 16 / 15** are chosen at the start of the roll by
+  `$82:C815`-`$C84E` from two shot settings `$6B54`/`$6B58` (0-12, 6
+  centred): the larger distance from 6 below 3, exactly 3, or 4 and
+  more. They are probably the spin; 15 occurred with one of them at 0
+  (d06, d09). 17 and 18 have no writer in the ROM.
+* **Hit reactions 40-50** are dispatched by `$82:DB9A`: a code in
+  `$D85A` of 12-21 indexes `$82:DBDE` (code - 12 also goes to
+  `$7E:D78C`). Codes 12-17 come from the *other* player's copy ability
+  through `$80:DF29` (airborne) / `$80:DF55` (on the ground) at `$82:DB79`,
+  called on ball-to-ball contact (`$82:C693`): Fireball 12 -> 40 (arm 0),
+  Tornado 13 -> 42, Wheel 14 -> 43, Spark 15 -> 40 (arm 3), Freeze 16 ->
+  44, Stone in the air 17 -> 46, Stone on the ground 20 -> 49. Code 19
+  (`$82:DD39`) and 20 also give 49 (d08, the only one of them seen); code
+  21 (`$82:A4DB`) gives 50. 41, 47 and 48 are the attacker's side, from
+  `$82:DE54` (Fireball/Spark) and `$82:E00D` (Stone).
+* **The scripts store the frame index too**: `store $7E:D95E, n` (player 2:
+  `$D960`) is a show, because `$82:F0F8` copies that word into the drawing
+  slot's `$0B7E` each frame while the ball is in play. 50 stores and 10
+  store-switches do this. A `store $7E:D7D4, n` is a state change, taken
+  on the next frame (19, 35, 13 and 49 hand over to 14; 8 and 20 to 2).
+
+## Kirby animation clips
+
+`python3 tools/kirbyanim.py --clips` writes one clip per state and switch
+arm to `build/sprites/kirby/clips/`: 284 clips over 46 states (0-3 and 38
+have nothing to show).
+
+**How a clip is made.** The state's script is replayed from its entry
+(`Player` in kirbyanim.py) on the base snapshot's OBJ page and CGRAM, with
+the switch variables set to the arm: every upload, palette load, show,
+index store, wait and WRAM arithmetic is followed, and the replay stops
+when the script halts, hands over to another state, or comes back to a
+point it already yielded at with the same index, call stack, loop
+counters and variables (a loop; `loop_start` is where the cycle restarts).
+Which variables are enumerated: all the script switches on, as a product
+when that is at most 36 clips, else the first; a variable the script
+steps itself (the tornado's phase) is not an arm. Some states need
+context:
+
+* a copy-ability state is replayed after state 8 with its ability, so
+  the ability's tiles and palette are loaded; 25, 27, 28, 31, 33-35, 39
+  after the states that precede them in play;
+* 21, 36, 37, 39 get their colours from native code, so they are replayed
+  on a snapshot of their demo a few frames in (`CONTEXT_BASE`);
+* 43's frame index is left by its setter (19-22 by the wheel's
+  direction, `$82:DCA1`): a pseudo-switch `index`.
+
+A clip comes from the running game instead (`source: "live"`) when the
+replay cannot draw it: any frame uses a tile no replayed upload wrote, or
+the state is 6 (the curl is drawn by object type 26 from its own frame
+list). Live clips are captured frame by frame with the state forced at
+the start of hole 1's roll (switch variables poked alongside), or for 6
+at the shot with the angle poked at `$81:BEF1`; durations are counted,
+and include the one-frame in-betweens the game really shows when an
+index changes a frame before its tiles arrive. 28 clips are live: the 16
+curls, the 11 ability flashes (in play the per-frame index copy
+overrides most of the ability pose: the ball flashes, the pose shows for
+single frames, as in demos 10-19) and 48.
+
+**Files.**
+
+| file | what |
+|---|---|
+| `NAME.gif` | the clip at 3x, transparent background, one canvas per state (all its clips share the origin); delays rounded to 1/100 s; loops forever if `loop`, else plays once |
+| `NAME.png` | horizontal strip at 1x, one cell per frame, cell size `cell`, origin at `origin` in each cell |
+| `frames/HASH.png` | each distinct picture once, cropped to the frame |
+| `clips.json` | the index |
+| `clips_index.png` | contact sheet: first frame of every clip, state, `L` = live, frame count, `loop` |
+
+Names are `<slug>_<arm>`: `aim_facing3`, `curl_into_ball_angle07`,
+`unroll_angle12`, `ability_gained_fireball`, `tired_health1`, `hop_air`,
+`hit_burn_spark`, `stone_var1_dir04`, `hit_flattened_index21`.
+
+**`clips.json`**: `states` (number -> name, slug, seen, evidence),
+`no_clip` (states without a picture, and why) and `clips`, each with
+
+| key | |
+|---|---|
+| `name`, `state`, `state_name`, `seen`, `script` | identity; `script` is the entry in bank `$87` |
+| `switches` | per enumerated variable: `var`, `name`, `value`, `arms`, `meaning`, `arm_name` (ability, hit code, ground/air), `degrees` (facing and shot angle, estimated) |
+| `fixed`, `prelude` | variables pinned, states replayed first |
+| `frames` | `png`, `duration` (60 Hz frames), `x`/`y` (top-left of the png relative to the sprite origin), `w`/`h`, `list` (the `$89` part list), `index` |
+| `loop`, `loop_start`, `stop`, `next_state` | once or looping; why the replay stopped; the state it hands over to |
+| `source` | `script` or `live`; live clips add `live` (run, pokes, frames), `why_live`, `live_next_state` |
+| `static_frames_with_base_tiles` | frames of the replay drawing tiles it did not upload |
+| `gif`, `gif_scale`, `strip`, `cell`, `origin`, `total_frames` | the files and their geometry |
+| `same_as` | an earlier clip with identical pictures and timing (54 such, e.g. arms that share art) |
+
+Durations are the scripts' wait operands: a `wait n` holds the picture
+for `n` frames, checked against the emulator (state 10's 48/8/64/8 and
+state 11's 8/6/16/6 measured exactly in hole1long and a forced run).
 
 ```bash
 python3 tools/kirbyanim.py --state 6     # one state's script, decoded
 python3 tools/kirbyanim.py --make-base   # snapshot a hole for the static renders
 python3 tools/kirbyanim.py               # every state: listing + strips
+python3 tools/kirbyanim.py --clips       # every state x arm -> clips/ (~1 min)
+python3 tools/kirbyanim.py --clips --no-live   # script replays only, no emulator
 python3 tools/kirbyanim.py --live        # every state as seen in play (~3 min)
 ```
 
-Outputs in `build/sprites/kirby/`: `scripts.txt` (every state's script),
-`state_NN.png` (each script replayed, one row per arm of its facing switch),
-`live_state_NN.png` (the frames seen in play), `live_state_NN_facing.png`
-(those frames, one row per facing value) and `states.tsv` / `states.json` /
-`live.json`.
+Other outputs in `build/sprites/kirby/`: `scripts.txt` (every state's
+script), `state_NN.png` (each script replayed, one row per arm of its
+first switch), `live_state_NN.png` (the frames seen in play),
+`live_state_NN_facing.png` (those frames, one row per facing value) and
+`states.tsv` / `states.json` / `live.json`.
+
+**Unknown.** What `$6B54`/`$6B58` are (spin is a guess); what the 11
+squash variants of `$7E:D8D2`/`$6A6E` mean; the degrees of the
+copy-ability directions `$7E:D75E`; where states 17, 18 and 23 are set
+(no writer found); what situation 19 (ball sinking, on the `$60`-`$6F`
+surface overlay) and 31 (parasol) are in play; 10, 16, 19, 31, 35 and
+40-48, 50 were only seen forced.
