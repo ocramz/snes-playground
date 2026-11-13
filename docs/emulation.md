@@ -126,21 +126,32 @@ JSL return address.
 | 8 | course result: BEST SCORE / YOUR SCORE | | autoplay |
 | 4 | course ranking table | | autoplay |
 | 9 | GAME OVER, then CONTINUE / GAME END | | autoplay |
+| 3 | a ranking entry's per-hole RESULT card | `$81:F98C` | `ranking` (with a course-1 save) |
+| 17 | MAP SELECT | `$82:F90A` | `map_select` (medal-flag pokes) |
+| 8 | DANCE SELECT's Kirby dance, on the course-result stage | `$83:BF66` | `dance` (medal-flag pokes) |
+| 15 | medal award ("a gold medal for all courses") | `$83:F9FB` | autoplay, whole game, after course 8 |
+| 18 | the ending, Dedede over the clouds | `$87:F02F` | autoplay, whole game, King Dedede beaten |
+| 19 | the credits, drawn in stars, then END | `$84:FB31` | the same |
 
 Each is rendered with tools/ppu_render.py and copied, named, to
 `build/screens/<name>.png`, with its whole BG tilemaps, sprite layer and
 OBJ tile page in `<name>_layers/`.
 
-Scenes 4, 8 and 9 are reached by tools/snesstep/autoplay.py, which plays
-courses with real hole-outs ([physics.md](physics.md)). Not reached:
-scenes 3, 7, 10, 14, 15, 17, 18 and 19. With blank
-SRAM the 1-player menu offers only PLAY COURSE, so the screens that need
-progress (ranking, extra courses) or a finished hole or course (scorecard,
-course results, ending) are out of reach of the current scripts. Leads,
-from where their callers sit: scene 9 is requested from `$83:D856`, which
-the main flow calls when `$7E:D7BE` is 8 (all eight holes done,
-`$80:F20E`); scene 18 from `$87:F028`, near the `$87:E767` call on the same
-branch. Forcing a hole-out with a poke deadlocks (see "Steering the game").
+Scenes 4, 8, 9, 15, 18 and 19 are reached by tools/snesstep/autoplay.py,
+which plays courses with real hole-outs ([physics.md](physics.md)). Played
+from a new game, it finishes the whole game:
+* all eight courses;
+* the medal award;
+* King Dedede;
+* the ending and the credits.
+
+tools/snesstep/ending.py snapshots those screens from the recorded run.
+Scenes 3 and 17, and the title menu's hidden items, come from the
+`ranking` and `map_select` scripts.
+
+**Scenes 7, 10 and 14 are requested by nothing**, in code or in any run
+([scenes.md](scenes.md)). Every scene that has a request site has now
+been reached.
 
 Songs requested on the way (`sub_spc_play_song`, id = `$7E + n`): title
 `$82`, members list `$94`, course map `$95`, course intro `$93`, course 1
@@ -162,6 +173,10 @@ F's vblank. Pad 1 only.
 | `demo_play.txt` | DEMOPLAY SELECT → first tutorial demo with its help text |
 | `two_player.txt` | 2P course select → handicap/dice → 2-player hole in play |
 | `pause_menu.txt` | hole 1 → pause menu → back to the course map |
+| `map_select.txt` | title menu with the hidden items → MAP SELECT → NORMAL COURSE → the MAP SELECT screen (scene 17); needs the medal-flag pokes |
+| `sound_room.txt` | title menu → SOUND ROOM (drawn over the title); needs the medal-flag pokes |
+| `dance.txt` | title menu → DANCE SELECT → 1PLAY DANCE → DANCE01: Kirby's dance on the scene-8 stage, then the title; needs the medal-flag pokes |
+| `ranking.txt` | members list → RANKING (scene 2) → A on entry 01 → its RESULT card (scene 3); needs a save with a cleared course |
 
 Facts the scripts depend on, found with the stepper:
 
@@ -197,6 +212,8 @@ snesstep [ROM] [options]       ROM: default $KDC_ROM, else the CLAUDE.md path
   --save-state FILE      at the end of the run
   --load-state FILE      continue from a saved run (frame numbers stay absolute)
   --sram FILE            battery RAM at power-on
+  --save-sram FILE       battery RAM when the run ends
+  --pokes FILE           many --poke values, one F:ADDR=VAL per line
   --wav FILE             audio, 32 kHz stereo
   --no-dsp               skip the S-DSP (about 20% faster, no audio)
 ```
@@ -276,25 +293,32 @@ Two options change WRAM so a script can reach states its inputs cannot:
   queues more VRAM transfers in one frame than the budget at `$7E:0026`
   allows (`$1400` bytes), and `sub_vram_enqueue_one $80:86E6` then waits
   for the NMI to drain the ring, which the NMI skips while the main loop is
-  mid-frame (`$4B` set, `$80:81B8`). So the course-end screens are still
-  not reached; a real hole-out has to come from the ball physics.
+  mid-frame (`$4B` set, `$80:81B8`). The course-end screens are reached
+  instead by real hole-outs (tools/snesstep/autoplay.py, physics.md).
 
 ## Progress and the ending
 
 `$7E:D7BE` (courses cleared, 0-8) is recomputed on the course map by
-`$81:FB9C`-`$81:FBCD` from the save slot: `$70:0010,X` is the count and
+`$81:FB9C`-`$81:FBCD` from the save slot: `$70:0010,X` is the count, and
 bit `$04` of `$70:001A,X` is required for it to reach 8 (X is the slot
-offset, 0 for the first member). After the map, `$80:F20E` sends a
-1-player game with 8 cleared to `$87:E767`, which requests scene 18
-(`$87:F028`) and then scene 19 (`$84:FB26`): the ending.
+offset, 0 for the first member). After the map, `$80:F20E` sends a 1-player
+game with 8 cleared to `sub_final_stage $87:E767`, King Dedede
+([physics.md](physics.md)). Beating him leads to scene 18 (`$87:F028`)
+and scene 19 (`$84:FB26`).
 
-Writing the save slot to "8 cleared" with `--poke '1150:$70:0010=0008'
---poke '1150:$70:001A=0004'` (the stepper can poke SRAM) puts the map on
-the final stage, DEDEDE, but the map then accepts no button, while
-running normally: the forged save is presumably inconsistent with
-per-course data it also reads. **Unconfirmed.** The ending (scenes 18
-and 19) is therefore still not reached; the route is to clear the courses
-with tools/snesstep/autoplay.py.
+*Emulated*, the whole game played with autoplay.py in one run from boot:
+* scene 15 at frame 111,945;
+* the final stage from 112,771;
+* Dedede beaten at about 119,400;
+* scene 18 at 119,979 and scene 19 at 120,415;
+* END about 7,000 frames later. It stays up while nothing is pressed.
+
+The save then has `$70:0010` = 8, `$70:001A` = 5, and medal value 3 on all
+eight courses.
+
+An earlier attempt forged a save with 8 courses cleared. It put the map on
+the DEDEDE stage, which then ignored the buttons. Why is **unconfirmed**,
+and the played route makes it moot.
 
 ## The game's top-level flow
 

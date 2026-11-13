@@ -1,0 +1,12 @@
+# Title menu, hidden item DANCE SELECT ($83:B879) -> 1PLAY DANCE -> DANCE01:
+# Kirby's dance on the course-result stage (scene 8, the block the course
+# result uses), then back to the title. Needs the medal-flag pokes.
+400 START 2
+450 DOWN 2
+480 DOWN 2
+510 DOWN 2
+540 DOWN 2
+570 DOWN 2      # cursor -> DANCE SELECT
+610 A 2         # 1PLAY DANCE / 2PLAY DANCE
+680 A 2         # DANCE01 .. DANCE08, DRAW DANCE
+760 A 2         # DANCE01

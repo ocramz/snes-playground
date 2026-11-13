@@ -4,9 +4,9 @@ Reverse-engineering notes and analysis scripts for SNES ROMs, currently
 *Kirby's Dream Course (USA)*.
 
 **This repo is:** prose findings (memory maps, routine write-ups, data-format
-docs) plus small scripts that dump and decode ROM data.
+docs) plus scripts that dump and decode ROM data.
 
-Use the stepper to check a claim, or to answer what the code cannot be read for; record which facts came from it ("emulated") the same way you record "verified with xxd".
+
 
 ## The ROM
 
@@ -199,6 +199,7 @@ the Rust toolchain, `binwalk`, `make`, `cmake`, `clang`, `java`, `xxd`, `jq`,
 no assembler (no asar/bass/ca65/wla-65816), no Ghidra. The in-repo stepper
 (`tools/snesstep`) has no display and no debugger UI, only snapshots, logs and traces.
 
+Purpose-built tools:
 - `tools/spcrender/` models the sound chip alone (SPC700 + S-DSP) to turn
   the extracted `.spc` files into WAV.
 - `tools/snesstep/` is a headless stepper: 65C816, memory map, DMA/HDMA,
@@ -208,8 +209,9 @@ no assembler (no asar/bass/ca65/wla-65816), no Ghidra. The in-repo stepper
   (what a screen loads, which tiles an object really shows). See
   [docs/emulation.md](docs/emulation.md).
 
+Use the stepper to check a claim, or to answer what the code cannot be read for; record which facts came from it ("emulated") the same way you record "verified with xxd".
 
-Audio is the one thing that is rendered: `tools/render_audio.py` builds
+Audio is rendered: `tools/render_audio.py` builds
 `tools/spcrender` with `cargo` (offline, into `build/spcrender`) and plays
 the `.spc` files through it. VLC.app happens to be installed and bundles an
 SPC decoder; `tools/audio_check.py vlc` uses it as an independent
@@ -319,6 +321,7 @@ S=build/snesstep/release/snesstep
 $S --frames 3400 --input tools/snesstep/inputs/play_hole1.txt --snap-at 3100 --out build/emu/x
 $S --frames 3400 --input tools/snesstep/inputs/play_hole1.txt --log-pc '$80:9F18'   # -> pclog.tsv
 $S ... --poke '2050:$7E:6A5A=0002' --poke-at-pc '$80:F37A,$7E:D956=0001'          # steer it
+$S ... --pokes build/emu/autoplay/game/pokes.txt --save-sram build/x/sram.bin    # replay a run, keep its save
 python3 tools/ppu_render.py build/emu/x/f003100 -o x.png --layers x_layers
 python3 tools/snesstep/oracles.py all        # emulator vs the static facts
 python3 tools/snesstep/screens.py            # every reachable screen -> build/screens/
@@ -331,6 +334,9 @@ python3 tools/kirbyanim.py --state 6         # Kirby's animation script for one 
 python3 tools/kirbyanim.py --make-base && python3 tools/kirbyanim.py   # all 51, rendered
 python3 tools/kirbyanim.py --live            # the same from play, by state and angle
 python3 tools/snesstep/autoplay.py --course 0   # play course 1 to the end, real hole-outs
+python3 tools/snesstep/autoplay.py --frames 135000 --out build/emu/autoplay/game  # the whole game (~5 min)
+python3 tools/snesstep/ending.py build/emu/autoplay/game   # medal award, Dedede, ending, credits
+python3 tools/snesstep/screens.py ranking map_select       # screens that need a save or medal flags
 python3 tools/emusheets.py SNAPDIRS...       # sprite sheets from live object state
 
 # Which ROM bytes all of the above account for
@@ -370,8 +376,9 @@ matching:
 - [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,
   and where the strings are.
 - [docs/physics.md](docs/physics.md) — the ball's state and one physics
-  frame, enemies and the cup (a run-time object), the holing rule, the
-  screen projection, and the course-playing driver.
+  frame, the game's enemy list and how the last enemy becomes the cup, the
+  hit and holing rules, King Dedede, the screen projection, and the
+  driver that plays the whole game.
 - [docs/emulation.md](docs/emulation.md) — the headless stepper: what is
   emulated, how it was validated against the static facts, input scripts,
   pokes, and which screens they reach.
@@ -380,8 +387,7 @@ matching:
 
 - Read-only by default. The ROM is never an output path.
 - Every derived artifact — dumps, decompressed blobs, rendered graphics,
-  disassembly listings — goes in `build/`, which is gitignored. Never write
-  them elsewhere.
+  disassembly listings — goes in `build/`, which is gitignored. 
 - Record where a fact came from. "Verified with `xxd` at `0x7FD5`" beats an
   unattributed assertion; a later session cannot otherwise tell measurements
   from guesses.
@@ -391,13 +397,10 @@ matching:
 
 ## Legal and hygiene
 
-Never commit ROM bytes: not the ROM, not a slice of it, not a bulk hexdump, not
-decompressed graphics, not save states. `.gitignore` blocks `*.sfc`, `*.smc`,
-`*.srm`, save states and `build/`, but that is a backstop, not permission to be
-careless — extracted assets stay in `build/`.
+ `.gitignore` blocks `*.sfc`, `*.smc`, `*.srm`, save states and `build/`. 
 
-Short illustrative hexdumps in notes (a header, a routine prologue, tens of
-bytes) are fine and are what documentation looks like. Bulk asset data is not.
+You can add short illustrative dumps in notes (samples, screenshots, a header, a routine prologue, tens of
+bytes). 
 
 ## 65816 gotchas
 

@@ -49,9 +49,26 @@ NAMED = [
     ("two_player_course_select", "two_player/scene06_c003/f000681"),
     ("two_player_handicap", "two_player/scene12_c004/f000809"),
     ("pause_menu", "pause_menu/f002450"),
+    ("title_menu_unlocked", "map_select/f000530"),
+    ("map_select", "map_select/f001200"),
+    ("sound_room", "sound_room/f000750"),
+    ("dance_select", "dance/f000700"),
+    ("dance", "dance/f001110"),
+    ("ranking", "ranking/f001100"),
+    ("ranking_result_card", "ranking/f001300"),
 ]
 
-# script name -> (frames to run, extra fixed snapshot frames)
+# The title menu's hidden items (MAP SELECT, SOUND ROOM, DANCE SELECT) are
+# gated on the medal flags that sub_medal_flags $81:C7AF computes from the
+# save; setting them right after it returns ($83:B720) shows all three.
+# This is a steer, not play: the flags normally need medals on all courses.
+MEDAL_FLAGS = []
+for _a in ("EAA9", "EAAB", "EAAD", "EAAF", "EAB1", "EAB3"):
+    MEDAL_FLAGS += ["--poke-at-pc", "$83:B720,$7E:{}=0001".format(_a)]
+# A save with course 1 cleared, written by tools/snesstep/autoplay.py.
+COURSE1_SRAM = os.path.join(ROOT, "build", "emu", "autoplay", "course1", "sram.bin")
+
+# script name -> (frames to run, extra fixed snapshot frames[, extra args])
 SCRIPTS = {
     "attract": (4400, [1800, 2400]),
     "title_menu": (600, [449, 470, 500]),
@@ -59,6 +76,10 @@ SCRIPTS = {
     "demo_play": (1800, [1000, 1300]),
     "two_player": (2400, [1000, 1800, 2200]),
     "pause_menu": (2800, [2450, 2520]),
+    "map_select": (1300, [530, 600, 1200], MEDAL_FLAGS),
+    "sound_room": (900, [750], MEDAL_FLAGS),
+    "dance": (1800, [640, 700, 780] + list(range(870, 1700, 60)), MEDAL_FLAGS),
+    "ranking": (2000, [930, 1100, 1300, 1400], ["--sram", COURSE1_SRAM]),
 }
 
 
@@ -79,7 +100,11 @@ def read_tsv(path):
 
 
 def run_script(name, render):
-    frames, fixed = SCRIPTS[name]
+    frames, fixed = SCRIPTS[name][:2]
+    extra = SCRIPTS[name][2] if len(SCRIPTS[name]) > 2 else []
+    if "--sram" in extra and not os.path.exists(extra[extra.index("--sram") + 1]):
+        print("{}: skipped, no save (run tools/snesstep/autoplay.py --course 0)".format(name))
+        return []
     out = os.path.join(OUT, name)
     os.makedirs(out, exist_ok=True)
     cmd = [BIN, "--frames", str(frames), "--out", out,
@@ -90,7 +115,7 @@ def run_script(name, render):
     os.makedirs(os.path.join(ROOT, "build", "emu", "cov"), exist_ok=True)
     if fixed:
         cmd += ["--snap-at", ",".join(str(f) for f in fixed)]
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd + extra, check=True)
 
     # Who asked for each scene: the JSL return address logged at $80:CABC.
     _, pcrows = read_tsv(os.path.join(out, "pclog.tsv"))
@@ -154,7 +179,13 @@ def main():
         print("{:12s} {} snapshots, scenes {}".format(
             n, len(rows), sorted({r["scene"] for r in rows if r["scene"] != "-"}, key=int)))
     cols = ["script", "event", "scene", "call_frame", "frame", "caller", "dir"]
-    with open(os.path.join(OUT, "index.tsv"), "w") as f:
+    # A subset run keeps the other scripts' rows.
+    index = os.path.join(OUT, "index.tsv")
+    if a.scripts and os.path.exists(index):
+        head, old = read_tsv(index)
+        if head == cols:
+            allrows = [dict(zip(cols, r)) for r in old if r[0] not in names] + allrows
+    with open(index, "w") as f:
         f.write("\t".join(cols) + "\n")
         for r in allrows:
             f.write("\t".join(str(r[c]) for c in cols) + "\n")

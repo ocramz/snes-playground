@@ -173,23 +173,62 @@ one screen of it.
 
 ## Scene identities
 
-Nine scenes are named by running the game and looking at what it shows
-(tools/snesstep, see [emulation.md](emulation.md); renders in
+A scene number only picks a PPU setup block, through the table at
+`$80:CAC7` (`sub_scene_screen_setup $80:CABC`). What the screen shows is
+whatever its caller loads, and several numbers share one block: 13 is
+0's, 16 is 1's, 15 and 17 are 12's, and 18 is 6's.
+
+These screens were named by running the game and looking at what it shows
+(tools/snesstep, see [emulation.md](emulation.md); renders are in
 `build/screens/`):
 
-| scene | screen |
-|---|---|
-| 0 | a hole in play (also the attract demo) |
-| 1 | title; its menu is drawn over it without a scene change |
-| 2 | members list and name entry |
-| 5 | course map |
-| 6 | 2-player course select |
-| 11 | course intro |
-| 12 | 2-player handicap |
-| 13 | DEMOPLAY SELECT |
-| 16 | Nintendo logo |
+| scene | screen | reached by |
+|---|---|---|
+| 0 | a hole in play (also the attract demo) | play |
+| 1 | title; its menu is drawn over it without a scene change, as are the hidden MAP SELECT / SOUND ROOM / DANCE SELECT menus | power-on |
+| 2 | members list, name entry, and the per-course RANKING table | 1PLAY GAME |
+| 3 | one ranking entry's per-hole RESULT card, over its course's scenery (`$81:F92B`) | members list, RANKING, A on an entry; needs a save with a cleared course |
+| 4 | course ranking after a course | autoplay |
+| 5 | course map | |
+| 6 | 2-player course select | |
+| 8 | course result, BEST SCORE / YOUR SCORE; also the stage of DANCE SELECT's Kirby dance | autoplay; DANCE SELECT |
+| 9 | GAME OVER, then CONTINUE / GAME END | autoplay without the lives poke |
+| 11 | course intro | |
+| 12 | 2-player handicap | |
+| 13 | DEMOPLAY SELECT | |
+| 15 | medal award: "You got a medal for all courses! Go to the Title Screen and look at the menu!" (six texts, `$83:FB02`-`$83:FD4F`) | after the last course whose result completes a medal level on every course (`sub_medal_award $83:F985`) |
+| 16 | Nintendo logo | power-on |
+| 17 | MAP SELECT: course (NORMAL / EXTRA), course number, hole number (`$82:F903`) | title menu MAP SELECT |
+| 18 | the ending: Dedede over the clouds (`$87:F028`) | King Dedede beaten |
+| 19 | the credits, drawn in stars, then END (`$84:FB26`) | |
 
-The other eleven (3, 4, 7, 8, 9, 10, 14, 15, 17, 18, 19) are not reached by
-the scripted runs; they are listed by entry site in
-`build/scenes/callers.tsv`. Do not guess a screen's identity from its
-palette.
+The title menu's three hidden items are gated on `ram_medal_flags`
+(`$7E:EAA9`-`$EAB3`), which `sub_medal_flags $81:C7AF` computes from every
+save slot's medals (SRAM `$70:021A` + 64 x slot, a 2-bit value every
+4 bytes: 8 normal courses, then 8 extra):
+
+| item | flag | handler |
+|---|---|---|
+| MAP SELECT | `$EAAD`: gold on every normal course | `$83:B95B` |
+| SOUND ROOM | `$EAAF`: a medal on every extra course | `$83:B9A5` |
+| DANCE SELECT | `$EAB1`: silver or gold on every extra course | `$83:B879` |
+
+The 1PLAY GAME submenu offers PLAY EXTRA COURSE once `$EAAB` is set, and
+the 2PLAY GAME submenu once `$EAA9` is set. The values are 1 = bronze,
+2 = silver, 3 = gold: the award text for "all three flags set" is "You got
+a gold medal for all courses". *Emulated*: the whole game played by
+tools/snesstep/autoplay.py stores 3 for every course. With that save, the
+title menu shows MAP SELECT with no pokes.
+
+**Scenes 7, 10 and 14 are never requested.**
+* All 21 `JSL $80:CABC` sites pass a literal scene number, and none passes
+  7, 10 or 14.
+* `$80:903A`, which applies a block, has no other caller.
+* The three blocks (`$80:CB37`, `$80:CBA3`, `$80:CBC7`) are referenced
+  only from the table.
+* *Emulated*: every `$80:CABC` call logged over all input scripts,
+  autoplay replays, the menu runs and the whole game requests one of 0-6,
+  8, 9, 11-13, 15-19.
+
+The three blocks are mode 1 settings with no graphics of their own
+(`scenes.py blocks`). They are leftovers with no screen to render.

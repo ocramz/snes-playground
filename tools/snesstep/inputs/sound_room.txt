@@ -1,0 +1,8 @@
+# Title menu, hidden item SOUND ROOM ($83:B9A5): FGM / BGM numbers drawn over
+# the title, no scene change. Needs the medal-flag pokes (see map_select.txt).
+400 START 2
+450 DOWN 2
+480 DOWN 2
+510 DOWN 2
+540 DOWN 2      # cursor -> SOUND ROOM
+580 A 2

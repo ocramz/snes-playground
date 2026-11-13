@@ -53,10 +53,12 @@ usage: snesstep [ROM] [options]
   --save-state FILE      save the machine when the run ends
   --load-state FILE      start from a saved machine
   --sram FILE            load battery RAM (8 KB) at power-on
+  --save-sram FILE       write battery RAM (8 KB) when the run ends
   --wav FILE             write the audio output (32 kHz stereo)
   --poke F:ADDR=VAL      at the start of vblank of frame F, write the 16-bit
                          VAL to WRAM ($7E/$7F) or SRAM ($70) (repeatable), e.g.
                          --poke '1450:$7E:6A5A=0003' to pick a course
+  --pokes FILE           many --poke values, one F:ADDR=VAL per line (# comments)
   --poke-at-pc PC,ADDR=VAL
                          the same, but every time the instruction at PC is
                          about to run (repeatable), e.g. to force a branch:
@@ -88,6 +90,7 @@ struct Opts {
     save_state: Option<PathBuf>,
     load_state: Option<PathBuf>,
     sram: Option<PathBuf>,
+    save_sram: Option<PathBuf>,
     wav: Option<PathBuf>,
     pokes: Vec<(u64, u32, u16)>,
     pc_pokes: Vec<(u32, u32, u16)>,
@@ -162,6 +165,7 @@ fn parse_args() -> Result<Opts, String> {
         save_state: None,
         load_state: None,
         sram: None,
+        save_sram: None,
         wav: None,
         pokes: Vec::new(),
         pc_pokes: Vec::new(),
@@ -204,8 +208,19 @@ fn parse_args() -> Result<Opts, String> {
             "--save-state" => o.save_state = Some(PathBuf::from(val()?)),
             "--load-state" => o.load_state = Some(PathBuf::from(val()?)),
             "--sram" => o.sram = Some(PathBuf::from(val()?)),
+            "--save-sram" => o.save_sram = Some(PathBuf::from(val()?)),
             "--wav" => o.wav = Some(PathBuf::from(val()?)),
             "--poke" => o.pokes.push(parse_poke(&val()?)?),
+            "--pokes" => {
+                let path = val()?;
+                let text = fs::read_to_string(&path).map_err(|e| format!("{path}: {e}"))?;
+                for line in text.lines() {
+                    let line = line.split('#').next().unwrap_or("").trim();
+                    if !line.is_empty() {
+                        o.pokes.push(parse_poke(line)?);
+                    }
+                }
+            }
             "--poke-at-pc" => {
                 let v = val()?;
                 let (pc, rest) = v
@@ -761,6 +776,9 @@ fn run() -> Result<(), String> {
         if let Some(a) = cpu.bus.audio.as_ref() {
             spc::wav::write_wav(p, 2, a).map_err(|e| e.to_string())?;
         }
+    }
+    if let Some(p) = &runner.o.save_sram {
+        fs::write(p, &cpu.bus.sram[..]).map_err(|e| format!("{}: {e}", p.display()))?;
     }
     if let Some(p) = &runner.o.save_state {
         let mut w = state::Writer::default();

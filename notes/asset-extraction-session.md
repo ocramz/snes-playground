@@ -212,3 +212,54 @@ Still open:
   `$81:9EB9`), the bounce (`$81:811B`), spin.
 - Scenes 3, 7, 10, 14, 15 and 17 are still unreached; 2-player results
   are a likely source of some.
+
+## Enemies left, the cup, and the unreached scenes, 2026-11-13
+
+Settled (docs/physics.md, docs/scenes.md):
+
+- **The game's enemy count.**
+  - `ram_enemy_list $7E:69DE` lists the hole's enemies, and the owner field `$539C` of each enemy's slot is 2 until a ball takes it.
+  - `sub_count_enemies_left $82:8ACE` counts the 2s.
+  - When one is left, it *becomes* the cup (`$82:8AEE`, `$82:8B5C`): tile `$08` at its cell, object 74 over it.
+  - The earlier "cup spawned where the last enemy is defeated" was a misreading.
+- **The enemy hit rule** (`$82:8990`):
+  - the ball must be in the middle half of the cell;
+  - an airborne ball must be within -0.5/+1 step of the enemy's hover height `$5B1C`;
+  - each pass counts once, through the latch `$6A68`.
+- **Why the driver stalled**, cause by cause:
+  - it guessed defeats from the outside;
+  - it aimed at the cup through the projection, which gave the wrong cell;
+  - it lifted a ball out of the cup while it sank;
+  - it placed the ball inside the hit zone straight from another enemy's, so the latch never cleared;
+  - it ignored hover heights (4 steps on course 5 hole 6);
+  - it measured heights from the elevation instead of the ramp surface;
+  - it re-placed the ball before a lagging frame had moved it (course 8 hole 8).
+- **King Dedede**:
+  - `$87:E767` runs the final stage;
+  - he has 24 HP at `$ED2D`;
+  - damage per hit grows with the ball's height above the ground, from the table at `$87:EF88`.
+- **Scenes:**
+  - 3 = a ranking entry's RESULT card;
+  - 15 = the medal award;
+  - 17 = MAP SELECT;
+  - 8 also hosts DANCE SELECT's dance;
+  - 7, 10 and 14 are never requested by any code.
+- **Hidden title-menu items:** MAP SELECT, SOUND ROOM and DANCE SELECT, gated on the medal flags `$7E:EAA9`-`$EAB3`.
+
+Reached by playing:
+- **The whole game.** tools/snesstep/autoplay.py, from a new game:
+  - gold on all eight courses;
+  - the medal award (scene 15);
+  - King Dedede (24 HP, `sub_dedede_hit_test $87:EEEE`);
+  - the ending (scene 18) and the credits (scene 19).
+- **Screens:** tools/snesstep/ending.py snapshots the end screens. The new `ranking` and `map_select` scripts give scenes 3 and 17, and `sound_room` / `dance` give the other hidden menus.
+- **Every scene with a request site** has now been rendered.
+
+Still open:
+- **The extra game**, which is still unplayed. It is reached from 1PLAY GAME → PLAY EXTRA COURSE (needs `$EAAB`, now set by the real save). Its own medal flags gate SOUND ROOM and DANCE SELECT, and its award texts are the EXTRA variants.
+- **2-player results.** Nothing yet plays a 2P game to the end.
+- **`$87:8B9B`**, the final stage's other exit, which clears the lives.
+- **Physics not read:**
+  - slope acceleration (`$81:9001`, `$81:9444`, `$81:9EB9`);
+  - the bounce (`$81:811B`);
+  - spin.

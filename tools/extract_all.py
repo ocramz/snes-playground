@@ -21,6 +21,8 @@ Tracks, in the order they have to run:
                screen to build/screens/, executed-code coverage
     emuholes   play all 232 holes and the 20 demos, build sprite sheets
                from live state (about 30 minutes; only with --only emuholes)
+    emugame    play the whole game to the credits and snapshot the end
+               (about 10 minutes; only with --only emugame)
     coverage   which ROM bytes all of the above account for
 
 `--only` runs a subset. Everything is idempotent: re-running overwrites.
@@ -106,9 +108,15 @@ STEPS = [
      ["kirbyanim.py", "--live"]),
     ("emuholes", "course 1 played to the end: hole-outs, results, ranking",
      ["snesstep/autoplay.py", "--course", "0", "--frames", "17000"]),
+    ("emuholes", "RANKING and a ranking entry's RESULT card, from that save",
+     ["snesstep/screens.py", "ranking"]),
+    ("emugame", "the whole game played: 64 holes, King Dedede, the ending",
+     ["snesstep/autoplay.py", "--frames", "135000", "--out", "build/emu/autoplay/game"]),
+    ("emugame", "medal award, Dedede, ending and credits screens",
+     ["snesstep/ending.py", "build/emu/autoplay/game"]),
 ]
 # Tracks that run only when named in --only.
-OPT_IN = {"emuholes"}
+OPT_IN = {"emuholes", "emugame"}
 # Runs after the manifest is written, because it reads it.
 COVERAGE = ("coverage", "ROM byte attribution", ["coverage.py"])
 TRACKS = sorted(set(step[0] for step in STEPS + [COVERAGE]))

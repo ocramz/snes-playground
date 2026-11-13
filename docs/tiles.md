@@ -79,7 +79,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$02` | `$82:94D3` | solid object standing 3 height steps tall |
 | `$28-$2D` | `$82:8FF1` | edge; falls through to `$81:899F`, keep falling |
 | `$60-$6F` | `$82:80F6` | surface overlay, with enter/leave tracking |
-| `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because the cup is spawned at run time where the last enemy falls |
+| `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
 | `$14-$17`, `$1C`, `$1D`, `$58-$5D`, `$B0-$B9` | various | not established |
 
 ### Friction — `$20-$24`

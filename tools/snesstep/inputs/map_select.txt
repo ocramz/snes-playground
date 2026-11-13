@@ -1,0 +1,10 @@
+# Title menu with the hidden items (screens.py pokes the medal flags
+# $7E:EAA9-$EAB3 after sub_medal_flags $81:C7AF, at $83:B720):
+#   1PLAY GAME / 2PLAY GAME / DEMO PLAY / MAP SELECT / SOUND ROOM / DANCE SELECT
+# MAP SELECT -> NORMAL COURSE -> the MAP SELECT screen (scene 17, $82:F903).
+400 START 2     # title menu, six items
+450 DOWN 2
+480 DOWN 2
+510 DOWN 2      # cursor -> MAP SELECT
+560 A 2         # submenu NORMAL COURSE / EXTRA COURSE
+640 A 2         # NORMAL COURSE -> scene 17

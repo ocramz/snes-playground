@@ -1,0 +1,14 @@
+# Members list -> RANKING -> one ranking entry's RESULT card (scene 3,
+# $81:F92B, over its course's scenery). Needs a save with a cleared course:
+# screens.py loads build/emu/autoplay/course1/sram.bin, written by
+# tools/snesstep/autoplay.py, and skips this script without it.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> PLAY COURSE
+600 A 2         # members list; cursor on MEMBERS
+800 DOWN 2
+840 DOWN 2
+880 DOWN 2      # cursor -> RANKING
+940 A 2         # ranking table of course 1 (still scene 2)
+1150 A 2        # entry 01 -> its RESULT card (scene 3)
+1450 A 2        # back to the table
+1750 B 2        # back to the members list
