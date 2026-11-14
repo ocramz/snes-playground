@@ -85,6 +85,16 @@ def src(bank, addr):
     return "${:02X}:{:04X}".format(bank, addr)
 
 
+# The play-area outline is BG2 palette 7, colour 15, and the game animates
+# that one CGRAM entry (an object at $84:81A3 steps it through a table every
+# 3 frames; measured with snesstep --watch-write '$7E:04FE-$7E:04FF'). So
+# those pixels are written to a separate white mask that the browser tints.
+OUTLINE_PAL, OUTLINE_COLOUR = 7, 15
+OUTLINE_TABLE = (0x98, 0xD3E6)      # 15 colours; the cycle walks it ping-pong
+OUTLINE_WALK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 14, 13,
+                12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]   # emulated, 3 frames each
+
+
 # --------------------------------------------------------------------------
 # tables.json
 # --------------------------------------------------------------------------
@@ -139,6 +149,17 @@ def build_tables(d):
     # The cup's dish: 32 x 32 words, row = folded y fraction >> 10, column =
     # folded x fraction >> 10 (sub_cup_depth $82:AFE9). $5000 = flat centre.
     put("cupDepth", 0x88, 0x8990, rom_words(d, 0x88, 0x8990, 32 * 32), 2)
+
+    # The play-area outline pulse (OUTLINE_* above): 15 CGRAM colours the
+    # game steps one entry of BG2 palette 7 through. The walk is emulated,
+    # not ROM data; keep it inside the table so a bad edit fails at export.
+    assert all(0 <= i < 15 for i in OUTLINE_WALK), "outline walk outside the table"
+    put("outlineColours", OUTLINE_TABLE[0], OUTLINE_TABLE[1],
+        rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15), 2)
+    t["outlineWalk"] = {"about": "ping-pong order into outlineColours, one "
+                                 "step every 3 frames; emulated (object "
+                                 "$84:81A3), not ROM data",
+                        "values": list(OUTLINE_WALK)}
 
     def scalar(key, bank, addr, signed=False):
         t.setdefault("consts", {})[key] = {
@@ -208,16 +229,6 @@ def build_course(d, defaults, index):
 # --------------------------------------------------------------------------
 # layers
 # --------------------------------------------------------------------------
-
-# The play-area outline is BG2 palette 7, colour 15, and the game animates
-# that one CGRAM entry (an object at $84:81A3 steps it through a table every
-# 3 frames; measured with snesstep --watch-write '$7E:04FE-$7E:04FF'). So
-# those pixels are written to a separate white mask that the browser tints.
-OUTLINE_PAL, OUTLINE_COLOUR = 7, 15
-OUTLINE_TABLE = (0x98, 0xD3E6)      # 15 colours; the cycle walks it ping-pong
-OUTLINE_WALK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 14, 13,
-                12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]   # emulated, 3 frames each
-
 
 def blit_rgba(img, pal, tiles, word, y, x, outline=None):
     """Draw one tilemap cell into an (H, W, 4) array; colour 0 is transparent.
