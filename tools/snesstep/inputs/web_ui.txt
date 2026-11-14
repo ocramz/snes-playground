@@ -1,0 +1,27 @@
+# The shot panel of the real game: a fly shot (Up), A A to the spin stage, the side selector
+# swept 6 -> 0 -> 12 with Left / Right, A to the power stage, one meter cycle, A to shoot.
+# For tools/export_web_ui.py and tools/snesstep/trace_flow.py.
+#   title (scene 1) -> 1PLAY GAME -> PLAY COURSE -> MEMBERS LIST (scene 2,
+#   frame 638) -> NEW MEMBER -> NAME ENTRY (drawing pad, same scene) ->
+#   course map (scene 5, frame 1182) -> COURSE 1 intro (scene 11, 1528) ->
+#   hole 1 (scene 0, 2118-2120) -> shot panel -> Kirby rolling (~3050+).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+# Name entry: the pencil moves 2 units on a press, then every 2nd frame after
+# an 8-frame delay ($81:DFD9). A draws. The cursor area includes CLR
+# (x 4-$15, y $38-$45) and OK (x $28-$3B, y $38-$45), table $81:E0C7.
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start hole 1
+2600 UP 3         # fly shot: top/back then moves by itself in the spin stage
+2800 A 2          # aim -> Kirby curls (state 6 at +19)
+2840 A 2          # -> the panel opens (~2860), spin stage
+2880 LEFT 60      # side 6 -> 0, one step per 8 frames
+2960 RIGHT 110    # side 0 -> 12
+3120 A 2          # -> power stage: the meter runs from ~3126
+3300 A 2          # shoot (meter has gone up and down once)

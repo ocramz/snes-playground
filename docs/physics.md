@@ -829,3 +829,71 @@ python3 tools/snesstep/autoplay.py --course 4 --hole 5 --frames 6000   # one hol
 python3 tools/snesstep/autoplay.py --frames 135000 --out build/emu/autoplay/game
 python3 tools/snesstep/ending.py build/emu/autoplay/game
 ```
+
+## Details settled by the web port
+
+The TypeScript port ([web-demo.md](web-demo.md)) reproduces eleven recorded
+shots integer-exact, which pinned down several things the sections above leave
+open. All of these are from the disassembly and confirmed by those traces.
+
+* **Order of a frame.** The A / Y arming and its countdown (`$82:DA51`) run
+  *before* the physics step; the bonus on a bounce (`$82:DB20`) runs after it.
+  An A press on the ground arms `$DA7A` = 3: the step on the press frame and the
+  two after skip friction and slope, the fourth applies them (the
+  "vx held for 3 frames"). Y adds `$1100` to the friction for those three and
+  skips it on the frame the timer reads 0 (the "1 frame with no friction").
+  The press is dropped when `|vx| + |vy| >= $3001` or `|vz| >= $3801`.
+* **Friction.** `P = ((cosθ × μ) × 2) >> 16` as a 16-bit word; for cos ≥ 0
+  `fx = ((P + $80) >> 8) & $FF`, otherwise `fx = ((P + $FF80) >> 8) | $FF00`.
+  The 16-bit subtraction then clamps at zero from either side. The slope term
+  uses the high word of `g × slope_x` (`$81:97A9`, floor).
+* **Heading.** `sub_atan2_deg $80:A4C1` is table-driven: the ratio of the
+  smaller to the larger magnitude, as 0-255 through the hardware divider
+  (`$80:A546`; a normalising shift when the larger is ≥ 256), indexes the
+  arctangent table at `$80:A928`, which gives degrees 0-45; the quadrant is added
+  from the signs. Port: `web/src/sim/trig.ts`.
+* **Launch.** `vz = P sin ε`, `h = P cos ε`, `vx = h cos φ`, `vy = h sin φ`, each
+  a Q15 product; the horizontal ones are sign-magnitude (`$81:BA63`, a negative
+  product is rounded as `−((|p|−1) >> 15)`). `P = ($1300 × tbl[meter]) >> 14`.
+* **Spin** (`$81:C1D5`). The top/back and side terms use `$80:A342`, a 16 × 8
+  signed multiply whose result is bits 8-23 of the product; the multiplier is
+  the **high byte** of the Q15 cosine or sine. The side term's second axis uses
+  the negated cosine word, whose high byte is `$80` (−128), not −127; that is why
+  Left gives `$D9CE` = 707. The doc's 2104, −2245, 707 and 1792 all follow.
+* **Step down.** `loc_launch $81:8B78`: `vz = hi(vx × launch_x) + hi(vy × launch_y)`
+  (each the high word of the exact 32-bit product, summed as 16-bit), halved
+  (arithmetic) when the new surface code is non-zero and the old shape is not in
+  the `$10-$1F` family.
+* **Edge crossing, two axes at once.** The ROM goes through the neighbour the
+  path crossed first, checks the step to it (and its wall flag on the way out),
+  and only then the step to the final cell. A non-zero first step ends it.
+* **Wall bounce versus outline wall.** `$81:9390` (layer-4 flag) restores x, y
+  and the probe fields; the outline wall (`$82:9019`, tiles `$28-$2D`) restores
+  x, y **and z** (`$82:ECD7`). See [tiles.md](tiles.md).
+* **The cup.** `sub_cup_depth` also *lowers the ground* by the depth it returns
+  (`$DA06/$DA08`), so a ball rolling over the dish follows its surface and one
+  landing in it bounces off the lowered surface. At depth `$5000` the hole-out
+  test is `z ≤ ground' + $4000` where `ground'` is the lowered ground, i.e. the
+  ball is `$1000` below the original surface. On the rim a fast ball (`|vx|+|vy|
+  ≥ $0300`) or the centre drops the rolling ball into the air with `vz = 0`; a
+  slow one on the rim is pulled to the centre (`vx += (−(x−½) × $0600) >> 15`).
+* **Aim and meter** (stepper): a press turns the aim 1°; held 17 frames, 3° every
+  3 frames; the power meter counts 0 → 63 → 0 one step a frame; the top/back
+  selector steps every 3 frames (`$6B5E` = 3) and pauses 6 frames at 0, 6 and 12;
+  the last A to the first physics step is 23 frames.
+* **The shot guide** is the same step run from Kirby at **full power** (meter 63),
+  with the aim and elevation chosen, for 40 steps if the shot rolls and until the
+  first landing if it flies; its end, projected, is where the aim stage's camera
+  looks (`$6AAA/$6AAC`, written at `$81:AE29`). 105 of 110 aim angles match to a
+  pixel (the rest run into the pillar). The guide is not a different integrator in
+  any way that showed. See [web-demo.md](web-demo.md).
+* **The shot flow has three presses, not four.** After the A that confirms the
+  aim the game curls Kirby, opens the panel and waits (about 70 frames) before the
+  spin stage answers; the "second A" of the script above did nothing. The power
+  meter starts 5 frames after the A that leaves the spin stage, and if it is not
+  pressed the shot goes by itself when the meter is back at 0.
+* **Camera and facing**: `$38AC/$38AE` is the world camera (`$80:BF4D` turns it
+  into the scroll), moved by `$81:BA8A` in the aim stage and in the pan to the shot
+  view, by `$80:B961` during the roll; Kirby's facing and shot angle come from the
+  aim through the table at `$81:8E98` (`$81:BB4A`, `$81:BCA0`). Details in
+  [web-demo.md](web-demo.md) and [animation.md](animation.md).

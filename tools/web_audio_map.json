@@ -1,0 +1,35 @@
+{
+  "about": "Which of the game's rendered songs and effects the web demo uses, and why. Facts only; the audio itself is rendered from the ROM by tools/render_audio.py and encoded by tools/export_web.py.",
+  "music": {
+    "song": 11,
+    "why": "docs/emulation.md: the hole of course 1 requests $89 through sub_spc_play_song, id = $7E + n, so song 11. Loop points come from build/spc/wav/index.tsv."
+  },
+  "sfx": {
+    "1": "bounce, fast ($81:9BE5: leaves the ground at vz >= $0500)",
+    "2": "bounce, medium (vz >= $0200)",
+    "3": "bounce, soft; also the confirm blip of the aim stage",
+    "4": "ball hits a step ($6A6C = 4, $81:8A2E)",
+    "7": "ball hits a wall ($82:91E9)",
+    "16": "ball lost: a tomato is taken ($83:AC18)",
+    "24": "launch ($82:BFFB)",
+    "28": "the last enemy turns into the cup ($82:8D49)",
+    "29": "the ball rises out of the cup before it turns into the star ($84:AAC1)",
+    "33": "ball holed ($81:80A5), two frames after $DA4A is set",
+    "38": "hop, A pressed while rolling ($82:DA97)",
+    "45": "1UP after a hole in one ($84:C2DD)",
+    "47": "Kirby lands on the tee in the hole intro ($84:B7F0)",
+    "52": "aim turn tick ($81:A794)",
+    "61": "spin selector tick ($81:C1A7)",
+    "62": "HOLE IN ONE fireworks, three bursts ($84:BCF0)",
+    "66": "spin selector at the centre ($81:C16C)",
+    "79": "enemy taken ($82:8A92)",
+    "98": "Kirby jumps off the warp star in the hole intro ($84:B90D)",
+    "100": "the warp star flies in, hole intro ($84:B8F9)",
+    "103": "the star flies up with Kirby after a hole-out ($84:A917)"
+  },
+  "songs": {
+    "24": "the star exit after a hole-out: requested from $83:C748 (A = $96) as the cup's ball rises, in both hole-out paths (tools/snesstep/trace_cutscene.py)",
+    "25": "hole-out jingle: $83:D2B6 (A = $97) when the shot counter $7E:D82A is not 2, i.e. not a hole in one. (An earlier guess had song 17 here; it is not requested in a hole-out.)",
+    "26": "HOLE IN ONE fanfare: $83:D2DD (A = $98) after song 0 stops the music at $83:D2C9, when $7E:D82A = 2"
+  }
+}
