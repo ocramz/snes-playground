@@ -6,7 +6,7 @@ import { ClipPlayer } from '../render/clips';
 import { setFrame, spriteImage, UI, type AtlasJson } from '../render/atlas';
 import { project, Z_STEP, type Proj } from '../render/projection';
 import { GlyphText } from '../render/text';
-import { ShotPanel, type UiJson } from '../render/shotpanel';
+import { ShotPanel, type PanelState, type UiJson } from '../render/shotpanel';
 import { CutscenePlayer, type CutFrame, type CutscenesJson } from '../render/cutscene';
 import { HoleSim, emptyPad, type Pad, type Stage } from '../sim/hole';
 import { KirbyPose, type PoseCtx } from '../sim/pose';
@@ -43,7 +43,7 @@ export class HoleScene extends Phaser.Scene {
   private course!: CourseJson;
   private atlas!: AtlasJson;
   private layers!: LayersJson;
-  private pad!: PadInput;
+  protected pad!: PadInput;
   private audio!: GameAudio;
 
   private acc = 0;
@@ -59,7 +59,7 @@ export class HoleScene extends Phaser.Scene {
   private outline: Phaser.GameObjects.Image | null = null;
   private guideDots: Phaser.GameObjects.Image[] = [];
   private guideCone!: Phaser.GameObjects.Image;
-  private ui!: UiJson;
+  protected ui!: UiJson;
   panel!: ShotPanel;
   private hudPanel!: Phaser.GameObjects.Image;
   private hint!: GlyphText;
@@ -342,7 +342,7 @@ export class HoleScene extends Phaser.Scene {
     this.render();
   }
 
-  private stepOnce(pad: Pad): void {
+  protected stepOnce(pad: Pad): void {
     this.tickCount += 1;
     if (this.freeze > 0) {
       // the game waits a few frames on a hard landing; only the squash shows
@@ -417,11 +417,11 @@ export class HoleScene extends Phaser.Scene {
   // animation per tick (60 Hz)
   // ---------------------------------------------------------------------
 
-  private poseCtx(pad: Pad): PoseCtx {
+  protected poseCtx(pad: Pad): PoseCtx {
     const sim = this.sim;
     return {
       stage: sim.stage, facing: sim.facing, angle16: sim.shotAngle16,
-      turning: pad.left || pad.right,
+      turning: this.turning(pad),
       frozen: this.freeze > 0, squash: sim.ball.squash,
       hp: sim.hp, side: sim.side, topBack: sim.topBack, shotAge: sim.shotAge, curlStarted: sim.curlStarted,
       clipFinished: this.kClip.finished,
@@ -524,11 +524,52 @@ export class HoleScene extends Phaser.Scene {
     this.guideCone.setVisible(true).setPosition(Math.round(g.end.x - 6), Math.round(g.end.y - 15));
   }
 
+  // ---------------------------------------------------------------------
+  // hooks for another input method (src/hands/HandHoleScene.ts); these are
+  // the keyboard demo's own behaviour
+  // ---------------------------------------------------------------------
+
+  /** Kirby shows the turning pose (state 5) in the aim stage. */
+  protected turning(pad: Pad): boolean { return pad.left || pad.right; }
+
+  /**
+   * While the spin and the power are chosen the game replaces its score panel by the
+   * shot panel with its own row of tomatoes (docs/web-demo.md).
+   */
+  protected shotUi(): boolean {
+    const s = this.sim.stage;
+    return s === 'spin' || s === 'power' || s === 'curl';
+  }
+
+  /** What the shot panel shows this frame. */
+  protected panelState(): PanelState {
+    const sim = this.sim;
+    const shotUi = this.shotUi();
+    const cam = this.cameras.main;
+    const b = sim.ball;
+    const bp = project(this.course.word7, b.xc, b.xf, b.yc, b.yf, b.z, this.tmp);
+    return {
+      x: bp.x - cam.scrollX, y: bp.y - cam.scrollY, age: sim.shotAge, visible: shotUi,
+      side: sim.side, topBack: sim.topBack,
+      meter1: shotUi && sim.stage !== 'spin' ? sim.meter1 : -1, meter2: shotUi && sim.stage !== 'spin' ? sim.meter2 : -1,
+      hp: sim.hp,
+    };
+  }
+
+  /** The line of help at the top of the screen. */
+  protected hintText(): string {
+    const hint: Record<string, string> = {
+      aim: 'LR AIM  U FLY  D ROLL  A OK',
+      spin: 'LR SPIN  A OK  B BACK',
+      power: 'A = SHOOT  B BACK',
+      roll: 'A HOP  S BRAKE',
+    };
+    return hint[this.sim.stage] ?? '';
+  }
+
   private drawUi(): void {
     const sim = this.sim;
-    // while the spin and the power are chosen the game replaces its score panel by the
-    // shot panel with its own row of tomatoes (docs/web-demo.md)
-    const shotUi = sim.stage === 'spin' || sim.stage === 'power' || sim.stage === 'curl';
+    const shotUi = this.shotUi();
     // the score panel is not up yet while Kirby flies in
     const hud = !shotUi && sim.stage !== 'intro';
     this.hudPanel.setVisible(hud);
@@ -542,23 +583,8 @@ export class HoleScene extends Phaser.Scene {
       else t.setTint(0x404040).setAlpha(0.55);
     });
 
-    const hint: Record<string, string> = {
-      aim: 'LR AIM  U FLY  D ROLL  A OK',
-      spin: 'LR SPIN  A OK  B BACK',
-      power: 'A = SHOOT  B BACK',
-      roll: 'A HOP  S BRAKE',
-    };
-    this.hint.setText(hint[sim.stage] ?? '');
-
-    const cam = this.cameras.main;
-    const b = sim.ball;
-    const bp = project(this.course.word7, b.xc, b.xf, b.yc, b.yf, b.z, this.tmp);
-    this.panel.update({
-      x: bp.x - cam.scrollX, y: bp.y - cam.scrollY, age: sim.shotAge, visible: shotUi,
-      side: sim.side, topBack: sim.topBack,
-      meter1: shotUi && sim.stage !== 'spin' ? sim.meter1 : -1, meter2: shotUi && sim.stage !== 'spin' ? sim.meter2 : -1,
-      hp: sim.hp,
-    });
+    this.hint.setText(this.hintText());
+    this.panel.update(this.panelState());
     void GAME_H;
     void Z_STEP;
   }

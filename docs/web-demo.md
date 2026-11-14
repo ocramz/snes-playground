@@ -18,7 +18,7 @@ python3 tools/export_web.py --golden     # ROM -> build/web/ (needs KDC_ROM, ffm
 cd web && npm install
 npm run dev                              # http://127.0.0.1:5173
 npm run traces                           # record the shots, the UI timeline, the intro and hole-out (stepper)
-npm test                                 # 40 tests; the ROM-derived ones skip without build/web
+npm test                                 # 57 tests; the ROM-derived ones skip without build/web
 npm run build                            # tsc + vite build -> web/dist
 python3 tools/check_web_ui.py            # the shot panel against the real sprites (needs npm run dev)
 ```
@@ -223,3 +223,58 @@ result card comes when the recording ends.
 Run `python3 tools/export_web.py --hole N` and the layers, tables and course
 data for another hole come out the same way, but the sprite capture, the
 pillar and the enemy kinds are specific to hole 1.
+
+## The hand-gesture variant (`hands.html`)
+
+`http://127.0.0.1:5173/hands.html` is the same hole, putted with two hands in
+front of the webcam instead of the spin and power stages. The hand tracking is
+[`@ocramz/handpose`](https://www.npmjs.com/package/@ocramz/handpose) 0.1.0
+(YOLO26 hand pose in onnxruntime-web, WebGPU fp16 or multithreaded WASM fp32,
+in a worker; two tracked hands, 21 MediaPipe keypoints, lifted to camera-space
+metres from the palm size). The keyboard works as on `/`.
+
+* **Grip**: both fists closed for 0.15 s, in the aim stage. While it lasts, the aim is
+  the aim when the grip started (Kirby's heading) plus the tilt of the line from the
+  left hand to the right one against the horizontal, 1:1 in degrees, counter-clockwise
+  positive (right hand up turns the way Left does), clamped to ±80° (past 90° the
+  tracker swaps the hands). The energy is the distance between the hands on the screen
+  plane, 0.10 m → meter 0 and 0.55 m → meter 63, linear and clamped. The guide dots
+  (full power, as in the game) show the aim and the game's shot panel shows the energy:
+  the gauge and the face, `meter1 = meter2 =` the hands' meter.
+* **Putt**: both hands open for 0.1 s after a grip. The shot takes the aim and meter of the
+  last tracking frame where both hands were still fists, so the opening does not move
+  them. Opening with the hands together (meter 0) is not a shot.
+* **Ratchet**: a hand out of view for 0.5 s ends the grip with no shot; the aim stays, so a
+  new grip turns further from there.
+
+| | |
+|---|---|
+| `web/src/hands/gesture.ts` | pure: fist / open per hand (index to pinky: tip-to-wrist over PIP-to-wrist > 1.1 extended, < 0.95 curled, three alike decide), the palm centre (wrist + four MCPs, which do not move when the hand closes), `GripTracker` (the timings above) |
+| `web/src/hands/control.ts` | webcam, `HandPose`, its own rAF loop (the model loads during the title), the inset bottom right (V hides it): video, `drawDebug`, the hand line, the energy, the model status |
+| `web/src/hands/HandHoleScene.ts` | `HoleScene` through its hooks (`turning`, `shotUi`, `panelState`, `hintText`): heading at the grip, `sim.setAim`, `sim.requestShot`; the panel is kept on screen (the aim camera looks at the guide's end and can put Kirby at the edge) |
+| `HoleSim.requestShot(meter)` | what the power A does (spin 6/6), taken by the next aim tick so its events reach the scene. Then the curl stage as after the first A: the camera pans to the shot view, Kirby curls, and the ball goes `HAND_CURL_FRAMES` = 35 (the curl clip) after the curl starts. **Not a measurement**: the game has no path from the aim straight to the shot; going on after the keyboard's 23 frames would launch before the pan arrives |
+
+URL parameters: `?engine=tract` (the model in tract/wasm instead of onnxruntime-web),
+`?dmin=0.1&dmax=0.55` (metres for meter 0 and 63), `?fakehands` (no camera and no model:
+`window.__hands.set(left, right)` with `{x, y, shape}` in metres, x right, y up, for the
+e2e script). The dev server and `vite preview` send COOP/COEP so the WASM backend gets
+threads; serve the same two headers in production.
+
+Checks: `src/hands/__tests__/gesture.test.ts` (classifier on synthetic hands, the line,
+the meter, the grip's state machine), `src/sim/__tests__/handshot.test.ts` (four aims:
+curl then launch 35 frames later with the launch the power A gives). With `npm run dev`:
+`node test/e2e/hands.mjs` drives the page through `?fakehands` (grip, tilt +30°, 0.4 m,
+open → aim +30, meter 42, curl, roll; the ratchet; the meter-0 release) and saves
+screenshots in `build/web-test/hands/`; `node test/e2e/hands-model.mjs` loads the real
+model on Chromium's fake camera (headless: no WebGPU, so WASM fp32 ×4 threads, about
+170 ms a frame) and checks that it answers frames without errors.
+
+**Not yet checked on a real webcam**: the fist and open thresholds were set from adult
+hand proportions and tested on synthetic keypoints only, and the 0.10–0.55 m range is a
+guess. The metres on the screen plane come from the palms' apparent size (the package's
+typical adult palm, `handScale` 1); the webcam's field of view cancels out of them
+(it only matters for depth, which is not used).
+
+The package is AGPL-3.0 and its bundled weights are non-commercial (Ultralytics Hand
+Keypoints, CC BY-NC-SA 4.0). `vite build` puts them in `dist/` with the WASM runtimes:
+about 110 MB (the two ONNX files 64 MB, onnxruntime's wasm 29 MB, tract's 17 MB).

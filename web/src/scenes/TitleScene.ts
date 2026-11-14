@@ -21,7 +21,9 @@ export class TitleScene extends Phaser.Scene {
     t('COURSE 1', 74, 2, 0xffe27a);
     t('HOLE 1', 98, 2);
     t('PRESS A', 170);
-    t('Z/SPACE = A   X = B   ARROWS = AIM', GAME_H - 24, 1, 0xdddddd);
+    // a page with other controls (hands.html) puts its own lines in the registry
+    const help = (this.registry.get('help') as string[] | undefined) ?? ['Z/SPACE = A   X = B   ARROWS = AIM'];
+    help.forEach((s, i) => t(s, GAME_H - 24 - 12 * (help.length - 1 - i), 1, 0xdddddd));
 
     const audio = new GameAudio();
     this.registry.set('audio', audio);

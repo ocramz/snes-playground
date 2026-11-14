@@ -58,6 +58,13 @@ const METER_START = 5;
 /** Frames after the A before the camera starts toward the shot view (real: A at 2800, first step at 2805). */
 const PAN_DELAY = 5;
 const REST_WAIT = 35; // measured: $D9BE set at 3474, the next aim (state 4) at 3509
+/**
+ * A shot from shootNow (the hand-gesture page) launches this many frames after Kirby
+ * starts to curl: the length of the curl clip (`curl_into_ball_*`, 35 frames). The
+ * keyboard path goes through the spin stage, where the curl is long over by the time
+ * of the power A, and keeps CURL_FRAMES. Not a measurement: the game has no such path.
+ */
+export const HAND_CURL_FRAMES = 35;
 
 export class HoleSim implements BallWorld {
   readonly terrain: Terrain;
@@ -109,6 +116,10 @@ export class HoleSim implements BallWorld {
   private cupShown = false;
   private tbPause = 0;
   private pending: { vx: number; vy: number; vz: number; spin: ReturnType<typeof shotSpin> } | null = null;
+  /** the shot in flight came from shootNow: launch HAND_CURL_FRAMES after the curl starts */
+  handShot = false;
+  /** a shot asked for by requestShot, taken by the next tick of the aim stage */
+  private shotRequest: number | null = null;
 
   constructor(readonly rom: Rom, readonly course: CourseJson) {
     this.terrain = new Terrain(rom, course);
@@ -137,6 +148,9 @@ export class HoleSim implements BallWorld {
     this.camera.observe(k.x, k.yFlip);
     this.guideKey = '';
     this.curlStarted = false;
+    this.handShot = false;
+    this.shotRequest = null;
+    this.pending = null;
     this.setStage('aim');
   }
 
@@ -206,6 +220,7 @@ export class HoleSim implements BallWorld {
     };
     this.prevPad = { ...pad };
 
+    if (this.stage !== 'aim') this.shotRequest = null;
     switch (this.stage) {
       case 'intro':
         if (this.stageTimer > this.introFrames) this.setStage('aim');
@@ -297,6 +312,12 @@ export class HoleSim implements BallWorld {
   // ---- aiming ---------------------------------------------------------------
 
   private tickAim(pad: Pad, pressed: Pad): void {
+    if (this.shotRequest !== null) {
+      const m = this.shotRequest;
+      this.shotRequest = null;
+      this.shootFromAim(m);
+      return;
+    }
     // Measured: a press turns 1 degree at once; held 17 frames, it turns 3
     // degrees every 3 frames. Left turns toward +y (the angle grows).
     const dir = pad.left ? 1 : pad.right ? -1 : 0;
@@ -320,6 +341,42 @@ export class HoleSim implements BallWorld {
 
   private turn(d: number): void {
     this.aim = (((this.aim + d) % 360) + 360) % 360;
+  }
+
+  /** Set the aim directly (another input method than Left/Right). Only in the aim stage. */
+  setAim(deg: number): void {
+    if (this.stage !== 'aim') return;
+    this.aim = (((Math.round(deg) % 360) + 360) % 360);
+  }
+
+  /**
+   * Shoot from the aim stage with the meter at `meter` (0-63), no spin, on the next tick:
+   * what the power A does (tickPower), without the spin and power stages. The camera
+   * pans to the shot view and Kirby curls as after the first A; the ball goes
+   * HAND_CURL_FRAMES after the curl starts. Taken inside the tick so that its events
+   * (the launch sound, the stage change) reach the scene. False when not in the aim stage.
+   */
+  requestShot(meter: number): boolean {
+    if (this.stage !== 'aim') return false;
+    this.shotRequest = Math.max(0, Math.min(63, Math.round(meter)));
+    return true;
+  }
+
+  private shootFromAim(meter: number): void {
+    this.side = 6; this.topBack = 6;
+    this.meter = this.meter1 = this.meter2 = meter;
+    this.meterDir = 1;
+    this.power = shotPower(this.rom, this.meter, this.elevation !== 0);
+    const v = launchVelocity(this.rom, this.power, this.aim, this.elevation);
+    const spin = shotSpin(this.rom, this.power, this.aim, this.elevation, this.side, this.topBack);
+    this.pending = { ...v, spin };
+    this.strokes += 1;
+    this.hp = Math.max(0, this.hp - 1);
+    this.shotAge = 0;
+    this.curlStarted = false;
+    this.handShot = true;
+    this.sfx(SFX.launch);
+    this.setStage('curl');
   }
 
   // ---- spin -----------------------------------------------------------------
@@ -391,7 +448,12 @@ export class HoleSim implements BallWorld {
   }
 
   private tickCurl(): void {
-    if (this.stageTimer < CURL_FRAMES) return;
+    if (this.handShot) {
+      // count from the frame the camera arrived and Kirby started to curl
+      if (!this.curlStarted) { this.stageTimer = 0; return; }
+      if (this.stageTimer < HAND_CURL_FRAMES) return;
+      this.handShot = false;
+    } else if (this.stageTimer < CURL_FRAMES) return;
     const p = this.pending!;
     const b = this.ball;
     b.vx = p.vx; b.vy = p.vy; b.vz = p.vz;

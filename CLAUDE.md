@@ -55,7 +55,8 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/web-demo.md](docs/web-demo.md) — the browser demo of course 1 hole 1:
   how to export the assets and run it, the TypeScript port of the ball physics
   and how it was checked frame by frame against the game, what was measured
-  for it, and what is approximated.
+  for it, and what is approximated; also the hand-gesture variant
+  (`web/hands.html`: aim and putt with two hands in front of the webcam).
 
 ## Workflow
 
