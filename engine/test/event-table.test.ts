@@ -1,0 +1,90 @@
+/**
+ * The event table (features/audio/event-table.ts) against the audio export
+ * and against what core actually emits (plans phase 7 §7.5 "event-table"):
+ * - every sound id the table lists has a rendered file in audio.json;
+ * - the eight test courses (played out by the CourseDriver, through the
+ *   course's end) and the stepper's scripts (the flow traces' runs, the
+ *   hazard scenarios with their pokes) emit only kinds and ids the table has;
+ * - every cutscene cue the replay plays itself is in the table.
+ */
+import { afterEach, describe, expect, it } from 'vitest';
+import type { World } from 'koota';
+import { EVENT_TABLE } from '../src/game/features/audio/event-table';
+import { ownCue, SONG_BASE, type WindowName } from '../src/game/features/cutscene/replay';
+import { haveAssets, loadAudio, loadCutscenes } from './assets';
+import { haveRules, haveRomTest, loadFlow, loadRomHole } from './fixtures';
+import { CourseDriver } from './course-driver';
+import { runFlowScript, GAME_OFFSET } from './flow-harness';
+import { nextHole } from '../src/core/actions';
+import type { GameEvent } from '../src/core/events';
+
+const worlds: World[] = [];
+afterEach(() => {
+  for (const w of worlds.splice(0)) w.destroy();
+});
+
+function offTable(events: GameEvent[]): string[] {
+  const bad = new Set<string>();
+  for (const e of events) {
+    const row = EVENT_TABLE[e.kind];
+    if (!row) bad.add(`unknown kind ${e.kind}`);
+    else if (row.ids.length === 0 ? e.romSfx !== -1 : !row.ids.includes(e.romSfx)) bad.add(`${e.kind} ${e.romSfx}`);
+  }
+  return [...bad];
+}
+
+describe.skipIf(!haveAssets)('the event table vs audio.json', () => {
+  it('every effect and song id the table lists has a file', () => {
+    const audio = loadAudio();
+    for (const [kind, row] of Object.entries(EVENT_TABLE)) {
+      for (const id of row.ids) {
+        if (row.react === 'sfx') expect(audio.sfx[String(id)], `${kind} sfx ${id}`).toBeDefined();
+        if (row.react === 'song' && id !== 0) expect(audio.songs[String(id)], `${kind} song ${id}`).toBeDefined();
+      }
+    }
+  });
+
+  it("the cutscenes' own cues are in the table", () => {
+    const cs = loadCutscenes();
+    for (const [name, w] of Object.entries(cs.windows)) {
+      for (const cue of w.cues) {
+        if (!ownCue(name as WindowName, cue)) continue;
+        if (cue[1] === 'song') expect(EVENT_TABLE.song.ids, `${name} song ${cue[2]}`).toContain(cue[2] - SONG_BASE);
+        else expect(EVENT_TABLE.cue.ids, `${name} sfx ${cue[2]}`).toContain(cue[2]);
+      }
+    }
+  });
+});
+
+describe.skipIf(!haveRules)('what core emits is in the table', () => {
+  it('the eight test courses, played to the course\'s end', () => {
+    const d = new CourseDriver();
+    worlds.push(d.world);
+    for (let i = 0; i < 8; i++) {
+      d.playHole();
+      nextHole(d.world);
+      d.step(5);
+    }
+    expect(d.phase).toBe('CourseDone');
+    expect(offTable(d.events)).toEqual([]);
+  });
+
+  const scripts: Array<{ name: string; to: number; hole?: number; offset?: number; pokes?: boolean }> = [
+    { name: 'web_flow', to: 4700 }, { name: 'web_fly', to: 4400 }, { name: 'web_fly_spin', to: 4400 },
+    { name: 'web_curve', to: 3700 }, { name: 'web_hole', to: 4700 }, { name: 'web_tomatoes', to: 5200 },
+    { name: 'web_ui', to: 3300 },
+    { name: 'web_haz80', to: 2760, hole: 3, offset: 2336, pokes: true },
+    { name: 'web_haz98', to: 2496, hole: 4, offset: 2332, pokes: true },
+    { name: 'web_haz94', to: 2571, hole: 11, offset: 2332, pokes: true },
+    { name: 'web_hazad', to: 2799, hole: 54, offset: 2337, pokes: true },
+    { name: 'web_hazac', to: 2799, hole: 54, offset: 2337, pokes: true },
+  ];
+  for (const s of scripts) {
+    it.skipIf(!haveRomTest || !loadFlow(s.name) || (s.hole !== undefined && !loadRomHole(s.hole)))(`${s.name}`, () => {
+      const run = runFlowScript(s.name, s.to - (s.offset ?? GAME_OFFSET), { hole: s.hole, offset: s.offset, pokes: s.pokes });
+      worlds.push(run.world);
+      expect(run.emitted.length).toBeGreaterThan(0);
+      expect(offTable(run.emitted)).toEqual([]);
+    });
+  }
+});

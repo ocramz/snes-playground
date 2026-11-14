@@ -16,6 +16,8 @@ emulator or other build/ output):
     manifest  ROM hash, exporter version
     font      the 8x8 font as a glyph sheet
     sprites   the atlas (tools/export_web_sprites.py; needs the stepper)
+    objects   the hazard actors' pictures from build/sprites/emu (the engine's
+              second atlas; tools/export_web_sprites.py build_objects)
     ui        the shot panel sprites (tools/export_web_ui.py; needs the stepper)
     audio     music (cut at its loop end), the hole-out songs and effects via ffmpeg
     course    grid layers, tee, enemies, objects, projection origin
@@ -629,9 +631,14 @@ def build_hud(outdir):
     fill((197, 199, 219, 208), strip)
     panel.save(os.path.join(outdir, "hud_panel.png"))
     tom.save(os.path.join(outdir, "hud_tomato.png"))
-    return {"panel": [224, 32], "at": [16, 176], "tomato": list(tom.size),
+    info = {"panel": [224, 32], "at": [16, 176], "tomato": list(tom.size),
             "slots": {"hole": [111, 194], "shot": [136, 193], "tomato": [164, 183],
-                      "tomatoStep": 16, "stars": [200, 200]}}
+                      "tomatoStep": 16, "stars": [200, 200], "portrait": [24, 184, 48, 208]}}
+    # the slots as data, for the engine's HUD (engine/src/game/features/hud)
+    write_json(os.path.join(outdir, "hud.json"), dict(info, about=(
+        "screen pixels of the 256x224 frame; slots are the top-left of what the "
+        "panel blanked (tools/export_web.py build_hud)")), compact=False)
+    return info
 
 
 # --------------------------------------------------------------------------
@@ -764,6 +771,9 @@ def main():
     if "sprites" in steps:
         import export_web_sprites
         print("sprites: {}".format(export_web_sprites.build(args.out)))
+    if "objects" in steps:
+        import export_web_sprites
+        print("objects: {}".format(export_web_sprites.build_objects(args.out)))
     if "ui" in steps:
         import export_web_ui
         print("ui: {}".format(export_web_ui.build(args.out)))

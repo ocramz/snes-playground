@@ -41,7 +41,7 @@ DIST   := web/dist/index.html
 WEB_SRC := $(shell find web/src -type f ! -path '*/__tests__/*' ! -name .DS_Store) \
            web/index.html web/hands.html web/vite.config.ts web/tsconfig.json web/package.json
 
-.PHONY: all build tools assets web engine engine-assets engine-test engine-traces extract help clean clean-rust distclean
+.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e extract help clean clean-rust distclean
 .DELETE_ON_ERROR:
 
 all: build
@@ -121,6 +121,9 @@ ENGINE_ROMTEST := build/engine/rom-test/.stamp
 ENGINE_ASSETS  := build/engine/assets/manifest.json
 ENGINE_NODE    := engine/node_modules/.package-lock.json
 ENGINE_DIST    := engine/dist/index.html
+# the hazard actors' emulated sheets (tools/emusheets.py over every hole); the
+# objects step skips a missing one and the engine draws a marker instead
+ENGINE_OBJ     := $(wildcard $(foreach t,076 077 081 082 083,build/sprites/emu/obj_$(t).json))
 ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
                   engine/index.html engine/vite.config.ts engine/tsconfig.json engine/package.json
 
@@ -135,13 +138,13 @@ $(ENGINE_ROMTEST): tools/export_web.py
 	done
 	@touch $@
 
-$(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) tools/web_audio_map.json \
+$(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) $(ENGINE_OBJ) tools/web_audio_map.json \
                   tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py | $(SNESSTEP)
 ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
 endif
-	$(PYTHON) tools/export_web.py --only font,hud,sprites,ui,audio --out build/engine/assets
+	$(PYTHON) tools/export_web.py --only font,hud,sprites,ui,audio,objects --out build/engine/assets
 	for h in 0 1 2 3 4 5 6 7; do \
 	  $(PYTHON) tools/export_web.py --hole $$h --only course,layers --out build/engine/assets/holes/0$$h || exit; \
 	done
@@ -165,6 +168,11 @@ engine-test: $(ENGINE_NODE) $(ENGINE_RULES) $(ENGINE_ROMTEST)
 engine-traces: | $(SNESSTEP)
 	cd engine && $(NPM) run traces
 
+# the browser smoke test: boots course 1, plays a shot, checks for errors.
+# Needs `cd engine && npm run dev` running (port 5174), like web/test/e2e.
+engine-e2e: $(ENGINE_NODE)
+	cd engine && $(NPM) run e2e
+
 # ---- not part of `build`
 
 extract: tools
@@ -179,6 +187,7 @@ help:
 	@echo "make web           web/dist (vite build)"
 	@echo "make engine        engine/dist (npm ci, vite build; needs engine-assets and the rules)"
 	@echo "make engine-assets build/engine/assets: the ROM assets for the engine (like make assets)"
+	@echo "make engine-e2e    browser smoke test of the engine (needs cd engine && npm run dev)"
 	@echo "make engine-test   the engine's vitest suite (ROM-derived tests skip without build/engine)"
 	@echo "make engine-traces the trace/flow fixtures into build/engine/rom-test (stepper runs)"
 	@echo "make extract       tools/extract_all.py: every extractor + build/manifest.tsv"

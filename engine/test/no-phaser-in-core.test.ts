@@ -32,3 +32,41 @@ describe('src/core imports koota only', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/**
+ * The bridge's pure half (plans phase 7 §7.2): the modules the node tests
+ * run — the clock, the frame loop, the history, the placement, the catalog
+ * data, the event table, the replay, the panel's and the guide's layout, the
+ * HUD's state, the text encoding, the asset schemas — import only core, koota
+ * and each other, so nothing reaches phaser through them.
+ */
+const game = resolve(here, '../src/game');
+const PURE = [
+  'bridge/tick-time.ts', 'bridge/history.ts', 'bridge/frame-loop.ts', 'bridge/placement.ts',
+  'features/catalog-data.ts', 'features/kirby/pose-clips.ts', 'features/audio/event-table.ts',
+  'features/cutscene/replay.ts', 'features/cutscene/director.ts', 'features/shot-panel/panel-layout.ts', 'features/shot-panel/panel-state.ts',
+  'features/guide/guide-dots.ts', 'features/hud/hud-state.ts', 'features/text/encoding.ts',
+  'assets/schema.ts', 'config.ts',
+];
+
+describe('the pure bridge modules import no phaser', () => {
+  it('each imports only koota, src/core and the other pure modules', () => {
+    const pure = new Set(PURE.map((p) => resolve(game, p)));
+    const bad: string[] = [];
+    for (const path of pure) {
+      const src = readFileSync(path, 'utf8');
+      for (const m of src.matchAll(/(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]/g)) {
+        const spec = m[1];
+        if (spec === 'koota') continue;
+        if (!spec.startsWith('.')) {
+          bad.push(`${path}: ${spec}`);
+          continue;
+        }
+        const target = resolve(path, '..', spec.endsWith('.ts') ? spec : `${spec}.ts`);
+        if (target.startsWith(core) || pure.has(target)) continue;
+        bad.push(`${path}: ${spec}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

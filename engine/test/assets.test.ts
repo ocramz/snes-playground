@@ -80,9 +80,10 @@ describe.skipIf(!haveAssets)('build/engine/assets', () => {
   describe('audio.json', () => {
     it('has a looping music track and lists only files that exist', () => {
       const audio = loadAudio();
-      expect(audio.music.loopStart).toBeLessThan(audio.music.loopEnd);
+      expect(audio.music.loopStart).toBeLessThan(audio.music.loopEnd!);
       for (const entry of [audio.music, ...Object.values(audio.songs)]) {
-        expect(entry.loopStart).toBeLessThanOrEqual(entry.loopEnd);
+        // a song without loop points (17, 18: they play once) has neither
+        if (entry.loopStart !== undefined) expect(entry.loopStart).toBeLessThanOrEqual(entry.loopEnd!);
         expect(assetExists(entry.file), entry.file).toBe(true);
       }
       for (const file of Object.values(audio.sfx)) {
@@ -90,9 +91,9 @@ describe.skipIf(!haveAssets)('build/engine/assets', () => {
       }
     });
 
-    it('covers the hole song and the hole-out songs', () => {
+    it('covers the hole song, the asleep and fall songs and the hole-out songs', () => {
       const { songs } = loadAudio();
-      expect(Object.keys(songs).sort()).toEqual(['11', '24', '25', '26']);
+      expect(Object.keys(songs).sort()).toEqual(['11', '17', '18', '24', '25', '26']);
     });
   });
 

@@ -107,6 +107,15 @@ python3 tools/snesstep/trace_actors.py web_haz98 --frames 3000  # hazard actors'
 python3 tools/snesstep/trace_cutscene.py   # hole 1's intro and hole-outs, every frame -> build/web-test/cutscene_hole0.json
 python3 tools/export_web_ui.py            # the shot panel's sprites from OAM -> build/web/ui.*
 python3 tools/check_web_ui.py             # ... and a pixel check of the browser's panel (npm run dev first)
+python3 tools/check_web_ui.py --target engine   # the same against engine/'s panel (its npm run dev, port 5174)
+
+# The engine (engine/, plans/port_v1_koota_phaser4.md): `make engine-assets` runs
+# export_web.py into build/engine/assets with the web demo's steps plus `objects`
+# (the hazard actors' pictures from build/sprites/emu: objects.png/json); the `hud`
+# step also writes the score panel's slots as data (hud.json)
+python3 tools/export_web.py --only objects --out build/engine/assets
+#   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?hole=N)
+#   make engine-e2e                  # the browser smoke test (needs the dev server)
 
 # Screens: PPU setup, what each loads, and the scene bundles
 python3 tools/scenes.py blocks            # the 20 screen setup blocks

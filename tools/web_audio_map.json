@@ -1,5 +1,5 @@
 {
-  "about": "Which of the game's rendered songs and effects the web demo uses, and why. Facts only; the audio itself is rendered from the ROM by tools/render_audio.py and encoded by tools/export_web.py.",
+  "about": "Which of the game's rendered songs and effects the web demo and the engine (engine/, marked engine/) use, and why. Facts only; the audio itself is rendered from the ROM by tools/render_audio.py and encoded by tools/export_web.py.",
   "music": {
     "song": 11,
     "why": "docs/emulation.md: the hole of course 1 requests $89 through sub_spc_play_song, id = $7E + n, so song 11. Loop points come from build/spc/wav/index.tsv."
@@ -9,9 +9,15 @@
     "2": "bounce, medium (vz >= $0200)",
     "3": "bounce, soft; also the confirm blip of the aim stage",
     "4": "ball hits a step ($6A6C = 4, $81:8A2E)",
+    "5": "the first bounce of a fly shot with spin, weak ($81:9BF4: the spin streak's sound, $68F0 - 1 + 5; spin table $84:89D0); engine/",
+    "6": "the same, strong spin ($81:9BF4); engine/",
     "7": "ball hits a wall ($82:91E9)",
+    "11": "a life is spent: the refill after a lost ball or no tomatoes ($80:F8D0, $80:F87C); engine/",
     "16": "ball lost: a tomato is taken ($83:AC18)",
+    "17": "a snap tile catches the ball ($82:A608); engine/",
     "24": "launch ($82:BFFB)",
+    "25": "launch at full power, meter 63 ($82:BFF0 -> $82:C00B); engine/",
+    "26": "a friction tile the ball rolls onto ($82:8F95); engine/",
     "28": "the last enemy turns into the cup ($82:8D49)",
     "29": "the ball rises out of the cup before it turns into the star ($84:AAC1)",
     "33": "ball holed ($81:80A5), two frames after $DA4A is set",
@@ -22,12 +28,27 @@
     "61": "the top/back selector reaches 0 or 12 ($81:C1A4 -> $81:C1A7)",
     "62": "HOLE IN ONE fireworks, three bursts ($84:BCF0)",
     "66": "the top/back selector passes 6 ($81:C19F -> $81:C1A7; the side selector's tick is $46, $81:C16C)",
+    "70": "the side selector steps ($81:C16C); engine/",
     "79": "enemy taken ($82:8A92)",
+    "80": "an enemy with a copy ability is taken ($82:8A79); engine/",
+    "82": "a tomato is gained ($83:AC07, the HUD's queue); engine/",
+    "83": "the aim turns, one tick per guide recomputation ($81:A98B); engine/",
+    "84": "the ball is lost ($80:F848, BallLost + 33); engine/",
+    "87": "the power meter starts (the Power stage's t = 4; stopped by request 0 at $81:C038); engine/",
+    "95": "the ball lands on rough ($04, $82:8EFB: $5F); engine/",
+    "96": "the ball lands on rough hard, vz below -$0400 ($82:8EFB: $5F + 1; also $82:8F44); engine/",
     "98": "Kirby jumps off the warp star in the hole intro ($84:B90D)",
     "100": "the warp star flies in, hole intro ($84:B8F9)",
-    "103": "the star flies up with Kirby after a hole-out ($84:A917)"
+    "103": "the star flies up with Kirby after a hole-out ($84:A917)",
+    "111": "a bumper or a hazard tile bounces the ball ($82:9C9D, $82:A5A3); engine/",
+    "113": "the ball hits a pillar ($82:956C, $82:95F8); engine/",
+    "119": "object $40 after the out-of-tomatoes sleep ($80:F89E); engine/",
+    "123": "a volcano throws the ball ($82:DB9A code $0F); engine/",
+    "124": "the ball touches a volcano's cone (the cone handler in engine/src/core/sim/hazards.ts); engine/"
   },
   "songs": {
+    "17": "Kirby falls asleep, out of tomatoes (request $8F, the OutOfTomatoes path after $82:E1EE; also the fall in ball mode 10); engine/",
+    "18": "the ball falls off the course (request $90, $81:A16C-$81:A190); engine/",
     "24": "the star exit after a hole-out: requested from $83:C748 (A = $96) as the cup's ball rises, in both hole-out paths (tools/snesstep/trace_cutscene.py)",
     "25": "hole-out jingle: $83:D2B6 (A = $97) when the shot counter $7E:D82A is not 2, i.e. not a hole in one. (An earlier guess had song 17 here; it is not requested in a hole-out.)",
     "26": "HOLE IN ONE fanfare: $83:D2DD (A = $98) after song 0 stops the music at $83:D2C9, when $7E:D82A = 2"
