@@ -1,0 +1,26 @@
+{
+  "about": "Which of the game's rendered songs and effects the web demo uses, and why. Facts only; the audio itself is rendered from the ROM by tools/render_audio.py and encoded by tools/export_web.py.",
+  "music": {
+    "song": 11,
+    "why": "docs/emulation.md: the hole of course 1 requests $89 through sub_spc_play_song, id = $7E + n, so song 11. Loop points come from build/spc/wav/index.tsv."
+  },
+  "jingle": {
+    "song": 17,
+    "why": "2.8 s, no loop, requested from $82:E247 next to the hole-out code; plays when the ball is holed."
+  },
+  "sfx": {
+    "1": "bounce, fast ($81:9BE5: leaves the ground at vz >= $0500)",
+    "2": "bounce, medium (vz >= $0200)",
+    "3": "bounce, soft; also the confirm blip of the aim stage",
+    "4": "ball hits a step ($6A6C = 4, $81:8A2E)",
+    "7": "ball hits a wall ($82:91E9)",
+    "16": "ball lost: a tomato is taken ($83:AC18)",
+    "24": "launch ($82:BFFB)",
+    "28": "the last enemy turns into the cup ($82:8D49)",
+    "38": "hop, A pressed while rolling ($82:DA97)",
+    "52": "aim turn tick ($81:A794)",
+    "61": "spin selector tick ($81:C1A7)",
+    "66": "spin selector at the centre ($81:C16C)",
+    "79": "enemy taken ($82:8A92)"
+  }
+}

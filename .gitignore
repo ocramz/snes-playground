@@ -20,3 +20,8 @@ __pycache__/
 target/
 
 .DS_Store
+
+**/node_modules/
+# Web demo
+web/node_modules/
+web/dist/

@@ -1,16 +1,14 @@
 # snes-playground
 
-Reverse-engineering notes and analysis scripts for SNES ROMs, currently
-*Kirby's Dream Course (USA)* (KDC).
-
 ## Repo Layout
 
 ```
 docs/           long-form findings: memory maps, data formats, subsystems
 notes/          working scratch, per-session, unpolished, may be wrong
 tools/          analysis scripts
+web/            the Phaser 4 + Vite demo of one hole (docs/web-demo.md)
 symbols.tsv     machine-readable symbol/label table
-build/          all derived output — GITIGNORED
+build/          all derived output — GITIGNORED (the demo's assets: build/web/)
 ```
 
 `docs/` is for things believed true. `notes/` is for things being worked out;
@@ -54,6 +52,10 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/emulation.md](docs/emulation.md) — the headless stepper: what is
   emulated, how it was validated against the static facts, input scripts,
   pokes, and which screens they reach.
+- [docs/web-demo.md](docs/web-demo.md) — the browser demo of course 1 hole 1:
+  how to export the assets and run it, the TypeScript port of the ball physics
+  and how it was checked frame by frame against the game, what was measured
+  for it, and what is approximated.
 
 ## Workflow
 
@@ -67,9 +69,3 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   believing either. The vector table above was recorded wrongly on first pass
   precisely because it was read at the wrong alignment.
 
-## Legal and hygiene
-
- `.gitignore` blocks `*.sfc`, `*.smc`, `*.srm`, save states and `build/`. 
-
-You can add short illustrative dumps in notes (samples, screenshots, a header, a routine prologue, tens of
-bytes). 

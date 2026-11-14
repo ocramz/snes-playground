@@ -666,14 +666,18 @@ ABILITIES = ["none", "stone", "parasol", "fireball", "needle", "tornado", "wheel
 
 # Switch variables: (short name for file names, what the value is, degrees
 # function or None). The facing and the shot angle are screen directions,
-# 0 = right, counter-clockwise; estimated from the pictures (D7C4 3 faces the
-# camera, 7 away, 4 down-right) and the mirror symmetry of D7CC's tables
-# (arms 7 and 15 unique, k and 14-k mirrored). Unconfirmed as world angles.
+# 0 = right, counter-clockwise. The game derives both from the aim phi in
+# degrees: $81:BB4A puts (472 - phi) mod 360 in $6ABE, $81:BCA0 reads
+# $81:8E98[$6ABE] (32 sectors), $D7CC = that >> 1 and $D7C4 = that >> 2.
+# So phi = 0 (+x, down-right on screen) is D7C4 2 / D7CC 5, phi = 90 is 0 / 1,
+# and the facing v points to screen angle 45 - 45 v (3 faces the camera, 7
+# away). Checked against the WRAM of 340 frames of an aim sweep
+# (web/src/sim/__tests__/facing.test.ts). The older estimate, 135 + 45 v, was wrong.
 SWITCH_VARS = {
     0xD7C4: ("facing", "Kirby's facing, 8 directions (ram_kirby_facing8)",
-             lambda v: (135 + 45 * v) % 360),
+             lambda v: (45 - 45 * v) % 360),
     0xD7CC: ("angle", "the shot's angle, 16 directions (ram_kirby_shot_angle)",
-             lambda v: (112.5 + 22.5 * v) % 360),
+             lambda v: (45 - 22.5 * v) % 360),
     0xD75E: ("dir", "copy-ability direction index ($82:D8A8 copies $DA04 here); "
              "degrees not established", None),
     0xD75A: ("var", "copy-ability variant / direction ($D9DE / 2 at $82:D8A2)", None),

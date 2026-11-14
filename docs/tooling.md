@@ -79,6 +79,13 @@ python3 tools/terrain.py --tiles          # layer-2 special-tile dispatch map
 python3 tools/terrain.py --export         # geometry.json + heightmap.png per hole
 python3 tools/course_stats.py             # per-layer statistics over build/courses
 
+# The web demo (docs/web-demo.md): assets for web/, and per-frame ball traces
+python3 tools/export_web.py --golden      # ROM -> build/web/ (+ build/web-test/ fixtures)
+python3 tools/snesstep/trace_ball.py all  # recorded shots -> build/web-test/trace_*.json
+python3 tools/snesstep/trace_flow.py web_flow --frames 4700   # Kirby's state, aim, camera, meter per frame
+python3 tools/export_web_ui.py            # the shot panel's sprites from OAM -> build/web/ui.*
+python3 tools/check_web_ui.py             # ... and a pixel check of the browser's panel (npm run dev first)
+
 # Screens: PPU setup, what each loads, and the scene bundles
 python3 tools/scenes.py blocks            # the 20 screen setup blocks
 python3 tools/scenes.py loaders           # the four loader jump tables

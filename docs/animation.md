@@ -466,8 +466,8 @@ same tile slots under the same layout. The variables:
 
 | variable | arms | what the value is |
 |---|---|---|
-| `$7E:D7C4` | 8 | Kirby's facing: aiming, waiting (states 4, 5, 9). 3 faces the camera, 7 away, 4 down-right: screen direction ≈ `135 + 45·v` degrees (0 = right, counter-clockwise), estimated from the pictures |
-| `$7E:D7CC` | 16 | the shot's angle: the curl and the unroll (6, 7). Arms 7 and 15 are unique and `k`/`14-k` mirror each other: ≈ `112.5 + 22.5·v` degrees, estimated |
+| `$7E:D7C4` | 8 | Kirby's facing: aiming, waiting (states 4, 5, 9). From the aim phi: `$81:BB4A` stores `(472 - phi) mod 360` in `$6ABE`, `$81:BCA0` reads `$81:8E98[$6ABE]` (32 sectors of 11.25°; the table is also the heading → 32 directions table) and keeps `>> 2`. phi 0 (+x) gives 2, phi 90 gives 0, 180 gives 6, 270 gives 4. Screen direction `45 - 45·v` degrees (0 = right, counter-clockwise): 0 up-right, 1 right, 2 down-right, 3 down (faces the camera), 7 up. *Emulated*: 340 frames of an aim sweep match the table exactly |
+| `$7E:D7CC` | 16 | the shot's angle: the curl and the unroll (6, 7). The same 32-sector value `>> 1` (phi 0 gives 5, phi 90 gives 1, 180 gives 13, 270 gives 9), so `k` is the facing `k >> 1` refined to half octants; screen direction about `45 - 22.5·k` degrees. *Emulated*, same sweep |
 | `$7E:D85A` | 11 | the copy ability (state 8): 0 none, 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. The order is `$82:C90A`'s jump table, which sets each ability's state, and matches demos 10-19. Values 12-21 are hit codes (below) |
 | `$7E:D7F0` | 3 | Kirby's health (state 11): 4 at a hole's start, -1 per shot (`$83:AC12`), +1 per enemy (`$83:AC01`) -- *emulated*, hole1long |
 | `$7E:D8A6` | 2 | 0 on the ground, 1 airborne (state 13) |
@@ -509,7 +509,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 4 | aim, standing still | play | `$7E:D7C4` (8) | 8 script | set every frame by `$81:A804` while aiming with no d-pad/L/R held; switch on the facing `$7E:D7C4` |
 | 5 | aim, turning | play | `$7E:D7C4` (8) | 8 script | `$81:A804` while the d-pad or L/R is held (`$67` & `$0F00`, `$6B` & `$30`); alternates with 4 in d01-d04 |
 | 6 | curl into the ball at the shot | play | `$7E:D7CC` (16) | 16 live | `$81:BEF1` at the shot (hole 1 frame 2823); switch on the shot angle `$7E:D7CC`; drawn by object type 26 while it runs |
-| 7 | unroll after the ball stops | play | `$7E:D7CC` (16) | 16 script | `$81:C08F` when the ball comes to rest (d00 frame 1876, d05 2912): squash, Kirby unrolls, stands; then 4 |
+| 7 | unroll after the ball stops | play | `$7E:D7CC` (16) | 16 script | `$81:C08F` when the ball comes to rest (d00 frame 1876, d05 2912): squash, Kirby unrolls, stands; then 4. **Not reached in a normal 1P shot** (web_flow, hole 1: state 14 until `$81:A804` sets 4, 35 frames after the shot is over; only the DEMOPLAY demos go through 7) |
 | 8 | copy ability gained | play | `$7E:D85A` (11) | 11 live | `$82:D9E9` on swallowing an enemy (demos 10-19); switch on the ability `$7E:D85A`; flashes and the ability's first pose; ends in 2 |
 | 9 | stand and wait for the next turn | play | `$7E:D7C4` (8) | 8 script | `$80:C756` at the end of a shot, dropping the copy ability unless `$80:DEFD` keeps it; 2P run frame 2744 (player 1 waits while player 2 shoots), held 183+ frames; switch on the facing `$7E:D7C4` |
 | 10 | fall asleep | forced | - | 1 script | `$80:C7E6` at the end of a shot when health `$7E:D7F0` is 0 and `$6932` is 0; not reached in play; forced: eyes closed, slow breathing 48/8/64/8 frames, sfx 51 three times |

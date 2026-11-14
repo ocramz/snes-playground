@@ -77,7 +77,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$AC-$AE` | `$82:86B9` | hazard, after restoring the previous position |
 | `$40-$52`, `$57` | `$82:8967` | **spawns an actor** |
 | `$02` | `$82:94D3` | solid object standing 3 height steps tall |
-| `$28-$2D` | `$82:8FF1` | edge; falls through to `$81:899F`, keep falling |
+| `$28-$2D` | `$82:8FF1` | **the play-area outline**, a wall: see below |
 | `$60-$6F` | `$82:80F6` | surface overlay, with enter/leave tracking |
 | `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
 | `$14-$17`, `$1C`, `$1D`, `$58-$5D`, `$B0-$B9` | various | not established |
@@ -144,6 +144,29 @@ Six groups end up calling **`$83:ABC5`** — the same routine the driver calls
 at `$82:C092` when the ball falls out of the world entirely (see
 [terrain.md](terrain.md)). So a hazard tile and a bottomless gap have the same
 consequence; only the trigger differs.
+
+## The outline wall: `$28-$2D`
+
+These six values trace the green outline on the floor, and they are a **wall**.
+Each is one line through its cell (`$82:9019`, `$82:92C2`, in cell coordinates):
+
+| tile | line | reflection |
+|---|---|---|
+| `$28` | x = 1/2 | vx = −vx |
+| `$29` | y = 1/2 | vy = −vy |
+| `$2A` | x + y = 1/2 | (vx, vy) ← (−vy, −vx) |
+| `$2B` | y − x = 1/2 | (vx, vy) ← (vy, vx) |
+| `$2C` | x + y = 3/2 | (vx, vy) ← (−vy, −vx) |
+| `$2D` | y − x = −1/2 | (vx, vy) ← (vy, vx) |
+
+A ball that crosses the line within a cell is reflected without loss and put
+back where it was, **including its height** (`$82:ECD7`), then the probe fields
+are restored (`$81:87CA`). On the ground the rest of that frame's rolling step
+is skipped; in the air gravity still runs (`$82:9015` jumps to `$81:899F`). In
+the air the wall only acts on a ball within `$2D41` (half a step) of the ground
+(`$82:8FF1`). Verified frame by frame against the game by the web demo's traces
+([web-demo.md](web-demo.md)): every side and all four diagonals of hole 1's
+outline.
 
 ## Two values found by scanning, not dispatch
 
@@ -220,6 +243,4 @@ Some layer-2 values are locked to a layer-1 shape:
   `$82:B3AF` spawns (see Actors above). Which picture each of the 20
   `$0049` subtypes selects is decided inside type 73's code from the
   layer-2 byte saved at `$0C`.
-- Whether the `$28-$2D` "edge" reading is right; it is inferred from the
-  handler falling through to the gravity routine and from those values tracing
-  the rim of the play area.
+- (Settled: `$28-$2D` are the play-area outline wall, see "The outline wall".)
