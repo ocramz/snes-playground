@@ -101,3 +101,40 @@ export function valueChanges(events: FlowEvent[], name: string): Array<[number, 
   }
   return out;
 }
+
+/**
+ * The ball-state comparison of an end-to-end run: the game's distinct
+ * states must appear, in order, among the engine's, each within
+ * `maxSkip` engine states of the last match — the game sometimes runs two
+ * steps between two of its block writes (a lag catch-up), so one of the
+ * engine's states can be missing from the trace, never the other way
+ * round. Returns null when every game state matched, else a description.
+ */
+export function matchBallStates(
+  game: BallTraceFrame[],
+  engine: BallTraceFrame[],
+  maxSkip = 2,
+): { error: string | null; matched: number; skips: number } {
+  let j = engine.findIndex((e) => sameState(e, game[0]));
+  if (j < 0) {
+    return { error: `the game's launch state (f${game[0].f}) never occurs in the engine's run`, matched: 0, skips: 0 };
+  }
+  let skips = 0;
+  for (let i = 1; i < game.length; i++) {
+    let k = j + 1;
+    while (k < engine.length && k <= j + 1 + maxSkip && !sameState(engine[k], game[i])) k++;
+    if (k >= engine.length || k > j + 1 + maxSkip) {
+      const want = game[i];
+      const got = engine[j + 1];
+      const diff = got ? BALL_STATE_KEYS.filter((key) => want[key] !== got[key]).map((key) => `${key}: game ${want[key]} engine ${got[key]}`).join(', ') : 'engine ended';
+      return {
+        error: `game state ${i} (f${want.f}) not found after engine f${engine[j].f}: ${diff}`,
+        matched: i,
+        skips,
+      };
+    }
+    skips += k - (j + 1);
+    j = k;
+  }
+  return { error: null, matched: game.length, skips };
+}

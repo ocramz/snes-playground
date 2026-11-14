@@ -25,8 +25,19 @@ export { dispatchLanding, finishLanding, stepHitStop, type LandingOutcome } from
 export { classIndex, rollDefault } from './roll';
 export { stepBounce, wallBounce, launch } from './wall-step';
 
+/**
+ * The shot guide's own tile table, $81:B455 (tables.json `guideTiles`,
+ * read 2026-11-14): it knows only the play-area outline ($28-$2D, class 1)
+ * and the surface overlay ($60-$6F, class 2); every other tile — pillars,
+ * enemies, the cup, friction, boosts, kickers — is plain ground to it.
+ */
+export function guideSeesTile(ctx: Ctx, tile: number): boolean {
+  return ctx.rules.table('guideTiles')[tile & 0xff] !== 0;
+}
+
 /** $81:811B: the landing dispatch, on the tile the ball landed on. */
 export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): DispatchOutcome {
+  if (ctx.presentation === false && !guideSeesTile(ctx, w.tile)) return LANDING; // the guide
   switch (ctx.rules.landHandler(w.tile)) {
     case 'land':
       return LANDING;
@@ -71,6 +82,7 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
 
 /** $81:8436: the hit-from-the-side dispatch (the rolling path). */
 export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): DispatchOutcome {
+  if (ctx.presentation === false && !guideSeesTile(ctx, w.tile)) return ROLLING; // the guide
   switch (ctx.rules.hitHandler(w.tile)) {
     case 'roll':
       return ROLLING;

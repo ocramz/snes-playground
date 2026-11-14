@@ -8,6 +8,7 @@
 import { s16, wrap16 } from '../fixed';
 import type { Ctx, Work } from './context';
 import { restorePrev } from './wall-step';
+import { updateHeading } from './reflect';
 
 /** $82:92C2: which side of the tile's line the sub-cell position is on. */
 function lineSide(tile: number, xf: number, yf: number): number {
@@ -84,17 +85,21 @@ export function outlineWall(ctx: Ctx, w: Work): void {
     return;
   }
   const pt = pTile - 0x28;
-  // $903D: the movement code; only cardinal cell moves continue
-  const dy = s16(wrap16(w.pYc - w.yc));
-  const dx = s16(wrap16(w.pXc - w.xc));
+  // $903D: the movement code, 3 (dy + 1) + (dx + 1) with d = current -
+  // previous cell; only cardinal moves (odd codes) continue. (Phase 4 had
+  // the difference reversed and indexed the next table by the previous
+  // tile; no phase-4 trace crossed the outline between cells, phase 5's
+  // shot guide does: notes/engine-phase5-flow.md.)
+  const dy = s16(wrap16(w.yc - w.pYc));
+  const dx = s16(wrap16(w.xc - w.pXc));
   const move = 3 * (dy + 1) + (dx + 1);
   if ((move & 1) === 0) {
     w.wallCode = 0; // LSR carry clear
     return;
   }
   const dir = move >> 1; // 0..3 = -y, -x, +x, +y
-  // $9067: the line must reach the edge the ball exits through
-  if (rules.table('outlineLineTouch')[pt * 4 + dir] === 0) {
+  // $9067: the current tile's line must reach the edge the ball came in by
+  if (rules.table('outlineLineTouch')[t * 4 + dir] === 0) {
     w.wallCode = 0;
     return;
   }
@@ -119,13 +124,22 @@ export function outlineWall(ctx: Ctx, w: Work): void {
   outlineTail(ctx, w);
 }
 
-/** $82:9185: the wall fact, the restore and the sfx. */
-function outlineTail(_ctx: Ctx, w: Work): void {
+/**
+ * $82:9185: the wall fact, then by $6AC0: in play, the restore of x, y and
+ * z and the sfx (the effect object $47 at the wall point is presentation,
+ * phase 7); in the shot guide ($6AC0 = 0), $81:87B2 restores x, y and the
+ * probe fields and $81:8E60 recomputes the heading.
+ */
+function outlineTail(ctx: Ctx, w: Work): void {
   w.hitWall += 1; // $DA52 (INC at $82:9185)
+  if (ctx.presentation === false) {
+    restorePrev(w); // $82:918D JSL $81:87B2
+    updateHeading(ctx.rules, w); // $82:9191 JSL $81:8E60
+    return;
+  }
   w.tailSfx = 7; // $82:91E6 plays it directly; the tail emits the event
   // $82:ECD7: restore x, y and z; $81:87CA: restore the probe fields
   restoreFullPrev(w);
-  // the object spawn at the wall point ($82:9196-$82:91D9) is phase 5
 }
 
 function restoreFullPrev(w: Work): void {

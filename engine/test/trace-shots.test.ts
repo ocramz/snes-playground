@@ -10,9 +10,12 @@
  * game sometimes runs two physics steps inside one video frame, so a
  * mismatch may be explained by up to two extra steps.
  *
- * The A/Y presses during the roll are injected at the frames the web port
- * calibrated (the scripts press at 3020/3200; the game acts two frames
- * later, which the stamps absorb).
+ * The A/Y presses during the roll are injected one record before the
+ * frames the web port calibrated (the scripts press at 3020/3200; the game
+ * acts two frames later, which the stamps absorb): the engine's arming,
+ * like the ROM's $82:DA51, runs after the step and acts on the next one.
+ * The end-to-end test (trace-script.test.ts) uses the scripts' own frames
+ * instead.
  */
 import { describe, expect, it } from 'vitest';
 import { createGameWorld, spawnBall } from '../src/core/world';
@@ -32,10 +35,10 @@ import { distinctStates, launchSeedIndex, BALL_STATE_KEYS, type BallTraceFrame }
 import { haveRules, haveRomTest, loadRomCourse, loadTables, loadTrace } from './fixtures';
 
 const scripts: Record<string, { a?: number[]; y?: number[] }> = {
-  web_grounder: { a: [3022] }, web_fly: { a: [3022] }, web_fly_spin: { a: [3022] },
-  web_curve: { a: [3022] }, web_aimed: { a: [3022] },
-  web_a45: { a: [3022] }, web_a135: { a: [3022] }, web_a225: { a: [3022] }, web_a315: { a: [3022] },
-  web_flya: { a: [3202] }, web_gy: { y: [3022] },
+  web_grounder: { a: [3021] }, web_fly: { a: [3021] }, web_fly_spin: { a: [3021] },
+  web_curve: { a: [3021] }, web_aimed: { a: [3021] },
+  web_a45: { a: [3021] }, web_a135: { a: [3021] }, web_a225: { a: [3021] }, web_a315: { a: [3021] },
+  web_flya: { a: [3201] }, web_gy: { y: [3021] },
 };
 
 describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by frame', () => {
@@ -75,13 +78,12 @@ describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by fra
           const stalling = world.get(Stall)!.framesLeft > 0;
           if (stalling) stallFrames += 1;
           const pad = world.get(Pad)!;
-          const held = press;
-          world.set(Pad, { held, pressed: held & ~pad.held, prev: pad.held, stallLatch: pad.stallLatch });
+          world.set(Pad, { ...pad, raw: press });
           runCoreFrame(world, ctx);
           drainEvents(world);
           // the game's ball-lost reset (back on the tee) is flow, not
           // physics: stop comparing once the port's ball is lost
-          if (world.queryFirst(BallWork)!.get(BallWork)!.lost !== 0) {
+          if (world.queryFirst(BallWork)!.get(BallWork)!.fellOut !== 0) {
             diff = null;
             break;
           }

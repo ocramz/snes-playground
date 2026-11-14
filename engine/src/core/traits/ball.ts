@@ -148,6 +148,17 @@ export interface BallWorkFields {
   modifierWindow: number; // $DA78
   modifierTimer: number; // $DA7A
 
+  /** A fact for update-pose: the A arming asked for the hop pose ($82:DAAE). */
+  hopRequest: number;
+  /** A fact for update-pose: an airborne bounce shows the roll pose ($82:CE24). */
+  bouncePose: number;
+  /** The fall below z -$11_0000 stopped the ball ($81:89B2). The ROM shares
+   *  $D9D2 bit 0 with the projection's "below zero" flag; this keeps the
+   *  step's own case apart. */
+  fellOut: number;
+  /** $6A88: the lost ball's countdown to "shot over" ($81:A15C; $F0 idle). */
+  fallTimer: number;
+
   // --- enemy hit state ($6A68/$6A0C are per-player; phase 6 wires the take) ---
   enemyLatch: number; // $6A68
   enemyHitMark: number; // $6A0C
@@ -178,6 +189,10 @@ export const emptyWork = (): BallWorkFields => ({
   block6a: 0, block6c: 0xffff, block6e: 0, ecdd: 0,
   cupDepthScratch: 0, cupGround: 0,
   enemyLatch: 0, enemyHitMark: 0,
+  hopRequest: 0,
+  bouncePose: 0,
+  fellOut: 0,
+  fallTimer: 0xf0,
   boostFlash: 0,
   stillGate: 0,
   over: 0, frames: 0,

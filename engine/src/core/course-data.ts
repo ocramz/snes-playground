@@ -22,8 +22,30 @@ export interface CourseData {
   tile: Uint8Array;
   /** The tee cell (docs: the marked $0C cell is the hole's start). */
   tee: { x: number; y: number };
-  /** Header word 4 = 4*(w+h): the screen projection's row origin. */
+  /**
+   * $8B9E = header word 7 (232 on hole 1): the projection's row origin,
+   * `py = originY + 16 (x - y) - 16 Z / $5A82` on the course bitmap
+   * (docs/web-demo.md; read at $82:B1E8-$82:B1F5, the header copy to $8B90).
+   */
   originY: number;
+  /**
+   * $8B9A = header word 5 x 8 (456 on hole 1, $82:B203-$82:B209): the base
+   * the upward screen coordinates are measured from. Kirby's $DA5C and the
+   * camera's $38AE count up from it; the scroll's y is `screenBase - $38AE`.
+   */
+  screenBase: number;
+  /**
+   * The hole's enemies as placed (the actor list's cells, $B538/$B578), in
+   * list order. Phase 5 reads them for the aim target ($82:8E41); phase 6
+   * spawns them.
+   */
+  enemies: Array<{ x: number; y: number }>;
+}
+
+/** Optional course fields; authored courses that omit them get defaults. */
+export interface CourseExtras {
+  screenBase?: number;
+  enemies?: Array<{ x: number; y: number }>;
 }
 
 /** The exported ROM hole (tools/export_web.py --only course). */
@@ -60,6 +82,7 @@ export function courseData(
   tile: ArrayLike<number>,
   tee: { x: number; y: number },
   originY: number,
+  extras: CourseExtras = {},
 ): CourseData {
   const n = w * h;
   const check = (a: ArrayLike<number>, name: string): Uint8Array => {
@@ -76,11 +99,17 @@ export function courseData(
     tile: check(tile, 'tile'),
     tee: { x: tee.x, y: tee.y },
     originY,
+    // the bitmap is 224 lines taller than the origin row on hole 1 (456 =
+    // 232 + 224); authored courses without a header use the same relation
+    screenBase: extras.screenBase ?? originY + 224,
+    enemies: (extras.enemies ?? []).map((e) => ({ x: e.x, y: e.y })),
   };
 }
 
 /** tools/export_web.py --only course → CourseData (the tests and PreloadScene). */
 export function fromRomCourse(json: CourseJson): CourseData {
-  const originY = json.header[3] ?? 0;
-  return courseData(json.w, json.h, json.shape, json.elev, json.walls, json.tile, json.tee, originY);
+  return courseData(json.w, json.h, json.shape, json.elev, json.walls, json.tile, json.tee, json.word7, {
+    screenBase: (json.header[5] ?? 0) * 8,
+    enemies: json.enemies,
+  });
 }

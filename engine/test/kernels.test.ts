@@ -27,7 +27,7 @@ describe.skipIf(!haveRules)('kernels vs the emulated numbers', () => {
     rules,
     course: course
       ? kernelCourse(course)
-      : { w: 1, h: 1, shape: Uint8Array.of(1), elev: Uint8Array.of(0), walls: Uint8Array.of(0), layer2: Uint8Array.of(0) },
+      : { w: 1, h: 1, shape: Uint8Array.of(1), elev: Uint8Array.of(0), walls: Uint8Array.of(0), layer2: Uint8Array.of(0), originY: 0, screenBase: 224 },
   };
   const work = (): Work => emptyWork();
 

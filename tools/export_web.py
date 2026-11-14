@@ -145,6 +145,16 @@ def build_tables(d):
     put("spinFlyTB", 0x80, 0xDD33, rom_words(d, 0x80, 0xDD33, 13, True), 2)
     put("spinFlySide", 0x80, 0xDD4D, rom_bytes(d, 0x80, 0xDD4D, 13, True), 1)
     put("buttonModifier", 0x82, 0xDB75, rom_words(d, 0x82, 0xDB75, 2, True), 2)
+    # The shot view: Kirby's screen position + this offset by aim quarter
+    # (0-89, 90-179, 180-269, 270-359), where the camera pans after the aim
+    # is confirmed ($81:BE9A-$81:BEC7; docs/web-demo.md "Camera").
+    put("shotViewX", 0x81, 0xC0F0, rom_words(d, 0x81, 0xC0F0, 4, True), 2)
+    put("shotViewY", 0x81, 0xC0F8, rom_words(d, 0x81, 0xC0F8, 4, True), 2)
+    # The shot guide's own tile classes ($81:B455, read by $81:B0C4 and
+    # $81:B285): 1 = the play-area outline ($28-$2D), 2 = the surface
+    # overlay ($60-$6F), 0 = plain ground (pillars, enemies, the cup and
+    # every other special tile are invisible to the guide).
+    put("guideTiles", 0x81, 0xB455, rom_bytes(d, 0x81, 0xB455, 256), 1)
 
     # The cup's dish: 32 x 32 words, row = folded y fraction >> 10, column =
     # folded x fraction >> 10 (sub_cup_depth $82:AFE9). $5000 = flat centre.

@@ -72,7 +72,8 @@ export function fallBelowCourse(w: Work, zHigh: number): void {
     applyGravity(w); // JMP $899F
     return;
   }
-  w.lost = 1;
+  w.lost = 1; // $81:89B2: LDA #1, STA $D9D2
+  w.fellOut = 1; // (engine fact: this path, not the projection's flag)
   w.vx = 0;
   w.vy = 0;
   w.vz = 0;

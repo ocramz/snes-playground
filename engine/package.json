@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "traces": "python3 ../tools/snesstep/trace_ball.py all --out ../build/engine/rom-test && python3 ../tools/snesstep/trace_flow.py web_flow --frames 4700 --out ../build/engine/rom-test && python3 ../tools/snesstep/trace_flow.py web_ui --frames 3300 --out ../build/engine/rom-test"
+    "traces": "python3 ../tools/snesstep/trace_ball.py all --out ../build/engine/rom-test && python3 ../tools/snesstep/trace_flow.py web_flow --frames 4700 --out ../build/engine/rom-test && python3 ../tools/snesstep/trace_flow.py web_ui --frames 3300 --out ../build/engine/rom-test && python3 ../tools/snesstep/trace_flow.py web_fly --frames 4400 --out ../build/engine/rom-test && python3 ../tools/snesstep/trace_flow.py web_fly_spin --frames 4400 --out ../build/engine/rom-test"
   },
   "dependencies": {
     "koota": "0.6.6",

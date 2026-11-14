@@ -3,6 +3,7 @@ import { createGameWorld } from '../src/core/world';
 import { Pad } from '../src/core/traits/pad';
 import { Time } from '../src/core/traits/time';
 import { runHeadless } from './headless';
+import { latchPad } from '../src/core/systems/pad';
 import { Button, parseInputScript } from './input-script';
 
 describe('runHeadless', () => {
@@ -17,6 +18,7 @@ describe('runHeadless', () => {
       (w) => {
         const time = w.get(Time)!;
         w.set(Time, { frame: time.frame + 1 });
+        latchPad(w);
       },
       (w, f) => {
         const pad = w.get(Pad)!;

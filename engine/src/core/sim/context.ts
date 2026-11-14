@@ -14,6 +14,9 @@ export interface KernelCourse {
   elev: Uint8Array;
   walls: Uint8Array;
   layer2: Uint8Array;
+  /** The projection's origins ($8B9E, $8B9A): see CourseData. */
+  originY: number;
+  screenBase: number;
 }
 
 export function kernelCourse(data: CourseData): KernelCourse {
@@ -24,12 +27,21 @@ export function kernelCourse(data: CourseData): KernelCourse {
     elev: data.elev,
     walls: data.walls,
     layer2: data.tile,
+    originY: data.originY,
+    screenBase: data.screenBase,
   };
 }
 
 export interface Ctx {
   rules: RomRules;
   course: KernelCourse;
+  /**
+   * $6AC0: 0 while the shot guide simulates ($81:A619, $81:A9BB), 1 in the
+   * shot thread, 2 in the roll ($82:C027). The kernels branch on it where
+   * the ROM does: the outline wall's silent path ($82:9188) and the spin
+   * effect spawn ($81:8CEC). Absent means play (true).
+   */
+  presentation?: boolean;
 }
 
 export type Work = BallWorkFields;

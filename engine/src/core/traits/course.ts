@@ -15,6 +15,8 @@ export interface CourseState {
   layer2: Uint8Array;
   tee: { x: number; y: number };
   originY: number;
+  screenBase: number;
+  enemies: Array<{ x: number; y: number }>;
 }
 
 export const Course = trait((): CourseState => ({
@@ -26,6 +28,8 @@ export const Course = trait((): CourseState => ({
   layer2: new Uint8Array(0),
   tee: { x: 0, y: 0 },
   originY: 0,
+  screenBase: 0,
+  enemies: [],
 }));
 
 /** The world's course singleton entity, created on demand. */
@@ -47,5 +51,7 @@ export function setCourse(world: import('koota').World, data: CourseData): void 
   c.layer2 = Uint8Array.from(data.tile);
   c.tee = { ...data.tee };
   c.originY = data.originY;
+  c.screenBase = data.screenBase;
+  c.enemies = data.enemies.map((e) => ({ ...e }));
   e.changed(Course);
 }

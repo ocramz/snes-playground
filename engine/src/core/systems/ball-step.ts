@@ -1,13 +1,20 @@
 /**
  * The ball step, schedule items 11-29 (plans/port_v1_koota_phaser4.md), one
- * entry per original routine, in the ROM's order. The stall runner
- * suspends the list at the hit-stop: the landing chain splits exactly
- * where $81:8C95 blocks for 4 frames, and a step hit for 2 ($81:8C48).
+ * entry per original routine, in the ROM's order: the roll loop's
+ * $82:EFCF (load), $81:801C (the step, ending in its tail $81:9BE5),
+ * $82:CDBB (the Kirby state code: the A/Y arming $82:DA51 and the bounce
+ * bonus $82:DB20, read 2026-11-14 — the plan's items 12 and 27 sit after
+ * the physics), the store and $81:A5CD (the still count). The stall runner
+ * (schedule.ts) suspends the list at the hit-stop: the landing chain splits
+ * exactly where $81:8C95 blocks for 4 frames, and a step hit for 2
+ * ($81:8C48). The `kernel` entries double as the shot guide's step
+ * (`runKernelStep`).
  */
 import type { World } from 'koota';
 import { Time } from '../traits/time';
 import { Pad } from '../traits/pad';
 import { Shot } from '../traits/shot';
+import { emptyWork } from '../traits/ball';
 import {
   BallPos, BallVel, BallAir, BallSpin, BallMode, BallHoled, BallHeading,
   StillCount, Modifier, BallWork, type BallWorkFields,
@@ -23,7 +30,7 @@ import { wallBounce, stepBounce, launch } from '../sim/wall-step';
 import { landDispatch, hitDispatch, type DispatchOutcome } from '../sim/dispatch';
 import { mulQ15s } from '../fixed';
 import { countStill } from '../sim/still';
-import { wrap16 } from '../fixed';
+import { s16, wrap16, mul16x8 } from '../fixed';
 import { emit } from '../events';
 import { Stall } from './stall';
 
@@ -54,22 +61,24 @@ interface HitStopRequest {
   after: 'landing' | 'stepHit';
 }
 
-export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) => HitStopRequest | null }> = [
+/**
+ * One entry per original routine. `kernel` entries touch only the work copy
+ * and the context, so the shot guide runs them on a clone with no world
+ * (`runKernelStep`); the others read or write traits or emit events.
+ */
+export interface StepEntry {
+  name: string;
+  kernel: boolean;
+  run: (world: World, s: StepState) => HitStopRequest | null;
+}
+
+export const BALL_STEP: StepEntry[] = [
   {
     // $82:F030: the block -> the work copy
     name: 'load-ball-work',
+    kernel: false,
     run: (world, s) => {
       loadBallWork(world, s.w);
-      return null;
-    },
-  },
-  {
-    // $82:DA51: the A/Y modifier arming and countdown (before physics)
-    name: 'arm-shot-modifier',
-    run: (world, s) => {
-      armModifier(world, s.w);
-      s.modifier.kind = s.w.modifierKind;
-      s.modifier.timer = s.w.modifierTimer;
       return null;
     },
   },
@@ -77,6 +86,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
     // $81:801C prologue + $81:8751: clear the facts, mark the heading
     // invalid, copy the previous-frame state
     name: 'begin-ball-step',
+    kernel: true,
     run: (_world, s) => {
       const w = s.w;
       w.bounced = 0;
@@ -96,6 +106,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // $81:8805/$81:89C2 + $81:8E60 + $81:9479 + $81:87FB + $81:9001
     name: 'move-probe-edges',
+    kernel: true,
     run: (_world, s) => {
       const w = s.w;
       if (w.air !== 0) {
@@ -132,6 +143,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // $81:8069-$81:811A (airborne) / $81:80F4-$81:811A (rolling)
     name: 'select-outcome',
+    kernel: true,
     run: (_world, s) => {
       const w = s.w;
       if (s.route.kind === 'done' || s.route.kind === 'fell') return null;
@@ -161,6 +173,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
     // $81:9390 (via $81:88AF/$81:8A03): a layer-4 wall bounce. The outline
     // wall tiles route through the dispatch instead ($82:8FF1/$82:8FE3).
     name: 'bounce-off-wall',
+    kernel: true,
     run: (_world, s) => {
       if (s.route.kind !== 'wall') return null;
       wallBounce(s.ctx, s.w);
@@ -173,6 +186,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // $81:93D1 (via $81:88C4/$81:8A19)
     name: 'hit-step',
+    kernel: true,
     run: (_world, s) => {
       if (s.route.kind !== 'step') return null;
       const w = s.w;
@@ -192,6 +206,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // loc_launch $81:8B78: the rolling step ends after the launch (RTL)
     name: 'drop-off-edge',
+    kernel: true,
     run: (_world, s) => {
       if (s.route.kind !== 'drop') return null;
       launch(s.ctx, s.w, s.w.pCode);
@@ -203,6 +218,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
     // $81:811B (airborne) / $81:8436 (rolling): the tile dispatch, then the
     // landing chain's first half (its hit-stop suspends the list here)
     name: 'dispatch-landing',
+    kernel: true,
     run: (_world, s) => {
       const w = s.w;
       if (s.route.kind === 'land' && w.air !== 0) {
@@ -226,9 +242,10 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // $81:895B-$81:89A9 (landing) / $81:8A56 (rolling)
     name: 'finish-landing-or-roll',
+    kernel: true,
     run: (_world, s) => {
       const w = s.w;
-      if (w.lost !== 0) return null; // the lost path bypasses the tail
+      if (s.route.kind === 'fell') return null; // $81:89AA ends the step
       if (s.reroute === 'rolling') {
         rollDefault(s.ctx, w, s.modifier);
         return null;
@@ -245,6 +262,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // $81:9BE5: the step's tail - the facts become events here
     name: 'emit-step-effects',
+    kernel: false,
     run: (world, s) => {
       const ev = tailEvent(s.w);
       if (ev) emit(world, { frame: world.get(Time)!.frame }, ev.kind, ev.romSfx);
@@ -253,8 +271,24 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
     },
   },
   {
+    // $82:CDFF / $82:D588, the Kirby state code after the step: $82:DA51
+    // arms or counts down the A/Y modifier, and while its window is open
+    // $82:DB20 adds the bonus to a bounce, step or wall hit of this step
+    name: 'arm-shot-modifier',
+    kernel: false,
+    run: (world, s) => {
+      const open = armModifier(world, s.w);
+      if (open) applyModifier(s.ctx, s.w);
+      // $82:CE07-$82:CE27: an airborne bounce shows the roll pose again,
+      // unless Kirby is hopping (update-pose reads the fact)
+      if (s.w.air !== 0 && s.w.bounced !== 0 && (s.w.mode === 0 || s.w.mode >= 11)) s.w.bouncePose = 1;
+      return null;
+    },
+  },
+  {
     // $82:F1E3: the work copy -> the block
     name: 'store-ball-work',
+    kernel: false,
     run: (world, s) => {
       storeBallWork(world, s.w);
       return null;
@@ -263,6 +297,7 @@ export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) 
   {
     // $81:A5CD
     name: 'count-still-frames',
+    kernel: false,
     run: (world, s) => {
       countStill(s.w);
       const e = ballEntity(world);
@@ -291,41 +326,28 @@ function tailEvent(w: BallWorkFields): { kind: string; romSfx: number } | null {
 }
 
 /**
- * Runs one core frame's ball step. A hit-stop request suspends the list;
- * the stall runner resumes it at the saved index on a later frame.
+ * Runs one core frame's ball step from the top. Returns true when a hit-stop
+ * suspended it: the frame then ends (the original blocks inside the step,
+ * $81:8C95), and `resumeBallStep` finishes the list on the frame the stall
+ * runner (schedule.ts, `tick-stall`) hands back.
  */
-export function runBallStep(world: World, ctx: Ctx): void {
-  const stall = world.get(Stall)!;
-  if (stall.framesLeft > 0) {
-    const pad = world.get(Pad)!;
-    world.set(Pad, { ...pad, stallLatch: wrap16(pad.stallLatch | pad.held) });
-    // SoA traits: world.get returns a copy, so the tick writes back.
-    const left = stall.framesLeft - 1;
-    if (left > 0) {
-      world.set(Stall, { ...stall, framesLeft: left, padLatch: wrap16(stall.padLatch | pad.held) });
-      return;
-    }
-    // the stall is over: merge the latch into the pad ($81:8CD5-$81:8CDE)
-    const latched = wrap16(stall.padLatch | pad.held);
-    world.set(Pad, {
-      ...pad,
-      held: wrap16(pad.held | latched),
-      prev: wrap16(pad.prev | latched),
-      stallLatch: 0,
-    });
-    const pending: PendingState | null = stall.pRoute === '' ? null : {
-      route: { kind: stall.pRoute as BallRoute['kind'] },
-      reroute: (stall.pReroute || undefined) as StepState['reroute'],
-      entry: (stall.pEntry || undefined) as StepState['entry'],
-      outcome: stall.pOutcome
-        ? ({ kind: stall.pOutcome } as LandingOutcome)
-        : undefined,
-    };
-    world.set(Stall, { kind: 'none', framesLeft: 0, resumeAt: -1, padLatch: 0, pRoute: '', pReroute: '', pEntry: '', pOutcome: '' });
-    runFrom(world, ctx, stall.resumeAt, pending);
-    return;
-  }
-  runFrom(world, ctx, 0, null);
+export function runBallStep(world: World, ctx: Ctx): boolean {
+  return runFrom(world, ctx, 0, null);
+}
+
+/** The rest of a suspended step, from `Stall.resumeAt`. */
+export function resumeBallStep(world: World, ctx: Ctx, stall: {
+  resumeAt: number; pRoute: string; pReroute: string; pEntry: string; pOutcome: string;
+}): boolean {
+  const pending: PendingState | null = stall.pRoute === '' ? null : {
+    route: { kind: stall.pRoute as BallRoute['kind'] },
+    reroute: (stall.pReroute || undefined) as StepState['reroute'],
+    entry: (stall.pEntry || undefined) as StepState['entry'],
+    outcome: stall.pOutcome
+      ? ({ kind: stall.pOutcome } as LandingOutcome)
+      : undefined,
+  };
+  return runFrom(world, ctx, stall.resumeAt, pending);
 }
 
 interface PendingState {
@@ -335,7 +357,7 @@ interface PendingState {
   entry?: StepState['entry'];
 }
 
-function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | null): void {
+function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | null): boolean {
   const e = world.queryFirst(BallWork);
   if (e === undefined) throw new Error('no ball entity');
   const w = e.get(BallWork)!;
@@ -356,15 +378,40 @@ function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | 
         kind: req.frames === 4 ? 'hitStop' : 'stepStop',
         framesLeft: req.frames,
         resumeAt: i + 1,
-        padLatch: 0,
+        variant: req.state,
         pRoute: s.route.kind,
         pReroute: s.reroute ?? '',
         pEntry: s.entry ?? '',
         pOutcome: s.outcome?.kind ?? '',
       });
-      return;
+      return true;
     }
   }
+  return false;
+}
+
+/**
+ * One silent step of the kernel entries on a work copy — the shot guide's
+ * use (plans/port_v1_koota_phaser4.md: "simulateGuide runs BALL_STEP too,
+ * on a cloned BallWork with buttons off, stalls ignored and no events").
+ * A hit-stop request does not suspend: the list simply goes on.
+ */
+export function runKernelStep(ctx: Ctx, w: BallWorkFields): void {
+  const s: StepState = {
+    ctx,
+    w,
+    modifier: { kind: -1, timer: 0 },
+    route: { kind: 'land' },
+  };
+  for (const entry of BALL_STEP) {
+    if (!entry.kernel) continue;
+    entry.run(null as unknown as World, s);
+  }
+}
+
+/** A fresh work copy (the guide clones the live one into it). */
+export function cloneWork(w: BallWorkFields): BallWorkFields {
+  return { ...emptyWork(), ...w, request: null };
 }
 
 // ------------------------------------------------------------------
@@ -405,7 +452,7 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   // $DA2C <- block $D886 (a scratch the step never reads; kept for the
   // round trip's shape)
   w.scratch = 0;
-  const shot = e.get(Shot)!;
+  const shot = world.get(Shot)!;
   w.shotAim = shot.aim;
   w.shotElev = shot.elev;
   // the coefficients ($DA30-$DA46) are block-backed at $D922-$D94E; in
@@ -455,25 +502,62 @@ function highWord(z: number): number {
 }
 
 /**
- * $82:DA51: the A/Y modifier arming and countdown. The press test reads
- * the current pad ($006B); the arming also plays sfx $26 and curls Kirby
- * (the event is emitted here; the pose is phase 5).
+ * $82:DA51: the A/Y modifier arming and countdown (read 2026-11-14,
+ * build/engine/disasm; notes/engine-phase5-flow.md). It runs after the
+ * step, from the Kirby state code, on the pad of the same frame ($006B),
+ * so a press reaches the physics on the next frame's step.
+ *
+ * - While the window $DA78 is open (22 frames) a press is ignored and the
+ *   window and timer count down; the timer running out disarms.
+ * - A ($006B & $0080): sfx $26; the hop pose (13) when grounded, or in the
+ *   air with no spin pending ($82:DA9B-$82:DAAE); kind 0.
+ * - Y ($4000): kind 2, no sound, no pose.
+ * - Either way: timer 15 in the air, 3 on the ground; window 22; and the
+ *   arming is dropped when |vx| + |vy| >= $3001 or |vz| >= $3801.
+ *
+ * Returns what the caller's BEQ tests ($82:CE02): true when the bonus may
+ * apply this frame — on the arming frame, or while counting down with the
+ * timer still above 0.
  */
-function armModifier(world: World, w: BallWorkFields): void {
-  if (w.lost !== 0 || w.holed !== 0) return;
+function armModifier(world: World, w: BallWorkFields): boolean {
+  if ((w.lost & 1) !== 0 || w.holed !== 0) return false;
   if (w.modifierWindow !== 0) {
     w.modifierWindow -= 1;
     w.modifierTimer -= 1;
     if (w.modifierTimer < 0) {
       w.modifierTimer = 0; // $82:DA79: INC back to 0
       w.modifierKind = -1; // $82:DA7C: disarmed
+      return false; // INC A -> 0
     }
-    return;
+    return w.modifierTimer !== 0; // the flags of DEC $DA7A
   }
-  const pad = world.get(Pad)!;
-  if ((pad.held & 0x4080) === 0) return; // A ($0080) or Y ($4000)
-  w.modifierKind = (pad.held & 0x0080) !== 0 ? 0 : 2;
-  w.modifierWindow = 0x78; // $82:DAB1
-  w.modifierTimer = w.air !== 0 ? 15 : 3; // $82:DAC1
-  emit(world, { frame: world.get(Time)!.frame }, 'modifier', 0x26);
+  const pressed = world.get(Pad)!.pressed;
+  if ((pressed & 0x4080) === 0) return false; // $82:DB1C: LDA $DA78 (0)
+  if ((pressed & 0x0080) !== 0) {
+    emit(world, { frame: world.get(Time)!.frame }, 'modifier', 0x26);
+    if (w.air === 0 || (w.spinX | w.spinY) === 0) w.hopRequest = 1; // $82:DAAE
+    w.modifierKind = 0;
+  } else {
+    w.modifierKind = 2;
+  }
+  w.modifierTimer = w.air !== 0 ? 15 : 3; // $82:DAC6 / $82:DACB
+  w.modifierWindow = 0x16; // $82:DAE6
+  const h = Math.abs(s16(w.vx)) + Math.abs(s16(w.vy));
+  if (h >= 0x3001 || Math.abs(s16(w.vz)) >= 0x3801) w.modifierKind = -1; // $82:DB16
+  return true; // $82:DB1C: LDA $DA78 (22)
+}
+
+/**
+ * $82:DB20: on a bounce, step hit or wall hit of this step ($DA4E | $DA50 |
+ * $DA52) with a modifier armed, each non-zero velocity component gets
+ * v x k / 256 added ($80:A342, bits 8-23), k = $82:DB75[$DA76]: +39 (A),
+ * -25 (Y). The kind stays armed.
+ */
+function applyModifier(ctx: Ctx, w: BallWorkFields): void {
+  if ((w.bounced | w.hitStep | w.hitWall) === 0) return;
+  if (w.modifierKind < 0) return;
+  const k = ctx.rules.table('buttonModifier')[w.modifierKind >> 1];
+  if (w.vx !== 0) w.vx = wrap16(w.vx + s16(mul16x8(w.vx, k)));
+  if (w.vy !== 0) w.vy = wrap16(w.vy + s16(mul16x8(w.vy, k)));
+  if (w.vz !== 0) w.vz = wrap16(w.vz + s16(mul16x8(w.vz, k)));
 }
