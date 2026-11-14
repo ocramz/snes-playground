@@ -15,13 +15,19 @@ import { trait } from 'koota';
  * - `apuLag`: a song request ($80:B4AC) blocks on the APU's port handshake
  *   ($80:B70A-$80:B724) for about three frames; measured when the falling
  *   ball's song starts (web_fly/web_fly_spin: records 3252 -> 3256).
- * - `cupReveal`: $82:8B5C (phase 6).
+ * - `cupReveal`: $82:8B5C, the last enemy turns into the cup inside the
+ *   step; its own list is systems/reveal.ts (`tickReveal`), and the step
+ *   resumes when it is over.
+ * - `takeWait`: $82:8A83's 4 frames after an ability enemy's take.
+ * The HUD thread (the tomato queue) runs in the hit-stops, the take wait
+ * and the reveal, as the ROM's frame helper $80:8F78 does; not in the
+ * guide's or the APU's lag, where the main loop is busy.
  *
  * A stall of N frames requested on frame F idles frames F+1..F+N-1 and
  * resumes on frame F+N. The suspended ball step's state rides as plain
  * fields (koota traits hold primitives only).
  */
-export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'guideLag' | 'apuLag';
+export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'guideLag' | 'apuLag';
 
 export const Stall = trait({
   kind: 'none' as StallKind,
@@ -29,6 +35,8 @@ export const Stall = trait({
   resumeAt: -1,
   /** $6A6E: the squash variant a hit-stop shows (the request's A). */
   variant: 0,
+  /** A guide lag's sound, requested after the guide: played on its last idle frame (-1 none). */
+  sfx: -1,
   // the suspended step's route and landing outcome
   pRoute: '' as string,
   pReroute: '' as string,

@@ -15,6 +15,7 @@ import type { World } from 'koota';
 import { Pose, PoseState, HOP_FRAMES } from '../traits/pose';
 import { BallWork } from '../traits/ball';
 import { ball } from './flow-util';
+import { HURT_POSE, THROWN_POSE } from './hazard-reaction';
 
 
 export function updatePose(world: World): void {
@@ -28,14 +29,16 @@ export function updatePose(world: World): void {
     e.set(Pose, { ...pose, state: PoseState.Hop, timer: HOP_FRAMES });
     return;
   }
+  const hurt = pose.state === HURT_POSE || pose.state === THROWN_POSE;
   if (w.bouncePose !== 0) {
     w.bouncePose = 0;
-    if (pose.state !== PoseState.Hop) e.set(Pose, { ...pose, state: PoseState.Roll, timer: 0 });
+    if (pose.state !== PoseState.Hop && !hurt) e.set(Pose, { ...pose, state: PoseState.Roll, timer: 0 });
     return;
   }
-  if (pose.state === PoseState.Hop && pose.timer > 0) {
+  if ((pose.state === PoseState.Hop || hurt) && pose.timer > 0) {
+    // the hop's script returns to 14 after 17 frames; a hazard's hurt pose after 32
     const left = pose.timer - 1;
-    e.set(Pose, { ...pose, timer: left, state: left === 0 ? PoseState.Roll : PoseState.Hop });
+    e.set(Pose, { ...pose, timer: left, state: left === 0 ? PoseState.Roll : pose.state });
   }
 }
 

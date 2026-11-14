@@ -33,6 +33,10 @@ import { countStill } from '../sim/still';
 import { s16, wrap16, mul16x8 } from '../fixed';
 import { emit } from '../events';
 import { Stall } from './stall';
+import { Pose, PoseState } from '../traits/pose';
+import { takeEnemy } from './take';
+import { pushTomato } from './counters';
+import { hazardReaction } from './hazard-reaction';
 
 /** The route `select-outcome` computes; exactly one branch then runs. */
 export type BallRoute =
@@ -55,10 +59,11 @@ interface StepState {
   entry?: 'full' | 'grounded' | 'gravityOnly';
 }
 
-interface HitStopRequest {
+/** A stall the step asks for: the runner suspends the list after the entry. */
+interface StallRequest {
+  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait';
   frames: number;
   state: number;
-  after: 'landing' | 'stepHit';
 }
 
 /**
@@ -69,7 +74,7 @@ interface HitStopRequest {
 export interface StepEntry {
   name: string;
   kernel: boolean;
-  run: (world: World, s: StepState) => HitStopRequest | null;
+  run: (world: World, s: StepState) => StallRequest | null;
 }
 
 export const BALL_STEP: StepEntry[] = [
@@ -94,6 +99,13 @@ export const BALL_STEP: StepEntry[] = [
       w.hitWall = 0;
       w.fact4 = 0;
       w.hitStopLatch = 0;
+      w.enemyHit = 0;
+      w.holedIn = 0;
+      w.sunk = 0;
+      w.sfxNow = 0xffff;
+      w.hurt = 0;
+      w.tomatoLoss = 0;
+      w.hazardHit = 0;
       w.deg = 0xffff;
       copyPrev(w);
       s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
@@ -200,7 +212,7 @@ export const BALL_STEP: StepEntry[] = [
       s.route = { kind: 'done' };
       s.entry = w.air !== 0 ? 'gravityOnly' : undefined; // $81:88F6 / RTL
       const hs = w.mode === 0 || w.mode === 7 ? stepHitStop(w) : null;
-      return hs ? { frames: hs.frames, state: hs.state, after: 'stepHit' } : null;
+      return hs ? { kind: 'stepStop', frames: hs.frames, state: hs.state } : null;
     },
   },
   {
@@ -215,9 +227,8 @@ export const BALL_STEP: StepEntry[] = [
     },
   },
   {
-    // $81:811B (airborne) / $81:8436 (rolling): the tile dispatch, then the
-    // landing chain's first half (its hit-stop suspends the list here)
-    name: 'dispatch-landing',
+    // $81:811B (airborne) / $81:8436 (rolling): the tile dispatch
+    name: 'dispatch-tile',
     kernel: true,
     run: (_world, s) => {
       const w = s.w;
@@ -228,12 +239,30 @@ export const BALL_STEP: StepEntry[] = [
       } else if (s.route.kind === 'done' && s.entry === undefined && s.w.air !== 0) {
         s.entry = 'gravityOnly';
       }
+      return null;
+    },
+  },
+  {
+    // $82:8977 -> $82:8A2E / $82:8A98: the enemy's take, inside the tile
+    // handler; when one enemy is left it becomes the cup and the step
+    // blocks for the reveal ($82:8B5C). Not a kernel: the guide never takes.
+    name: 'take-enemy',
+    kernel: false,
+    run: (world, s) => takeEnemy(world, s.ctx, s.w),
+  },
+  {
+    // the landing chain's first half, $81:8905 (its hit-stop suspends the
+    // list here)
+    name: 'dispatch-landing',
+    kernel: true,
+    run: (_world, s) => {
+      const w = s.w;
       if (s.reroute === 'landing' && s.entry !== 'gravityOnly') {
         // gravityOnly reroutes (the outline wall's hit, the cup's exits)
         // jump straight to the $81:899F tail - no landing chain
         s.outcome = dispatchLanding(s.ctx, w, s.entry === 'grounded' ? 'grounded' : 'full');
         if (s.outcome.kind === 'hitstop') {
-          return { frames: s.outcome.frames, state: s.outcome.state, after: 'landing' };
+          return { kind: 'hitStop', frames: s.outcome.frames, state: s.outcome.state };
         }
       }
       return null;
@@ -264,9 +293,24 @@ export const BALL_STEP: StepEntry[] = [
     name: 'emit-step-effects',
     kernel: false,
     run: (world, s) => {
-      const ev = tailEvent(s.w);
-      if (ev) emit(world, { frame: world.get(Time)!.frame }, ev.kind, ev.romSfx);
-      s.w.tailSfx = 0xffff;
+      const api = { frame: world.get(Time)!.frame };
+      const w = s.w;
+      // inline requests: the pillar's $71 ($82:956C / $82:95F8), a bumper's $6F ($82:9CA1)
+      if (w.sfxNow !== 0xffff) emit(world, api, w.sfxNow === 0x71 ? 'pillar' : 'hazard', w.sfxNow);
+      for (let i = 0; i < w.hazardHit; i++) emit(world, api, 'hazard-hit'); // $82:EED8: object $2F
+      for (let i = 0; i < w.tomatoLoss; i++) pushTomato(world, -1); // $83:ABC5
+      if (w.holedIn !== 0) emit(world, api, 'holed-in'); // $82:AD13: object 75 over the cup
+      if (w.sunk !== 0) {
+        // $82:AEC1-$82:AEEF: Kirby's state 1, the music's volume to 0
+        // ($80:B5F4: APU port 2 and $1003), sfx $82:AEF5[mode] ($21 in mode 0)
+        const e = ballEntity(world);
+        e.set(Pose, { ...e.get(Pose)!, state: PoseState.Holed, timer: 0 });
+        emit(world, api, 'music-mute'); // not a sound request: no id
+        emit(world, api, 'holed', s.ctx.rules.table('holedSfx')[w.mode & 0xff] ?? 0x21);
+      }
+      const ev = tailEvent(w);
+      if (ev) emit(world, api, ev.kind, ev.romSfx);
+      w.tailSfx = 0xffff;
       return null;
     },
   },
@@ -305,6 +349,15 @@ export const BALL_STEP: StepEntry[] = [
       return null;
     },
   },
+  {
+    // $82:C0A8: a hazard's reaction ($D780 -> $82:DB9A), after the store
+    name: 'hazard-reaction',
+    kernel: false,
+    run: (world, s) => {
+      if (s.w.hurt !== 0) hazardReaction(world, s.ctx, s.w);
+      return null;
+    },
+  },
 ];
 
 function applyRoute(s: StepState, out: DispatchOutcome): void {
@@ -318,7 +371,14 @@ function tailEvent(w: BallWorkFields): { kind: string; romSfx: number } | null {
     const kind = w.hitStep !== 0 ? 'step' : w.hitWall !== 0 ? 'wall' : 'tile';
     return { kind, romSfx: w.tailSfx };
   }
-  if (w.air !== 0 && w.bounced !== 0 && w.vz >= 0) {
+  if (w.air !== 0 && w.bounced !== 0) {
+    if (w.spinBounceSfx !== 0) {
+      // $81:9BF4: the spin streak's sound ($68F0 - 1 + 5); its object ends
+      const sfx = w.spinBounceSfx + 4;
+      w.spinBounceSfx = 0;
+      return { kind: 'bounce', romSfx: sfx };
+    }
+    if (w.vz >= 0x8000) return null; // $81:9C03 BMI
     const sfx = w.vz >= 0x0500 ? 1 : w.vz >= 0x0200 ? 2 : 3;
     return { kind: 'bounce', romSfx: sfx };
   }
@@ -375,7 +435,7 @@ function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | 
     const req = BALL_STEP[i].run(world, s);
     if (req) {
       world.set(Stall, {
-        kind: req.frames === 4 ? 'hitStop' : 'stepStop',
+        kind: req.kind,
         framesLeft: req.frames,
         resumeAt: i + 1,
         variant: req.state,

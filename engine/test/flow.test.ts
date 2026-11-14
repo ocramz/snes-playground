@@ -15,22 +15,39 @@
  * - The guide's first end, the aim camera's target ($6AAA/$6AAC): within
  *   1 px for at least 95% of the targets the game wrote.
  *
- * Windows: web_flow stops at 3244 — the cup appears at 3245 and stalls the
- * game for 100 frames (phase 6, $82:8B5C); web_ui ends with its trace; the
- * fly shots run through the lost ball, its reset and the next set-up.
+ * Windows: web_flow runs through both takes, the cup's reveal (3245-3345,
+ * the step blocked inside $82:8B5C), the settle and the set-up aimed at the
+ * cup (3507); web_ui ends with its trace; the fly shots run through the lost
+ * ball, its reset and the next set-up.
+ *
+ * Phase 6 adds the counters: tomatoes, lives, strokes, stars, holed and the
+ * tomato queue's ring indices (tqw/tqr, two per entry, mod $20).
  */
 import { describe, expect, it } from 'vitest';
 import { runFlowScript, GAME_OFFSET } from './flow-harness';
 import { valueChanges, type FlowEvent } from './align';
 import { haveRules, haveRomTest, loadFlow } from './fixtures';
 
-const DISCRETE = ['state', 'facing', 'angle', 'aim', 'elev', 'side', 'tb', 'meter', 'over', 'air', 'bx', 'by', 'kx', 'ky'];
+const DISCRETE = [
+  'state', 'facing', 'angle', 'aim', 'elev', 'side', 'tb', 'meter', 'over', 'air', 'bx', 'by', 'kx', 'ky',
+  // phase 6: the counters, and the score card's first hole
+  'tom', 'lives', 'strokes', 'stars', 'holed', 'tqw', 'tqr', 'card0',
+];
 
-const RUNS: Array<{ name: string; from: number; to: number }> = [
-  { name: 'web_flow', from: 2333, to: 3244 },
+const RUNS: Array<{ name: string; from: number; to: number; camTo?: number }> = [
+  { name: 'web_flow', from: 2333, to: 3530 },
   { name: 'web_ui', from: 2333, to: 3300 },
   { name: 'web_fly', from: 2333, to: 3915 },
   { name: 'web_fly_spin', from: 2333, to: 3915 },
+  { name: 'web_curve', from: 2333, to: 3500 },
+  // through the second shot, the sink (3894-3908), the pan to the cup, the
+  // card (3921), the songs and the bonus tomato, to the blank before the
+  // RESULT card (4331); the camera until the star warp's rise (4196), which
+  // is the hole-out cutscene's (cutscenes.json), not core's
+  { name: 'web_hole', from: 2333, to: 4331, camTo: 4190 },
+  // four weak shots: the tired pose at 2 and 1 tomatoes, the out-of-tomatoes
+  // path, the life, the refill, the fifth set-up (4056)
+  { name: 'web_tomatoes', from: 2333, to: 4070 },
 ];
 
 /** The game's changes of one field inside the window must be found, in
@@ -89,7 +106,7 @@ function cameraWorst(game: FlowEvent[], engine: FlowEvent[], name: string, from:
 }
 
 describe.skipIf(!haveRules || !haveRomTest)('the flow vs the recorded game', () => {
-  for (const { name, from, to } of RUNS) {
+  for (const { name, from, to, camTo } of RUNS) {
     const want = loadFlow(name);
     describe.skipIf(!want)(name, () => {
       const run = want ? runFlowScript(name, to - GAME_OFFSET + 3) : null;
@@ -101,8 +118,8 @@ describe.skipIf(!haveRules || !haveRomTest)('the flow vs the recorded game', () 
       }
 
       it('camera within 2 px (x) and 8 px (y)', () => {
-        const x = cameraWorst(want!.events, run!.events, 'cx38', from, to);
-        const y = cameraWorst(want!.events, run!.events, 'cy38', from, to);
+        const x = cameraWorst(want!.events, run!.events, 'cx38', from, camTo ?? to);
+        const y = cameraWorst(want!.events, run!.events, 'cy38', from, camTo ?? to);
         expect(x.worst, `x worst at ${x.at}`).toBeLessThanOrEqual(2);
         expect(y.worst, `y worst at ${y.at}`).toBeLessThanOrEqual(8);
       });

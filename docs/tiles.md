@@ -70,11 +70,11 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$10-$13` | `$82:A7DD` | **kicker**: landing speed becomes a directional impulse |
 | `$70-$7B` | `$82:9FD1`+ | toggled directional impulse, two magnitudes |
 | `$18-$1B` | `$82:A5B1` | snaps Z to the surface and zeroes vz |
-| `$80-$8F`, `$98-$A1` | `$82:98F8` | **hazard** |
-| `$90-$97` | `$82:9653` | hazard |
-| `$05` | `$82:A55E` | hazard; also snaps Z and zeroes vz |
-| `$A2` | `$82:9858` | hazard (unused by any course) |
-| `$AC-$AE` | `$82:86B9` | hazard, after restoring the previous position |
+| `$80-$8F`, `$98-$A1` | `$82:98F8` | **hazard**: the bumper track's shape, then a cube test against the riding bumpers (object 76) |
+| `$90-$97` | `$82:9653` | hazard: the bobbing bumper's box (object 77) |
+| `$05` | `$82:A55E` | hazard: at or under the surface, every frame; the ball is thrown along its heading |
+| `$A2` | `$82:9858` | hazard: a bumper box at a fixed height (no course has it; the load makes it of an isolated track tile) |
+| `$AC-$AE` | `$82:86B9` | hazard: the volcanoes (objects 81-83), the cone after restoring the previous position, the base while one erupts |
 | `$40-$52`, `$57` | `$82:8967` | **spawns an actor** |
 | `$02` | `$82:94D3` | solid object standing 3 height steps tall |
 | `$28-$2D` | `$82:8FF1` | **the play-area outline**, a wall: see below |
@@ -140,10 +140,30 @@ direction comes from the tile value. Landing harder throws you further.
 
 ### Hazards
 
-Six groups end up calling **`$83:ABC5`** — the same routine the driver calls
-at `$82:C092` when the ball falls out of the world entirely (see
-[terrain.md](terrain.md)). So a hazard tile and a bottomless gap have the same
-consequence; only the trigger differs.
+The hazards are **bumpers**. A hit bounces the ball, costs one tomato and
+plays sfx `$6F` (the shared penalty `$82:9C8D`). None of them loses the ball.
+Verified against the game on five recorded scenarios, one per group
+(`tools/snesstep/inputs/web_haz*`, engine `test/trace-hazards.test.ts`; the
+details are in [notes/engine-phase6-holes.md](../notes/engine-phase6-holes.md)
+"Hazards").
+
+- The handlers' tomato is **`$83:ABC5`**. It queues a −1 in the HUD's ring
+  `$68FA`, which lands 20 iterations later with sfx `$10`. The same routine
+  charges every shot at the roll's start (`$82:BFDB`).
+- A ball that falls out of the world is a different path in 1P:
+  `$80:F830` sets the tomatoes to 0, then the next turn costs a life
+  (`$80:F8D0`) and refills them. `$82:C085` queues two −1s for it only when
+  `$17FF` is set, which it is not in 1P (web_fly: the ring's write index
+  `$68F8` does not move at the fall).
+- At the hole's load, `$82:BA87` auto-tiles the bumper tracks (`$80-$A1`) in
+  place. A track tile that connects on no side becomes `$A2`, the fixed box:
+  course 1 hole 4's lone `$80` at (8,18) is one.
+- Each handler also asks the roll loop for a reaction (`$D780`, run by
+  `$82:DB9A` after the step):
+  - `$14` (the bumpers): Kirby's state 49;
+  - `$13` (`$05`): the ball thrown along its heading, speed `$474`, vz `$880`;
+  - `$0F` (a volcano's base while it spews): thrown at `$500`, vz `$800`,
+    Kirby's state 40, sfx `$7B`.
 
 ## The outline wall: `$28-$2D`
 

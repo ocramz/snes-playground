@@ -1,56 +1,50 @@
 /**
- * The enemy-tile handler ($82:8967 on land, $82:8963/$82:8967 on the
- * rolling path) — the detection half of docs/physics.md "The hit rule".
+ * The enemy-tile handler, `$82:8967` (tiles $40-$52 and $57 on land, and
+ * $40-$4C and $57 on the rolling path; read 2026-11-14) — docs/physics.md
+ * "The hit rule". Tiles $4D-$52 on the rolling path go to `$82:8963`, a bare
+ * `JML $81:8A56`: a rolling ball never tests a hovering enemy.
  *
- * The take itself (loc_enemy_taken $82:8A98: the owner store, the star
- * count, the last-enemy-to-cup conversion and its reveal stall) needs the
- * hole's enemy entities and is **phase 6**: `onEnemyHit` is a hook the
- * ball-step system wires to the phase-6 action. Until it is wired the
- * detection runs and the take is skipped, which the traces that take an
- * enemy will show.
+ *   $82:8967  JSR $8990 (the hit test); on a hit with the latch $6A68 clear:
+ *             INC $6A68, JSR $8A2E (the take), $6A0C = 1
+ *   $82:8983  airborne -> $81:8905 (the landing), grounded -> $81:8A56
+ *   $82:8A21  a miss in the cell clears $6A68 and $6A0C
+ *
+ * The kernel never touches the hole's entities: a hit leaves the fact
+ * `enemyHit` (the cell index + 1), and the `take-enemy` system of the ball
+ * step does the take right after the tile dispatch, where `$8A2E` sits.
  */
 import type { Ctx, Work } from './context';
 import { LANDING, ROLLING, type DispatchOutcome } from './types';
-
-/** The per-player enemy latch ($6A68) rides on the ball's work copy. */
-export function enemyLatch(work: Work): number {
-  return work.enemyLatch;
-}
+import { enemyHover } from '../sweep';
 
 /**
  * $82:8990: does the ball hit the enemy on this cell? Both fractions must
- * be in the middle half; a grounded ball counts, an airborne one only
- * within the height window H - $2D41 .. H + $5A82 around the enemy's own
- * hover height H (measured from the ground under the ball).
- *
- * The enemy's hover height comes from the hole's enemy entities (the
- * thread slot's $5B1C field, phase 6); until then `hoverSteps` is 0, the
- * value every ground enemy has — the pit enemies of course 5 hole 6 are
- * the known exception (docs/physics.md).
+ * be in the middle half ($4000-$BFFF); a grounded ball counts; an airborne
+ * one only within the window around the enemy's hover height H, measured
+ * from the ground under the ball ($DA06/$DA08): from ground + H - $2D41 up
+ * to (not including) ground + H + $5A82. H = tbl_height_z[$5B1C].
  */
-export function enemyHitTest(_ctx: Ctx, w: Work, hoverSteps: number): boolean {
+export function enemyHitTest(ctx: Ctx, w: Work, hoverSteps: number): boolean {
   if (!(w.xf >= 0x4000 && w.xf < 0xc000)) return false;
   if (!(w.yf >= 0x4000 && w.yf < 0xc000)) return false;
   if (w.air === 0) return true;
-  const h = hoverSteps * 0x5a82;
-  const upper = h + 0x5a82;
-  const lower = h - 0x2d41;
+  const h = (w.ground + ctx.rules.heightZ(hoverSteps)) | 0;
+  const upper = (h + 0x5a82) | 0;
+  const lower = (h - 0x2d41) | 0;
   return w.z < upper && w.z >= lower;
 }
 
-/** $82:8967: the dispatch entry. `hoverSteps` comes from the hole entities. */
-export function enemyDispatch(ctx: Ctx, w: Work, hoverSteps = 0, onTake?: (work: Work) => void): DispatchOutcome {
-  const hit = enemyHitTest(ctx, w, hoverSteps);
+/** $82:8967: the dispatch entry. The hover height comes from the tile ($82:B69F). */
+export function enemyDispatch(ctx: Ctx, w: Work): DispatchOutcome {
+  const hit = enemyHitTest(ctx, w, enemyHover(ctx.rules, w.tile));
   if (!hit) {
     // $82:8A21: in the cell but outside the window clears the latch
     w.enemyLatch = 0;
     w.enemyHitMark = 0; // $6A0C
   } else if (w.enemyLatch === 0) {
     w.enemyLatch = 1;
+    w.enemyHit = (w.cell + 1) & 0xffff; // the take follows the dispatch
     w.enemyHitMark = 1;
-    onTake?.(w);
   }
-  // $82:8983: airborne continues into the landing chain, grounded into the
-  // rolling default
   return w.air !== 0 ? LANDING : ROLLING;
 }

@@ -1,0 +1,18 @@
+# Course 2 hole 4 (index 11): the bobbing bumpers (object 77 on $94) at
+# (1,24) and (3,24), either side of the tee (2,24). A weak shot from the
+# tee, then the ball poked rolling west from the tee cell into (1,24) while
+# its bumper is low (frames 0-2, under the cube's half-height) (engine
+# phase 6: the box $82:96BA, the hit side $82:9693, the penalty).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2355 A 2        # aim (the set-up's 0)
+2424 A 2        # spin
+2431 A 2        # power (meter 2)

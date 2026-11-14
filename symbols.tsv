@@ -409,7 +409,7 @@ $82:8B5C	0x010B5C	code	sub_last_enemy_to_cup	-	turns the last enemy into the cup
 $82:8F77	0x010F77	code	sub_tile_friction	-	tiles $20-$24; overwrite the bounce coefficients
 $82:8FF1	0x010FF1	code	sub_tile_edge	-	tiles $28-$2D; falls through to sub_apply_gravity
 $82:94D3	0x0114D3	code	sub_tile_tall_object	-	tile $02; a solid standing 3 height steps above the cell
-$82:98F8	0x0118F8	code	sub_tile_hazard	-	tiles $80-$8F and $98-$A1; calls $83:ABC5 like falling out of the world
+$82:98F8	0x0118F8	code	sub_tile_hazard	-	tiles $80-$8F and $98-$A1 (landing; $82:9940 rolling): the track shape, the cube test against object 76, the bounce; the penalty $82:9C8D queues a tomato -1 ($83:ABC5)
 $82:9CB5	0x011CB5	data	tbl_boost_delta	4	+512 / -512, the velocity deltas the $30-$3B boost panels add
 $82:9DB3	0x011DB3	code	sub_tile_boost_n	36	tiles $30 $35 $38; vy += -512
 $82:9DD7	0x011DD7	code	sub_tile_boost_e	36	tiles $31 $37 $3A; vx += +512
@@ -433,7 +433,7 @@ $82:DB20	0x015B20	code	sub_shot_buttons_apply	85	JSR; on a bounce/step/wall even
 $82:DB9A	0x015B9A	code	sub_kirby_hit_dispatch	-	a ball hit by another ball's ability: Kirby animation states 40-50 via tbl_hit_reactions
 $82:DBDE	0x015BDE	tbl	tbl_hit_reactions	-	hit code -> Kirby animation state (40-50)
 $82:F903	0x017903	code	sub_map_select	-	scene 17, MAP SELECT: course (NORMAL/EXTRA), course number and hole number, then plays that hole. From the title menu's MAP SELECT ($83:B95B)
-$83:ABC5	0x01ABC5	code	sub_ball_lost	-	consequence of a hazard tile or of falling out of the world; not traced
+$83:ABC5	0x01ABC5	code	sub_tomato_queue_dec	-	queues a tomato -1 in the HUD ring $68FA (A = the player); callers: the roll's start $82:BFDB, the hazards, $82:C085 (a fall out of the world, only when $17FF is set: not in 1P); verified web_flow, web_fly, web_haz*
 $83:B406	0x01B406	code	sub_text_draw	-	walk a string, OR $3C00 (palette 7, priority) into each glyph and store into the BG3 tilemap buffer; $FE = newline, $F0-$FF dispatch through tbl_text_control
 $83:B46A	0x01B46A	ptr	tbl_text_control	32	16 word targets for control codes $F0-$FF; $FE is the newline at $83:B44C
 $83:B9A5	0x01B9A5	code	sub_sound_room	266	SOUND ROOM handler. Loads song 0 on entry ($83:B9BB); FGM path $83:BA11 loads song 0 then triggers effect $B0; BGM path $83:BA20 plays song $B2 as id $7E+n

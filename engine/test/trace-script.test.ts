@@ -15,8 +15,11 @@ import { BallWork } from '../src/core/traits/ball';
 const SCRIPTS = [
   'web_grounder', 'web_fly', 'web_fly_spin', 'web_curve', 'web_aimed',
   'web_a45', 'web_a135', 'web_a225', 'web_a315', 'web_flya', 'web_gy',
-  'web_flow', 'web_ui',
+  'web_flow', 'web_ui', 'web_hole', 'web_tomatoes',
 ];
+
+/** Where a script's comparison ends when not at the lost ball: web_hole's hole 2 starts at 4518. */
+const UNTIL: Record<string, number> = { web_hole: 4331 };
 
 const stats: string[] = [];
 
@@ -31,11 +34,11 @@ describe.skipIf(!haveRules || !haveRomTest)('the real game, end to end from its 
       const seed = launchSeedIndex(all);
       // the trace ends where trace_ball.py stopped; the engine runs a little
       // longer so the last recorded state can still be matched
-      const lastF = all[all.length - 1].f;
+      const lastF = Math.min(all[all.length - 1].f, UNTIL[name] ?? Infinity);
       const run = runFlowScript(name, lastF - GAME_OFFSET + 20, {
         until: (w) => w.queryFirst(BallWork)!.get(BallWork)!.fellOut !== 0,
       });
-      const game = distinctStates(all.slice(seed));
+      const game = distinctStates(all.slice(seed).filter((r) => r.f <= lastF));
       // the launch: the trace's seed record carries the shot's numbers
       const s0 = all[seed];
       const launch = run.ball.find((b) => b.vx === s0.vx && b.vy === s0.vy && b.vz === s0.vz && (b.vx | b.vy | b.vz) !== 0);

@@ -1,0 +1,18 @@
+# Course 7 hole 7 (index 54): the three volcanoes, $AE (5,12) object 83,
+# $AD (5,14) object 82, $AC (5,16) object 81. A weak shot from the tee
+# (5,23), then the ball poked rolling north into the middle of (5,14)
+# while object 82 spews (its state 2) (engine phase 6: the base $82:8656,
+# the reaction $0F: the throw, state 40, sfx $7B).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's 0)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

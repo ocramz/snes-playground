@@ -9,7 +9,7 @@
  * from the exact trace tests per plans risk 5 and listed in docs/engine.md.
  * Every other group is a port of the disassembly.
  */
-import { s16, wrap16, mulFloor, atan2Deg } from '../fixed';
+import { s16, wrap16, mulFloor, mulQ15s, atan2Deg } from '../fixed';
 import type { Ctx, Work } from './context';
 import type { RollModifier } from './roll';
 import { restorePrev } from './wall-step';
@@ -17,6 +17,7 @@ import { updateHeading } from './reflect';
 import { outlineWall } from './outline';
 import { cupLand, cupHit } from './cup';
 import { enemyDispatch } from './enemy';
+import { bumperLand, bumperHitSide, bobLand, bobHitSide, volcanoLand, volcanoHitSide, hazard05 } from './hazards';
 import { cosSinDeg } from './trig';
 import { LANDING, ROLLING, DONE, type DispatchOutcome } from './types';
 export type { DispatchOutcome };
@@ -42,16 +43,26 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
     case 'land':
       return LANDING;
     case 'landClear':
-      // $81:88F9: clears per-player tracking ($6A68/$6A42/$69D8, phase 6),
-      // then falls into the default landing handler.
+      // $81:88F9: STZ $6A68 (the enemy/pillar latch), $6A42, $69D8; then the
+      // default landing handler
+      w.enemyLatch = 0;
       return LANDING;
     case 'pillar':
       return pillarShared(ctx, w, LANDING);
     case 'rough':
       return roughLand(ctx, w);
     case 'hazard05':
+      return hazard05(w, 'land'); // $82:A55E (not the $1C family's $82:936A)
     case 'rough05':
       return rough05Entry(ctx, w, 'land', false);
+    case 'hazard80':
+      return bumperLand(ctx, w);
+    case 'hazard90':
+      return bobLand(ctx, w, false);
+    case 'hazardA2':
+      return bobLand(ctx, w, true);
+    case 'hazardAC':
+      return volcanoLand(ctx, w);
     case 'rough05b':
       return rough05Entry(ctx, w, 'land', true);
     case 'cup':
@@ -87,6 +98,8 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
     case 'roll':
       return ROLLING;
     case 'rollClear':
+      // $81:8A47: STZ $6A68, $6A36, $6A42, $69D8; then the default roll
+      w.enemyLatch = 0;
       return ROLLING;
     case 'pillarHit':
       return pillarShared(ctx, w, ROLLING);
@@ -94,8 +107,17 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
       frictionAltHit(ctx, w);
       return ROLLING;
     case 'hazard05Hit':
+      return hazard05(w, 'hit'); // $82:A576: the default landing after, from this side too
     case 'rough05Hit':
       return rough05Entry(ctx, w, 'hit', false);
+    case 'hazard80Hit':
+      return bumperHitSide(ctx, w);
+    case 'hazard90Hit':
+      return bobHitSide(ctx, w, false);
+    case 'hazardA2Hit':
+      return bobHitSide(ctx, w, true);
+    case 'hazardACHit':
+      return volcanoHitSide(ctx, w);
     case 'rough05bHit':
       return rough05Entry(ctx, w, 'hit', true);
     case 'cupHit':
@@ -118,8 +140,11 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
     case 'boostWHit':
       return boostHit(ctx, w, 'vy');
     case 'enemy':
-    case 'enemyRollAlt':
       return enemyDispatch(ctx, w);
+    case 'enemyRollAlt':
+      // $82:8963: JML $81:8A56 - tiles $4D-$52 (the hovering enemies) are
+      // never tested from the rolling path
+      return ROLLING;
     default:
       return stubbed(ctx.rules.hitHandler(w.tile), ROLLING);
   }
@@ -131,8 +156,7 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
  *   ($82:A086) and applies via $82:A0D9/$82:A0F9 — not read.
  * - overlay ($60-$6F, +hits): enter/leave tracking ($82:80F6) — not read;
  *   the $D9EE flag itself IS ported (the $82:C85F probe wrapper).
- * - hazard80/90/A2/AC (+hits): the actor-box tests walk the enemy list
- *   ($82:997E/$82:9ABF/$82:E701) — needs phase 6's enemy entities.
+ * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
  * - unk14/unk15/unk58/unk5a/unk5c/unkB0 (+hits): handlers located, not
  *   read (docs/tiles.md "Not established").
  * Each returns its group's default routing so an unported tile behaves
@@ -405,35 +429,78 @@ function outlineWallHit(ctx: Ctx, w: Work): DispatchOutcome {
 
 // --- pillar ($02) ---
 
+/**
+ * $82:94D3 (land) / $82:957C (hit), read 2026-11-14: the tree trunk stands
+ * three height steps above the ground; its footprint is the middle of the
+ * cell ($82:95FD: both fractions in $4000-$BFFE). The latch $6A68 (shared
+ * with the enemies) makes one pass count once.
+ *
+ *   land: above the top, or outside the footprint, or the mode-7 branch
+ *         ($82:961B) -> clear the latch; latch set -> nothing; else clear
+ *         the spin, then: the top below the previous z ($DA18) -> the
+ *         reflection about the quadrant's normal, damped (vx, vy x $4A3C,
+ *         vz x $4F5B, $81:9793); otherwise the push-out $82:95A6. Both
+ *         INC the latch and $DA54 and play sfx $71 at once.
+ *   hit:  outside the footprint, or mode 7 -> clear the latch; latch set
+ *         -> nothing; else the push-out, then clear the spin.
+ */
+function pillarFootprint(w: Work): boolean {
+  return w.xf >= 0x4000 && w.xf < 0xbfff && w.yf >= 0x4000 && w.yf < 0xbfff;
+}
+
 function pillarShared(ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome {
-  // $82:94D3/$82:957C: the pillar stands three height steps tall
-  const top = w.ground + ctx.rules.heightZ(3);
-  if (w.z > top) return out; // $82:9572: $6A68,X = 0 (the latch, phase 6)
-  if (!(w.xf >= 0x4000 && w.xf < 0xc000 && w.yf >= 0x4000 && w.yf < 0xc000)) return out; // $82:95FD
-  // $82:961B's mode-7 branch (it clears the tile from layer 2) is
-  // unported: mode is always 0 and $82:EE9A returns "no" for other modes.
+  const landing = out.next === 'landing';
+  const top = (w.ground + ctx.rules.heightZ(3)) | 0;
+  if (landing && top < w.z) {
+    w.enemyLatch = 0; // $82:9572
+    return out;
+  }
+  if (!pillarFootprint(w)) {
+    w.enemyLatch = 0;
+    return out;
+  }
+  if (w.enemyLatch !== 0) return out; // $82:9504 / $82:9587
+  // $82:961B -> $82:EE9A: the mode-7 branch (it clears the tile from layer
+  // 2) returns "no" outside mode 7; modes are always 0 here
+  if (!landing) {
+    pillarPush(ctx, w);
+    w.spinX = 0;
+    w.spinY = 0;
+    w.spinPending = 0;
+    return out;
+  }
   w.spinX = 0;
   w.spinY = 0;
   w.spinPending = 0;
-  if (w.z >= w.pZ) {
-    // $82:9522 -> $82:95A6: the push-out (rotate away, scale, restore)
-    const angle = atan2Deg(wrap16(w.xf ^ 0x8000), wrap16(w.yf ^ 0x8000),
-      ctx.rules.table('atanDeg')) - s16(w.deg);
-    const [rx, ry] = rotateBy(ctx, w.vx, w.vy, angle);
-    w.vx = mulFactor(rx, 0x55c1); // $80:DD6D
-    w.vy = mulFactor(ry, 0x55c1);
-    restorePrev(w);
-  } else {
-    // $82:9527: reflect about the quadrant's normal, then damp
-    reflectRef(ctx, w, w.quad + 1);
-    w.vx = mulFactor(w.vx, 0x4a3c);
-    w.vy = mulFactor(w.vy, 0x4a3c);
-    w.vz = mulFactor(w.vz, 0x4f5b);
-    // $82:962F/$82:EED8 are presentation (phase 5)
+  if (top >= w.pZ) {
+    pillarPush(ctx, w); // $82:9522
+    return out;
   }
-  w.fact4 += 1; // $DA54, the pillar fact
-  w.tailSfx = 0x0071;
+  // $82:9527: reflect about the quadrant's normal, then damp
+  reflectRef(ctx, w, w.quad + 1);
+  w.vx = mulQ15s(w.vx, 0x4a3c);
+  w.vy = mulQ15s(w.vy, 0x4a3c);
+  w.vz = mulQ15s(w.vz, 0x4f5b);
+  pillarHitFacts(w); // $82:962F / $82:EED8 are presentation
   return out;
+}
+
+/** $82:95A6: rotate away from the trunk, scale by $80:DD6D, restore the previous position. */
+function pillarPush(ctx: Ctx, w: Work): void {
+  const angle = atan2Deg(wrap16(w.xf ^ 0x8000), wrap16(w.yf ^ 0x8000),
+    ctx.rules.table('atanDeg')) - s16(w.deg);
+  const [rx, ry] = rotateBy(ctx, w.vx, w.vy, angle);
+  w.vx = mulQ15s(rx, 0x55c1); // $80:DD6D
+  w.vy = mulQ15s(ry, 0x55c1);
+  updateHeading(ctx.rules, w); // $81:8E60
+  restorePrev(w); // $81:87B2
+  pillarHitFacts(w);
+}
+
+function pillarHitFacts(w: Work): void {
+  w.fact4 += 1; // $DA54
+  w.enemyLatch += 1; // $6A68
+  w.sfxNow = 0x0071;
 }
 
 function reflectRef(ctx: Ctx, w: Work, index: number): void {

@@ -85,3 +85,33 @@ export function loadFlow(name: string): FlowTrace | null {
 export function inputScriptPath(name: string): string {
   return resolve(repo, `tools/snesstep/inputs/${name}.txt`);
 }
+
+/** One sound request of the game: [frame, line, iteration, kind, id, caller]. */
+export type SoundRequest = [number, number, number, 'sfx' | 'song', number, string];
+
+/** sounds_web_flow.json (tools/snesstep/trace_flow.py). Returns null when absent. */
+export function loadSounds(name: string): SoundRequest[] | null {
+  const path = resolve(romTestDir, `sounds_${name}.json`);
+  return existsSync(path) ? readJson<{ requests: SoundRequest[] }>(path).requests : null;
+}
+
+/**
+ * The main loop's iteration a stamped record belongs to: the loop often
+ * runs past the vblank, so a store in the first lines of frame F is the
+ * iteration of F - 1 (trace_flow.py ITERATION_LINE).
+ */
+export const ITERATION_LINE = 112;
+export function iterationOf(frame: number, line: number | undefined): number {
+  return line !== undefined && line < ITERATION_LINE ? frame - 1 : frame;
+}
+
+/** build/engine/rom-test/holes/<n>/course.json (the Makefile's rom-test target). */
+export function loadRomHole(n: number): CourseJson | null {
+  const path = resolve(romTestDir, `holes/${n}/course.json`);
+  return existsSync(path) ? readJson(path) : null;
+}
+
+/** A file in build/engine/rom-test, for loaders that live elsewhere. */
+export function romTestPath(name: string): string {
+  return resolve(romTestDir, name);
+}

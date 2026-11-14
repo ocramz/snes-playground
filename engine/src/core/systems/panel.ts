@@ -8,7 +8,8 @@
  *   PanToShot  P = the A press. P+5: the first pan; from P+6 each frame
  *              first asks whether the last pan found the camera there
  *              ($6AB0, $81:BEE6), then pans again. Arrived -> pose 6, Spin.
- *   Spin       C = the curl. C+39/C+41: the panel object shows the meter
+ *   Spin       C = the curl. C+30: the panel's initial state (the meter 0,
+ *              top/back 6; $81:BF41). C+39/C+41: the panel object shows the meter
  *              as $FFFF, then 0 ($84:8FD9/$84:9073). C+42: the selectors'
  *              first frame ($81:C12E); from C+43 an A press ends the stage.
  *   Power      Q = that press. Q+4: sfx $57; from Q+5 each frame tests A
@@ -18,6 +19,7 @@
  *              $18 or $19 at full power, the launch velocity into the
  *              block); R+24: the first physics step (hole-flow.ts).
  */
+import { pushTomato } from './counters';
 import type { World } from 'koota';
 import { Pad } from '../traits/pad';
 import { Shot, METER_TOP, TB_PERIOD } from '../traits/shot';
@@ -30,6 +32,8 @@ import { shotPower, launchVelocity, shotSpin } from '../sim/shot';
 import { ball, emitEvent, enterPhase, phaseNow } from './flow-util';
 
 export const PAN_DELAY = 4;
+/** $81:BF30: the curl's yield $1D, then the panel's initial state. */
+export const PANEL_INIT_AT = 30;
 export const PANEL_METER_HIDE = 39;
 export const PANEL_METER_SHOW = 41;
 export const SPIN_FIRST = 42;
@@ -45,22 +49,24 @@ export function updateSpinStage(world: World): void {
       // $81:BEEB: the camera is on the shot view: Kirby curls
       const e = ball(world);
       e.set(Pose, { ...e.get(Pose)!, state: PoseState.Curl, timer: 0 });
-      const shot = world.get(Shot)!;
-      // $81:BF41-$81:BF62: the panel's initial state
-      world.set(Shot, {
-        ...shot,
-        tbTimer: TB_PERIOD,
-        meter: 0,
-        meterDir: 1,
-        topBack: 6,
-        sideTimer: 1,
-        tbDir: -1,
-      });
       enterPhase(world, 'Spin');
     }
     return;
   }
   if (phase !== 'Spin') return;
+  if (t === PANEL_INIT_AT) {
+    // $81:BF30 yields $1D; then $81:BF41-$81:BF62, the panel's initial
+    // state (web_hole 3697: the first shot's meter goes back to 0)
+    world.set(Shot, {
+      ...world.get(Shot)!,
+      tbTimer: TB_PERIOD,
+      meter: 0,
+      meterDir: 1,
+      topBack: 6,
+      sideTimer: 1,
+      tbDir: -1,
+    });
+  }
   if (t === PANEL_METER_HIDE) world.set(Shot, { ...world.get(Shot)!, meter: 0xffff });
   if (t === PANEL_METER_SHOW) world.set(Shot, { ...world.get(Shot)!, meter: 0 });
   if (t < SPIN_FIRST) return;
@@ -128,6 +134,7 @@ export function updatePowerMeter(world: World): void {
   const shot = world.get(Shot)!;
   if ((pad.pressed & PAD.A) !== 0) {
     enterPhase(world, 'LaunchDelay'); // $81:C035: latched as it is
+    emitEvent(world, 'silence', 0); // $81:C038: the meter's sound stops
     return;
   }
   let meter = shot.meter + shot.meterDir;
@@ -135,6 +142,7 @@ export function updatePowerMeter(world: World): void {
   if (meter <= 0) {
     world.set(Shot, { ...shot, meter: 0 }); // $81:C032: it fires by itself
     enterPhase(world, 'LaunchDelay');
+    emitEvent(world, 'silence', 0); // $81:C038
     return;
   }
   if (meter >= METER_TOP) {
@@ -151,6 +159,7 @@ export function launchBall(world: World, ctx: Ctx): void {
   const e = ball(world);
   const shot = world.get(Shot)!;
   if (t === 1) {
+    emitEvent(world, 'silence', 0); // $81:C046, after one frame's yield
     // $81:C04C / $81:C050: the power and the spin
     const fly = shot.elev !== 0;
     const power = shotPower(ctx.rules, shot.meter, fly);
@@ -184,12 +193,26 @@ export function launchBall(world: World, ctx: Ctx): void {
       lagX: (shot.viewX - sc.x) & 0xffff,
       lagY: (shot.viewY - sc.y) & 0xffff,
     });
+    pushTomato(world, -1); // $82:BFD8: every shot costs a tomato ($83:ABC5)
+    // $82:BFE9: the spin streak (object 25); a fly shot's sets $68F0, the
+    // first bounce's sound offset ($84:88CB)
+    if (fly) {
+      const dist = Math.max(Math.abs(shot.rollSide - 6), Math.abs(shot.rollTB - 6));
+      w.spinBounceSfx = ctx.rules.table('spinBounceSfx')[Math.min(6, dist)];
+    } else {
+      w.spinBounceSfx = 0;
+    }
     emitEvent(world, 'launch', shot.meter === METER_TOP ? 0x19 : 0x18); // $82:BFF0
   }
 }
 
-/** $82:C815-$82:C84E: the roll's pose from the latched selectors. */
-export function rollPoseState(rollSide: number, rollTB: number): number {
+/**
+ * $82:C808-$82:C84E: the roll's pose. A grounder ($6AD8 set) always rolls
+ * as 14 (web_curve: side 2, pose 14 at 2984); a fly shot by the latched
+ * selectors' larger distance from 6: 14, 16 at 3, 15 from 4.
+ */
+export function rollPoseState(rollSide: number, rollTB: number, grounder = false): number {
+  if (grounder) return PoseState.Roll;
   const d = Math.max(Math.abs(rollSide - 6), Math.abs(rollTB - 6));
   return d < 3 ? PoseState.Roll : d === 3 ? PoseState.RollMedium : PoseState.RollStrong;
 }

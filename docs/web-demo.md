@@ -60,8 +60,10 @@ a star; Kirby gets a tomato back); when one enemy is left it becomes the cup. Si
 the ball in the cup to finish: a ball rises out of the cup, turns into a star, Kirby
 jumps onto it and it flies up while the camera follows it into the sky, then the
 screen fades to the result card (in one stroke, the HOLE IN ONE banner, fireworks and
-1UP come first, over the course in its night palette). Every shot costs a tomato, so does going out of
-bounds; at zero tomatoes the hole is lost. After a shot the ball stays a ball until
+1UP come first, over the course in its night palette). Every shot costs a tomato. Going out of
+bounds empties the tomatoes and costs a life; so does running out of
+tomatoes, which refills them and play goes on (engine phase 6,
+notes/engine-phase6-holes.md; the demo itself still treats both as below). After a shot the ball stays a ball until
 the next aim starts, 35 frames after it stopped (with one or two tomatoes left Kirby
 pants meanwhile).
 
@@ -233,7 +235,7 @@ result card comes when the recording ends.
 | | |
 |---|---|
 | Pillars (tile `$02`, the trees) | a simplified solid: reflect and damp by `$4A3C` / `$4F5B`; the real handler `$82:94D3` / `$82:957C` is not ported. The guide runs into the same approximation (aim 256 ends 20 px off) |
-| Ball lost | −1 tomato, sound `$10`, back to where the shot was taken. The game queues the event (`$83:ABC5`); where it puts the ball is not traced |
+| Ball lost | −1 tomato, sound `$10`, back to where the shot was taken. The game instead sets the tomatoes to 0 (`$80:F830`), and at the next turn takes a life and refills them (`$80:F8D0`, `$80:F8DA`; web_fly 3528, 3638, 3648-3678). `$83:ABC5` is the queued tomato −1 of every shot and of the hazards, not the lost ball's |
 | Cup rim | the pull to the centre (`$82:AF51`) and the rim bounce (`$82:AF09`) are ported from the disassembly but only the centre is validated (the hole-out test). The camera pans to the cup (`$82:8B5C`) with the same pan as the aim stage; the game's timing and the way back are not measured |
 | Start of each aim | the game sets the aim toward its target, snapped to a multiple of 45° (`$80:C902`, from `$82:AFB0`, target `$6B6C/$6B70`; after the first shot of web_flow it jumped to 180). The demo keeps the last aim |
 | Intro and hole-out | replayed from one recorded run (hole 1, the c1n replay), not computed: the sparkles' paths are that run's. The game shows only the Kirby portrait of the score panel during the intro; the demo hides the whole panel. The `$44` effect after the fade-out and the game's screens after it (the next hole's card, the score card) are not played: the demo's own result card follows |

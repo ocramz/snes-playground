@@ -17,6 +17,8 @@ export interface KernelCourse {
   /** The projection's origins ($8B9E, $8B9A): see CourseData. */
   originY: number;
   screenBase: number;
+  /** The hole's hazard actors, shared with the world (absent: no hazards). */
+  hazards?: import('./hazards').HazardField;
 }
 
 export function kernelCourse(data: CourseData): KernelCourse {

@@ -24,7 +24,7 @@ export function updateHeading(rules: RomRules, w: Work): void {
  * wall/step), loaded symmetrically: the ROM reads words 0, 1, 2, 4, 5 and 8
  * of the 9-word row at reflectIndex[i] bytes into tbl_reflect_matrix.
  */
-interface Mat {
+export interface Mat {
   m00: number; m01: number; m02: number;
   m11: number; m12: number;
   m22: number;
@@ -46,7 +46,21 @@ export function loadMatrix(rules: RomRules, index: number): Mat {
 
 /** sub_reflect $81:8DAF: v <- M v, each product through $81:97A9 (floor). */
 export function reflect(rules: RomRules, w: Work, index: number): void {
-  const m = loadMatrix(rules, index);
+  reflectWith(w, loadMatrix(rules, index));
+}
+
+/**
+ * $82:E6C1's row for a heading in degrees: $88:9390 + 12 x deg, the same
+ * six words $81:9444 loads.
+ */
+export function degreeMatrix(rules: RomRules, deg: number): Mat {
+  const t = rules.table('reflectDeg');
+  const o = (deg % 360) * 6;
+  return { m00: t[o], m01: t[o + 1], m02: t[o + 2], m11: t[o + 3], m12: t[o + 4], m22: t[o + 5] };
+}
+
+/** $81:8DAF with a matrix already loaded (the entry $81:8DAB). */
+export function reflectWith(w: Work, m: Mat): void {
   const vx = w.vx;
   const vy = w.vy;
   const vz = w.vz;

@@ -141,6 +141,9 @@ export interface BallWorkFields {
   cupGround: number; // $6B82:$6B80: the recorded ground while sinking
 
   boostFlash: number; // $6A28: the boost panel's pending impulse (phase 5)
+  /** $68F0: the fly shot's first-bounce sound offset (object 25, $84:88D2);
+   *  the tail plays it + 4 and the object ends there. */
+  spinBounceSfx: number;
   stillGate: number; // $D9C2: the hazard path's still-count gate
   over: number; // $D9BE: shot over (mirrors StillCount)
   frames: number; // $D9C0: the still count (mirrors StillCount)
@@ -159,9 +162,33 @@ export interface BallWorkFields {
   /** $6A88: the lost ball's countdown to "shot over" ($81:A15C; $F0 idle). */
   fallTimer: number;
 
-  // --- enemy hit state ($6A68/$6A0C are per-player; phase 6 wires the take) ---
-  enemyLatch: number; // $6A68
+  // --- enemy hit state ($6A68/$6A0C are per-player) ---
+  enemyLatch: number; // $6A68 (shared with the pillar's bounce, $82:9566)
   enemyHitMark: number; // $6A0C
+  /** A fact: the enemy hit test passed with the latch clear; the cell + 1
+   *  ($D9FC), for the take ($82:8A2E) that follows the tile dispatch. */
+  enemyHit: number;
+  /** A fact: the hole-out test passed this step ($82:AE2E, holed 0 -> 1). */
+  holedIn: number;
+  /** A fact: the sink ended this step ($82:AEC1, holed 1 -> 2). */
+  sunk: number;
+  /** A fact: a sound a tile handler requests inline ($80:B542), not
+   *  through the step's tail (the pillar's $71, a bumper's $6F); $FFFF none. */
+  sfxNow: number;
+
+  // --- the hazards (sim/hazards.ts) ---
+  /** $6A22: one hit per pass, shared by the bumper families. */
+  hazLatch: number;
+  /** $6A24: the axes the last box test passed ($82:96BA). */
+  hazAxes: number;
+  /** $69C6: the volcano base's latch (per player). */
+  volLatch: number;
+  /** Facts: $D780, the reaction the roll loop runs after the step (0 none;
+   *  $14 a bumper, $13 the $05 tile, $0F a volcano's base); the tomatoes
+   *  queued (`$83:ABC5`); the effect objects $2F spawned ($82:EED8). */
+  hurt: number;
+  tomatoLoss: number;
+  hazardHit: number;
 }
 
 export const emptyWork = (): BallWorkFields => ({
@@ -188,12 +215,14 @@ export const emptyWork = (): BallWorkFields => ({
   screenX: 0, screenY: 0,
   block6a: 0, block6c: 0xffff, block6e: 0, ecdd: 0,
   cupDepthScratch: 0, cupGround: 0,
-  enemyLatch: 0, enemyHitMark: 0,
+  enemyLatch: 0, enemyHitMark: 0, enemyHit: 0, holedIn: 0, sunk: 0, sfxNow: 0xffff,
+  hazLatch: 0, hazAxes: 0, volLatch: 0, hurt: 0, tomatoLoss: 0, hazardHit: 0,
   hopRequest: 0,
   bouncePose: 0,
   fellOut: 0,
   fallTimer: 0xf0,
   boostFlash: 0,
+  spinBounceSfx: 0,
   stillGate: 0,
   over: 0, frames: 0,
   modifierKind: -1, modifierWindow: 0, modifierTimer: 0,

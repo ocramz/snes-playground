@@ -25,7 +25,7 @@ import type { World } from 'koota';
 import { Camera } from '../traits/camera';
 import { Shot } from '../traits/shot';
 import { BallScreen } from '../traits/pose';
-import { BallWork, StillCount, BallMode } from '../traits/ball';
+import { BallWork, StillCount, BallMode, BallHoled } from '../traits/ball';
 import { Stall } from './stall';
 import type { Ctx } from '../sim/context';
 import { panStep, followStep } from '../sim/camera';
@@ -51,7 +51,12 @@ export function updateCamera(world: World, ctx: Ctx): void {
     world.set(Camera, cam);
     return;
   }
-  if (phase === 'Rolling') presentRoll(world, ctx);
+  // The ROM's presentation ($81:A121) precedes the still count's shot-over
+  // ($81:A5CD), so the sink's last step (holed 2 and over in one step) is
+  // still projected (web_hole 3908). A fall's over comes from the
+  // presentation itself and is seen on the next frame (web_fly 3496).
+  const sank = phase === 'RollEnd' && t === 0 && ball(world).get(BallHoled)!.holed >= 2;
+  if (phase === 'Rolling' || sank) presentRoll(world, ctx);
 }
 
 /** $81:A121, the roll loop's presentation (see the header). */

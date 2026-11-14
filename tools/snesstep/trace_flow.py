@@ -17,10 +17,17 @@ flags) and writes the frames at which each one changes.
     $7E:DA58 / $7E:DA5C  Kirby's projected position
     $7E:D8AE / $7E:D8B6  ball cell x / y    $7E:D8A6  airborne
     $7E:D9BE  shot over
+    $7E:D7F0  tomatoes   $7E:D7F4  lives   $7E:D82A  strokes + 1   $7E:6A10  stars
+    $7E:DA4A  holed      $7E:69FE  the cup's slot   $7E:D80A  the card's hole 1
+    $7E:68F6 / $7E:68F8  the tomato queue's read / write index
+
+A script may come with tools/snesstep/inputs/<name>.pokes (one F:ADDR=VAL per
+line, the stepper's --pokes format): it is passed along when it exists.
 
     python3 tools/snesstep/trace_flow.py web_flow --frames 4600
 
 Output: build/web-test/flow_<name>.json   {"events": [[frame, name, value], ...]}
+        build/web-test/sounds_<name>.json the sound requests ($80:B542 / $80:B4AC)
         (and the raw stepper run in build/emu/flow_<name>).
 """
 
@@ -47,7 +54,45 @@ WATCH = {
     "c2": 0x38C2, "c4": 0x38C4, "c6": 0x38C6, "c8": 0x38C8,    # the follow camera's lag: wanted, reached
     "st": 0x39D6,                       # the follow camera's state
     "bx": 0xD8AE, "by": 0xD8B6, "air": 0xD8A6, "over": 0xD9BE,
+    # the hole's counters (engine phase 6, read 2026-11-14)
+    "tom": 0xD7F0,                      # tomatoes (Kirby's health), 0-4
+    "lives": 0xD7F4,                    # spare lives
+    "strokes": 0xD82A,                  # shots + 1 ($80:C1DC = 1, +1 per set-up)
+    "stars": 0x6A10,                    # enemies taken by player 1
+    "holed": 0xDA4A,                    # 1 holed, 2 sunk
+    "cupslot": 0x69FE,                  # the last enemy's slot once it is the cup, else $FFFF
+    "card0": 0xD80A,                    # the score card's first hole ($83:D4F6)
+    "tqr": 0x68F6,                      # the tomato queue's read index ($83:ABDD)
+    "tqw": 0x68F8,                      # ... and its write index ($83:ABC5)
 }
+
+
+# Every sound request: sub_spc_play_sfx $80:B542 (A = the effect) and
+# sub_spc_play_song $80:B4AC (A = the song's request byte, song + $7E).
+SFX_PC, SONG_PC = "$80:B542", "$80:B4AC"
+# A request in the first lines of a frame belongs to the main loop's
+# iteration of the frame before (the loop runs past the vblank).
+ITERATION_LINE = 112
+
+
+def write_sounds(name, run, out_dir):
+    """build/engine/rom-test/sounds_<name>.json: [frame, line, iteration,
+    'sfx' | 'song', id, caller] per request, from the stepper's pclog.tsv."""
+    rows = []
+    with open(os.path.join(run, "pclog.tsv")) as f:
+        head = next(f).rstrip("\n").split("\t")
+        col = {k: i for i, k in enumerate(head)}
+        for line in f:
+            r = line.rstrip("\n").split("\t")
+            fr, ln = int(r[col["frame"]]), int(r[col["line"]])
+            kind = "sfx" if r[col["pc"]] == SFX_PC else "song"
+            rows.append([fr, ln, fr - 1 if ln < ITERATION_LINE else fr, kind,
+                         int(r[col["a"]], 16) & 0xFF, r[col["ret_long"]]])
+    os.makedirs(out_dir, exist_ok=True)
+    path = os.path.join(out_dir, "sounds_{}.json".format(name))
+    with open(path, "w") as f:
+        json.dump({"name": name, "about": "[frame, line, iteration, kind, id, caller]",
+                   "requests": rows}, f, separators=(",", ":"))
 
 
 def s16(v):
@@ -59,10 +104,15 @@ def trace(name, frames, out_dir, extra=()):
     run = os.path.join(ROOT, "build", "emu", "flow_" + name)
     os.makedirs(run, exist_ok=True)
     cmd = [BIN, "--frames", str(frames), "--input", inp]
+    pokes = os.path.join(HERE, "inputs", name + ".pokes")
+    if os.path.exists(pokes):
+        cmd += ["--pokes", pokes]
     for a in sorted(set(WATCH.values())):
         cmd += ["--watch-write", "$7E:{:04X}-$7E:{:04X}".format(a, a + 1)]
+    cmd += ["--log-pc", SFX_PC, "--log-pc", SONG_PC]
     cmd += list(extra) + ["--no-dsp", "--quiet", "--out", run]
     subprocess.run(cmd, check=True)
+    write_sounds(name, run, out_dir)
 
     mem = {}
     last = {}

@@ -14,6 +14,8 @@
 /** One trace record: player 1's ball block plus the shot context. */
 export interface BallTraceFrame {
   f: number;
+  /** The scanline of the record's first write (trace_ball.py; recordings only). */
+  ln?: number;
   xc: number;
   xf: number;
   yc: number;
@@ -114,11 +116,12 @@ export function matchBallStates(
   game: BallTraceFrame[],
   engine: BallTraceFrame[],
   maxSkip = 2,
-): { error: string | null; matched: number; skips: number } {
+): { error: string | null; matched: number; skips: number; pairs: Array<[BallTraceFrame, BallTraceFrame]> } {
   let j = engine.findIndex((e) => sameState(e, game[0]));
   if (j < 0) {
-    return { error: `the game's launch state (f${game[0].f}) never occurs in the engine's run`, matched: 0, skips: 0 };
+    return { error: `the game's launch state (f${game[0].f}) never occurs in the engine's run`, matched: 0, skips: 0, pairs: [] };
   }
+  const pairs: Array<[BallTraceFrame, BallTraceFrame]> = [[game[0], engine[j]]];
   let skips = 0;
   for (let i = 1; i < game.length; i++) {
     let k = j + 1;
@@ -131,10 +134,12 @@ export function matchBallStates(
         error: `game state ${i} (f${want.f}) not found after engine f${engine[j].f}: ${diff}`,
         matched: i,
         skips,
+        pairs,
       };
     }
     skips += k - (j + 1);
     j = k;
+    pairs.push([game[i], engine[j]]);
   }
-  return { error: null, matched: game.length, skips };
+  return { error: null, matched: game.length, skips, pairs };
 }

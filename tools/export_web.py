@@ -160,6 +160,62 @@ def build_tables(d):
     # folded x fraction >> 10 (sub_cup_depth $82:AFE9). $5000 = flat centre.
     put("cupDepth", 0x88, 0x8990, rom_words(d, 0x88, 0x8990, 32 * 32), 2)
 
+    # --- The hole's actors (docs/tiles.md "Actors"; read 2026-11-14) ---
+    # $82:B320's load-time sweep looks each non-zero layer-2 byte up here:
+    # $FFFF = no actor, else the thread object type $82:B3AF spawns.
+    put("actorIds", 0x82, 0xBDBC, rom_words(d, 0x82, 0xBDBC, 256), 2)
+    # $82:B674: the copy ability an enemy gives, by species = tile - $40
+    # (tiles $50-$52 fold onto $4D-$4F first, $82:B648); 0 = none, $0B =
+    # the roulette (tile $57), $FF = not an enemy species.
+    put("enemyAbility", 0x82, 0xB6EB, rom_bytes(d, 0x82, 0xB6EB, 24), 1)
+    # $82:B691: the hover height $5B1C in height steps, for the unfolded
+    # tiles $4D-$52 (& 7); every other enemy tile hovers at 0.
+    put("enemyHover", 0x82, 0xB703, rom_bytes(d, 0x82, 0xB703, 6), 1)
+    # $82:B464: the height an actor's position adds to elevation x $5A82,
+    # by the cell's shape (the cell corner's ground; flat = one step). Only
+    # 16 entries are data: shapes $10-$1B read the code that follows, which
+    # is what the ROM would do, so all 28 are exported as read.
+    put("actorGround", 0x82, 0xB477, rom_words(d, 0x82, 0xB477, 28), 2)
+    # $82:AEE5: the sound of the sink's end by ball mode ($D9C8, 22 modes):
+    # $21 in mode 0
+    put("holedSfx", 0x82, 0xAEF5, rom_bytes(d, 0x82, 0xAEF5, 22), 1)
+    # $84:88CB: the fly shot's spin streak (object 25) sets $68F0 from the
+    # larger selector distance |$6B54-6|, |$6B58-6| (0-6); the step's tail
+    # ($81:9BF4) then plays $68F0 + 4 for the first bounce.
+    put("spinBounceSfx", 0x84, 0x89D0, rom_bytes(d, 0x84, 0x89D0, 7), 1)
+
+    # --- The hazards' actors (engine phase 6; read 2026-11-14) ---
+    # $82:BA87 auto-tiles the bumper tracks at load: each tile $80-$A2 has a
+    # connection mask (bit 1 N, 2 E, 4 S, 8 W) at $82:BB8B[tile - $80]; a
+    # tile whose sides do not all connect becomes the dead end of its one
+    # connected side ($82:BB82[bit]: N $A0, E $A1, S $9E, W $9F), or $A2.
+    put("trackMask", 0x82, 0xBB8B, rom_bytes(d, 0x82, 0xBB8B, 35), 1)
+    put("trackDeadEnd", 0x82, 0xBB82, rom_bytes(d, 0x82, 0xBB82, 9), 1)
+    # Object 76 (the bumper on a track, $84:DED6): 1/64 cell per tick
+    # ($84:E04F); at a cell centre the new direction is $84:E051[(tile -
+    # $80) * 4 + direction] (0 N, 1 E, 2 S, 3 W; $FF none), tiles $80-$A1.
+    put("trackSpeed", 0x84, 0xE04F, rom_words(d, 0x84, 0xE04F, 1), 2)
+    put("trackTurn", 0x84, 0xE051, rom_bytes(d, 0x84, 0xE051, 34 * 4), 1)
+    # Object 77 (the bobbing bumper, $84:DD9D): 22 steps of [frame, shadow,
+    # wait, flag] ($84:DE0F); the box's height by frame, $82:967B.
+    put("bobPhases", 0x84, 0xDE0F, rom_bytes(d, 0x84, 0xDE0F, 22 * 4), 1)
+    put("bobHeight", 0x82, 0x967B, rom_words(d, 0x82, 0x967B, 13), 2)
+    # Objects 81-83 (the volcanoes, $84:E166): the frames shown after a poke
+    # ($84:E1F5, 33 ticks, $FF ends).
+    put("volcanoPoked", 0x84, 0xE1F5, rom_bytes(d, 0x84, 0xE1F5, 34), 1)
+    # The hazard handlers ($82:98F8 ... $82:9C8D, $82:E701, $82:E7B0):
+    # the shape by tile - $80 ($82:997E: 0/1 bands, 2-5 L-pieces, 6-9 end
+    # caps), the quarter disc the round parts test (64 rows of 8 bytes, bit
+    # 0 = column 0), the bounce's push by direction and its two gates, and
+    # the per-degree reflection rows (m00 m01 m02 m11 m12 m22) of $82:E6C1.
+    put("hazardShape", 0x82, 0x9A9D, rom_bytes(d, 0x82, 0x9A9D, 34), 1)
+    put("hazardDisc", 0x88, 0xA470, rom_bytes(d, 0x88, 0xA470, 512), 1)
+    put("bumpPushX", 0x82, 0x9BED, rom_words(d, 0x82, 0x9BED, 4, True), 2)
+    put("bumpPushY", 0x82, 0x9BF5, rom_words(d, 0x82, 0x9BF5, 4, True), 2)
+    put("bumpSignGate", 0x82, 0x9C7D, rom_bytes(d, 0x82, 0x9C7D, 16), 1)
+    put("bumpHeadingGate", 0x82, 0x9BFD, rom_bytes(d, 0x82, 0x9BFD, 128), 1)
+    put("reflectDeg", 0x88, 0x9390, rom_words(d, 0x88, 0x9390, 360 * 6, True), 2)
+
     # --- The special-tile dispatch ($81:8136 land, $81:8451 hit from the
     # side): 256 entries of 3-byte long pointers each (docs/tiles.md "The
     # dispatcher"). Exported as per-tile handler ids into the shared

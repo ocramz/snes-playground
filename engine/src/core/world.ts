@@ -10,27 +10,39 @@ import {
   BallPos, BallVel, BallAir, BallSpin, BallMode, BallHoled, BallHeading,
   StillCount, Modifier, BallWork,
 } from './traits/ball';
+import { Tomatoes, Strokes, Stars, StockedAbility, Career, TomatoQueue } from './traits/counters';
+import { Session } from './traits/session';
+import { Visual } from './traits/visual';
 import { Stall } from './systems/stall';
+import { Reveal } from './systems/reveal';
+import { Hazards } from './systems/actors';
 
 /**
  * The one game world. No module-level world: the headless test harness and
  * the Phaser host each create their own (plans/port_v1_koota_phaser4.md,
  * "createGameWorld(), no global"). The world singletons are the frame
- * clock, the pad, the stall, and phase 5's shot, flow, camera and guide.
+ * clock, the pad, the stall, the shot, the flow, the camera, the guide,
+ * the session (rules + courses), the career (lives, card) and the tomato
+ * queue.
  */
 export function createGameWorld(): World {
   const world = createWorld();
   world.add(Time);
   world.add(Pad);
   world.add(Stall);
+  world.add(Reveal);
   world.add(Shot);
   world.add(HoleFlow);
   world.add(Camera);
   world.add(Guide);
+  world.add(Session);
+  world.add(Career);
+  world.add(TomatoQueue);
+  world.add(Hazards);
   return world;
 }
 
-/** The ball entity: the block-backed traits, the work copy, Kirby's pose. */
+/** The ball entity: the block-backed traits, the work copy, Kirby's pose, the counters. */
 export function spawnBall(world: World): number {
   const e = world.spawn(
     BallPos({ xc: 0, xf: 0, yc: 0, yf: 0, z: 0 }),
@@ -45,6 +57,11 @@ export function spawnBall(world: World): number {
     BallWork(),
     Pose(),
     BallScreen(),
+    Tomatoes({ n: 4 }),
+    Strokes({ n: 1 }),
+    Stars({ n: 0 }),
+    StockedAbility({ id: 0 }),
+    Visual({ kind: 'ball' }),
   );
   return e;
 }

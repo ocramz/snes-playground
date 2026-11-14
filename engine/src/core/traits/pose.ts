@@ -7,7 +7,8 @@ import { trait } from 'koota';
  * view catalog maps {state, facing, angle} to a clip (reference §12).
  */
 export const Pose = trait({
-  /** $D7D4: 0 hold, 4/5 aim, 6 curl, 12 squash, 13 hop, 14/15/16 roll. */
+  /** $D7D4: 0 hold, 1 holed, 3 native (out of tomatoes), 4/5 aim, 6 curl,
+   *  11 tired, 12 squash, 13 hop, 14/15/16 roll. */
   state: 0,
   /** $D7C4 and $D7CC ($81:BCA0). */
   facing: 0,
@@ -24,6 +25,8 @@ export const Pose = trait({
 /** The pose states the 1-player shot uses (docs/animation.md). */
 export const PoseState = {
   Hold: 0,
+  Holed: 1,
+  Native: 3,
   Aim: 4,
   AimTurn: 5,
   Curl: 6,
@@ -32,6 +35,7 @@ export const PoseState = {
   Roll: 14,
   RollStrong: 15,
   RollMedium: 16,
+  Tired: 11,
 } as const;
 
 /** The hop's script holds state 13 for 17 frames, then stores 14 ($87:81C1). */

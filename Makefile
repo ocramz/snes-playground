@@ -109,8 +109,10 @@ $(DIST): $(NODE) $(ASSETS) $(WEB_SRC)
 # ---- the engine (Koota x Phaser 4; plans/port_v1_koota_phaser4.md)
 #
 # build/engine/rules      tables.json: the ROM physics constants (ROM only)
-# build/engine/rom-test   course.json + terrain_golden.json (test hole), and,
-#                         after `make engine-traces`, the trace/flow fixtures
+# build/engine/rom-test   course.json + terrain_golden.json (test hole), holes/N/
+#                         course.json (course 1, and the hazard holes 11 and 54),
+#                         and, after `make engine-traces`, the ball, flow, sound
+#                         and hazard-actor fixtures of tools/snesstep/inputs/web_*
 # build/engine/assets     the sprite atlas, ui, hud, font, audio, cutscenes
 #                         and the 8 course-1 holes' course.json + layers
 
@@ -128,6 +130,9 @@ $(ENGINE_RULES): tools/export_web.py
 # one recipe writes course.json (to --out) and terrain_golden.json (to --test-out)
 $(ENGINE_ROMTEST): tools/export_web.py
 	$(PYTHON) tools/export_web.py --only course,golden --out build/engine/rom-test --test-out build/engine/rom-test
+	for h in 0 1 2 3 4 5 6 7 11 54; do \
+	  $(PYTHON) tools/export_web.py --hole $$h --only course --out build/engine/rom-test/holes/$$h || exit; \
+	done
 	@touch $@
 
 $(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) tools/web_audio_map.json \

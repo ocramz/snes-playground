@@ -84,8 +84,9 @@ export function updateShotGuide(world: World, ctx: Ctx): void {
       guideTimer: (GUIDE_FULL_ENDS as number) !== 1 ? 16 : 0, // $81:A964
       changed: 0,
     });
-    emitEvent(world, 'aim-tick', 0x53);
-    requestGuide(world, ctx, -1);
+    // $81:A977 -> $81:A98B: the guide first, then the facing and the tick:
+    // the sound comes on the lag's last frame (web_flow 2336 -> 2338)
+    requestGuide(world, ctx, -1, 0x53);
     return;
   }
   if (shot.kind === 2 && shot.guideTimer !== 0) {
@@ -93,7 +94,7 @@ export function updateShotGuide(world: World, ctx: Ctx): void {
     world.set(Shot, { ...shot, guideTimer: left });
     if (left === 0) {
       world.set(Shot, { ...world.get(Shot)!, guideEnds: GUIDE_FULL_ENDS });
-      requestGuide(world, ctx, -1);
+      requestGuide(world, ctx, -1, 0x53); // $81:A9AC: JMP $A970, the same path and tick
     }
   }
 }
@@ -117,7 +118,7 @@ export function publishGuide(world: World): void {
  * target up on the next frame it runs (Guide.pendingFrame). `lag` -1 asks
  * for the measured lag of the loop; 0 for none (the set-up's guide).
  */
-export function requestGuide(world: World, ctx: Ctx, lag: number): void {
+export function requestGuide(world: World, ctx: Ctx, lag: number, tick = -1): void {
   const shot = world.get(Shot)!;
   const e = ball(world);
   const live = e.get(BallWork)!;
@@ -143,9 +144,12 @@ export function requestGuide(world: World, ctx: Ctx, lag: number): void {
   g.steps = r.steps;
   g.version += 1;
   g.pendingFrame = frameOf(world); // (AoS: the trait's object, mutated in place)
-  const frames = lag < 0 ? guideLagFrames(r.steps, shot.kind === 2) : lag;
-  if (frames > 0) {
-    world.set(Stall, { ...world.get(Stall)!, kind: 'guideLag', framesLeft: frames, resumeAt: -1 });
+  const frames = lag < 0 ? guideLagFrames(r.steps, shot.kind === 2, shot.guideEnds > 1) : lag;
+  if (frames > 1) {
+    world.set(Stall, { ...world.get(Stall)!, kind: 'guideLag', framesLeft: frames, resumeAt: -1, sfx: tick });
+  } else {
+    if (frames === 1) world.set(Stall, { ...world.get(Stall)!, kind: 'guideLag', framesLeft: 1, resumeAt: -1, sfx: -1 });
+    if (tick >= 0) emitEvent(world, 'aim-tick', tick);
   }
 }
 
@@ -154,10 +158,12 @@ export function requestGuide(world: World, ctx: Ctx, lag: number): void {
  * this many frames later. Measured, not derived (the guide's cycle count is
  * not modelled): a 40-step rolling guide gives 3 (web_flow 2353/2356, every
  * auto-repeat step), a fly shot's guide to its first landing 5 (web_ui
- * 2600/2605). Approximated as 1 + ceil(steps / 20) for rolling guides and
- * the fly shot's measured 5 for airborne ones; notes/engine-phase5-flow.md.
+ * 2600/2605), the fly shot's full guide (3 ends, $6ACC) 8 (web_fly and
+ * web_ui: requested at 2620, its tick at 2627 — phase 6, from the sound
+ * log). Approximated as 1 + ceil(steps / 20) for rolling guides and the
+ * measured 5 / 8 for airborne ones; notes/engine-phase5-flow.md.
  */
-export function guideLagFrames(steps: number, fly: boolean): number {
-  if (fly) return 5;
+export function guideLagFrames(steps: number, fly: boolean, full = false): number {
+  if (fly) return full ? 8 : 5;
   return 1 + Math.ceil(steps / 20);
 }

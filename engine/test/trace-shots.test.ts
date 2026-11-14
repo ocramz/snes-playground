@@ -18,16 +18,14 @@
  * instead.
  */
 import { describe, expect, it } from 'vitest';
-import { createGameWorld, spawnBall } from '../src/core/world';
+import { createGameWorld } from '../src/core/world';
 import { runCoreFrame } from '../src/core/schedule';
-import { placeBall } from '../src/core/actions';
-import { setCourse } from '../src/core/traits/course';
+import { placeBall, startCourse } from '../src/core/actions';
 import { Stall } from '../src/core/systems/stall';
 import { drainEvents } from '../src/core/events';
 import { BallPos, BallVel, BallAir, BallWork } from '../src/core/traits/ball';
 import { Pad } from '../src/core/traits/pad';
 import { RomRules } from '../src/core/rules';
-import { kernelCourse } from '../src/core/sim/context';
 import { fromRomCourse } from '../src/core/course-data';
 import { Button } from './input-script';
 import { s16 } from '../src/core/fixed';
@@ -52,11 +50,11 @@ describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by fra
       const seq = distinctStates(all.slice(launchSeedIndex(all)));
       expect(seq.length).toBeGreaterThan(50);
 
+      // the hole as the game has it: its enemies too, so web_curve's takes
+      // and its cup reveal (a 100-frame stall) run as they did
       const world = createGameWorld();
-      spawnBall(world);
-      setCourse(world, course);
+      const ctx = startCourse(world, rules, [course]);
       const s0 = seq[0];
-      const ctx = { rules, course: kernelCourse(course) };
       placeBall(world, {
         xc: s0.xc, xf: s0.xf, yc: s0.yc, yf: s0.yf, z: s0.z,
         vx: s0.vx, vy: s0.vy, vz: s0.vz, air: s0.air,
@@ -74,8 +72,8 @@ describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by fra
         // The game's hit-stop freezes the state for 2-4 frames; those port
         // frames produce no new state, so they do not consume the budget.
         let stallFrames = 0;
-        for (let extra = 0; extra < 12; extra++) {
-          const stalling = world.get(Stall)!.framesLeft > 0;
+        for (let extra = 0; extra < 12 + stallFrames; extra++) {
+          const stalling = world.get(Stall)!.kind !== 'none';
           if (stalling) stallFrames += 1;
           const pad = world.get(Pad)!;
           world.set(Pad, { ...pad, raw: press });
@@ -93,7 +91,7 @@ describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by fra
           }
           diff = compare(want, got);
           if (!diff) {
-            catchUps += extra > 0 ? 1 : 0;
+            catchUps += extra - stallFrames > 0 ? 1 : 0;
             break;
           }
           if (extra === 0 && !(got.air || got.vx || got.vy)) break;
