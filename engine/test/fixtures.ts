@@ -14,6 +14,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { TablesJson } from '../src/core/rules';
 import type { BallTrace, FlowTrace } from './align';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
@@ -27,17 +28,6 @@ export const haveRomTest =
 
 export function readJson<T>(path: string): T {
   return JSON.parse(readFileSync(path, 'utf8')) as T;
-}
-
-/**
- * The ROM constant tables (tools/export_web.py --only tables). Every entry
- * carries its `$bank:addr` source; src/core/rules.ts will wrap this in typed
- * accessors. Kept loose here so the loader compiles before rules.ts exists.
- */
-export interface TablesJson {
-  about: string;
-  zUnit: number;
-  [key: string]: unknown;
 }
 
 /** The exported ROM hole (tools/export_web.py --only course). */
