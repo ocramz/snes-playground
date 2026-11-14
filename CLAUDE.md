@@ -7,9 +7,12 @@ docs/           long-form findings: memory maps, data formats, subsystems
 notes/          working scratch, per-session, unpolished, may be wrong
 tools/          analysis scripts
 web/            the Phaser 4 + Vite demo of one hole (docs/web-demo.md)
+engine/         the Koota + Phaser 4 reimplementation (plans/port_v1_koota_phaser4.md)
+plans/          design plans for work in progress
 symbols.tsv     machine-readable symbol/label table
 Makefile        `make` builds the web demo end to end; clean tiers (make help, docs/tooling.md)
-build/          all derived output — GITIGNORED (the demo's assets: build/web/)
+build/          all derived output — GITIGNORED (the demo's assets: build/web/;
+                the engine's: build/engine/)
 ```
 
 `docs/` is for things believed true. `notes/` is for things being worked out;
