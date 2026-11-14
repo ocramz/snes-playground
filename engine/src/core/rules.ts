@@ -35,6 +35,9 @@ export class RomRules {
     this.zUnit = json.zUnit;
     this.outlineWalk = json.outlineWalk.values;
     for (const [key, c] of Object.entries(json.consts)) this.consts.set(key, c.value);
+    if (Array.isArray(json.dispatchHandlers)) {
+      this.setDispatchHandlers(json.dispatchHandlers as Array<{ id: number; name: string }>);
+    }
     for (const [key, v] of Object.entries(json)) {
       if (key === 'about' || key === 'zUnit' || key === 'consts' || key === 'outlineWalk') continue;
       const t = v as RawTable;
@@ -96,5 +99,40 @@ export class RomRules {
   /** $80:A928: arctangent in degrees 0-45 by ratio index 0-255. */
   atanDeg(i: number): number {
     return this.table('atanDeg')[i];
+  }
+
+  // --- the tile dispatch (docs/tiles.md; build_tables in tools/export_web.py) ---
+
+  private handlerNames: string[] = [];
+  private handlerIds = new Map<string, number>();
+
+  /** Called once after construction with tables.json's dispatchHandlers. */
+  setDispatchHandlers(handlers: Array<{ id: number; name: string }>): void {
+    this.handlerNames = [];
+    this.handlerIds.clear();
+    for (const h of handlers) {
+      this.handlerNames[h.id] = h.name;
+      this.handlerIds.set(h.name, h.id);
+    }
+  }
+
+  /** The landing-dispatch handler name for a layer-2 tile value. */
+  landHandler(tile: number): string {
+    return this.handlerNames[this.table('landDispatch')[tile]] ?? 'land';
+  }
+
+  /** The hit-dispatch handler name for a layer-2 tile value. */
+  hitHandler(tile: number): string {
+    return this.handlerNames[this.table('hitDispatch')[tile]] ?? 'roll';
+  }
+
+  /** $81:8E98: the 32-direction form of a heading in degrees. */
+  dir32(deg: number): number {
+    return this.table('degToDir32')[deg];
+  }
+
+  /** $81:92D0 via wallDirTable: indexed prevShape * 4 + edge. */
+  wallDir(i: number): number {
+    return this.table('wallDirTable')[i];
   }
 }

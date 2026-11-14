@@ -1,0 +1,479 @@
+/**
+ * The ball step, schedule items 11-29 (plans/port_v1_koota_phaser4.md), one
+ * entry per original routine, in the ROM's order. The stall runner
+ * suspends the list at the hit-stop: the landing chain splits exactly
+ * where $81:8C95 blocks for 4 frames, and a step hit for 2 ($81:8C48).
+ */
+import type { World } from 'koota';
+import { Time } from '../traits/time';
+import { Pad } from '../traits/pad';
+import { Shot } from '../traits/shot';
+import {
+  BallPos, BallVel, BallAir, BallSpin, BallMode, BallHoled, BallHeading,
+  StillCount, Modifier, BallWork, type BallWorkFields,
+} from '../traits/ball';
+import type { Ctx } from '../sim/context';
+import { probe } from '../sim/probe';
+import { integrate, airDrag, fallBelowCourse } from '../sim/move';
+import { updateHeading } from '../sim/reflect';
+import { crossEdges } from '../sim/edges';
+import { dispatchLanding, finishLanding, stepHitStop, gravityTail, type LandingOutcome } from '../sim/landing';
+import { rollDefault, classIndex, type RollModifier } from '../sim/roll';
+import { wallBounce, stepBounce, launch } from '../sim/wall-step';
+import { landDispatch, hitDispatch, type DispatchOutcome } from '../sim/dispatch';
+import { mulQ15s } from '../fixed';
+import { countStill } from '../sim/still';
+import { wrap16 } from '../fixed';
+import { emit } from '../events';
+import { Stall } from './stall';
+
+/** The route `select-outcome` computes; exactly one branch then runs. */
+export type BallRoute =
+  | { kind: 'wall' }  // $81:88AF/$81:8A03 -> sub_wall_bounce
+  | { kind: 'step' }  // $81:88C4/$81:8A19 -> sub_step_bounce
+  | { kind: 'drop' }  // $81:8B78 -> loc_launch
+  | { kind: 'land' }  // $81:811B -> the landing dispatch
+  | { kind: 'roll' }  // $81:8436 -> the hit dispatch
+  | { kind: 'fell' }  // $81:89AA: below z 0 - gravity ran, the step ends
+  | { kind: 'done' }; // the step ended (lost, gravity-only fall, holed)
+
+interface StepState {
+  ctx: Ctx;
+  w: BallWorkFields;
+  modifier: RollModifier;
+  route: BallRoute;
+  /** The landing chain's pending outcome across a hit-stop suspension. */
+  outcome?: LandingOutcome;
+  reroute?: 'landing' | 'rolling' | 'done';
+  entry?: 'full' | 'grounded' | 'gravityOnly';
+}
+
+interface HitStopRequest {
+  frames: number;
+  state: number;
+  after: 'landing' | 'stepHit';
+}
+
+export const BALL_STEP: Array<{ name: string; run: (world: World, s: StepState) => HitStopRequest | null }> = [
+  {
+    // $82:F030: the block -> the work copy
+    name: 'load-ball-work',
+    run: (world, s) => {
+      loadBallWork(world, s.w);
+      return null;
+    },
+  },
+  {
+    // $82:DA51: the A/Y modifier arming and countdown (before physics)
+    name: 'arm-shot-modifier',
+    run: (world, s) => {
+      armModifier(world, s.w);
+      s.modifier.kind = s.w.modifierKind;
+      s.modifier.timer = s.w.modifierTimer;
+      return null;
+    },
+  },
+  {
+    // $81:801C prologue + $81:8751: clear the facts, mark the heading
+    // invalid, copy the previous-frame state
+    name: 'begin-ball-step',
+    run: (_world, s) => {
+      const w = s.w;
+      w.bounced = 0;
+      w.hitStep = 0;
+      w.hitWall = 0;
+      w.fact4 = 0;
+      w.hitStopLatch = 0;
+      w.deg = 0xffff;
+      copyPrev(w);
+      s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
+      s.outcome = undefined;
+      s.reroute = undefined;
+      s.entry = undefined;
+      return null;
+    },
+  },
+  {
+    // $81:8805/$81:89C2 + $81:8E60 + $81:9479 + $81:87FB + $81:9001
+    name: 'move-probe-edges',
+    run: (_world, s) => {
+      const w = s.w;
+      if (w.air !== 0) {
+        integrate(w);
+        if (w.mode !== 0x0a) airDrag(w); // $81:885C
+        updateHeading(s.ctx.rules, w);
+        w.airFrames += 1;
+        probe(s.ctx, w);
+        overlayProbe(w);
+        w.dampXY = w.bounceSrcX; // $81:8050
+        w.dampZ = w.bounceSrcZ;
+        if (w.z < 0) {
+          // $81:89AA: z < -$11_0000 -> lost; otherwise gravity only, and
+          // the step ends either way ($81:89AF / $81:89B2). The gravity is
+          // applied here (JMP $899F); nothing else runs.
+          fallBelowCourse(w, highWord(w.z));
+          s.route = { kind: 'fell' };
+          return null;
+        }
+        crossEdges(s.ctx, w);
+        return null;
+      }
+      // rolling: integrate x/y, z = the previous ground, then probe
+      integrate(w);
+      w.z = w.pGround;
+      updateHeading(s.ctx.rules, w);
+      probe(s.ctx, w);
+      overlayProbe(w);
+      classIndex(s.ctx, w);
+      crossEdges(s.ctx, w);
+      return null;
+    },
+  },
+  {
+    // $81:8069-$81:811A (airborne) / $81:80F4-$81:811A (rolling)
+    name: 'select-outcome',
+    run: (_world, s) => {
+      const w = s.w;
+      if (s.route.kind === 'done' || s.route.kind === 'fell') return null;
+      if (w.wallEdge !== 0xffff) {
+        // $81:806C: bounce when the ball is under half a step above the
+        // ground it came from; above that the flag is dropped
+        if (w.air !== 0 && w.z - w.pGround >= 0x2d41) {
+          w.wallEdge = 0xffff; // $81:8085
+        } else {
+          s.route = { kind: 'wall' };
+          return null;
+        }
+      }
+      if (w.stepHeight > 0 && (w.air === 0 || w.z < w.ground)) {
+        s.route = { kind: 'step' };
+        return null;
+      }
+      if (w.air === 0 && w.stepHeight < 0) {
+        s.route = { kind: 'drop' };
+        return null;
+      }
+      s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
+      return null;
+    },
+  },
+  {
+    // $81:9390 (via $81:88AF/$81:8A03): a layer-4 wall bounce. The outline
+    // wall tiles route through the dispatch instead ($82:8FF1/$82:8FE3).
+    name: 'bounce-off-wall',
+    run: (_world, s) => {
+      if (s.route.kind !== 'wall') return null;
+      wallBounce(s.ctx, s.w);
+      s.w.hitWall += 1;
+      s.route = { kind: 'done' };
+      s.entry = s.w.air !== 0 ? 'gravityOnly' : undefined; // $81:88C1 / RTL
+      return null;
+    },
+  },
+  {
+    // $81:93D1 (via $81:88C4/$81:8A19)
+    name: 'hit-step',
+    run: (_world, s) => {
+      if (s.route.kind !== 'step') return null;
+      const w = s.w;
+      stepBounce(s.ctx, w);
+      w.hitStep += 1;
+      w.spinX = 0;
+      w.spinY = 0;
+      w.spinPending = 0;
+      w.tailSfx = 4; // $6A6C = 4
+      if (w.air !== 0) w.vz = mulQ15s(w.vz, w.stepDampZ); // $81:88DA: vz x $DA42
+      s.route = { kind: 'done' };
+      s.entry = w.air !== 0 ? 'gravityOnly' : undefined; // $81:88F6 / RTL
+      const hs = w.mode === 0 || w.mode === 7 ? stepHitStop(w) : null;
+      return hs ? { frames: hs.frames, state: hs.state, after: 'stepHit' } : null;
+    },
+  },
+  {
+    // loc_launch $81:8B78: the rolling step ends after the launch (RTL)
+    name: 'drop-off-edge',
+    run: (_world, s) => {
+      if (s.route.kind !== 'drop') return null;
+      launch(s.ctx, s.w, s.w.pCode);
+      s.route = { kind: 'done' };
+      return null;
+    },
+  },
+  {
+    // $81:811B (airborne) / $81:8436 (rolling): the tile dispatch, then the
+    // landing chain's first half (its hit-stop suspends the list here)
+    name: 'dispatch-landing',
+    run: (_world, s) => {
+      const w = s.w;
+      if (s.route.kind === 'land' && w.air !== 0) {
+        applyRoute(s, landDispatch(s.ctx, w, s.modifier));
+      } else if (s.route.kind === 'roll') {
+        applyRoute(s, hitDispatch(s.ctx, w, s.modifier));
+      } else if (s.route.kind === 'done' && s.entry === undefined && s.w.air !== 0) {
+        s.entry = 'gravityOnly';
+      }
+      if (s.reroute === 'landing' && s.entry !== 'gravityOnly') {
+        // gravityOnly reroutes (the outline wall's hit, the cup's exits)
+        // jump straight to the $81:899F tail - no landing chain
+        s.outcome = dispatchLanding(s.ctx, w, s.entry === 'grounded' ? 'grounded' : 'full');
+        if (s.outcome.kind === 'hitstop') {
+          return { frames: s.outcome.frames, state: s.outcome.state, after: 'landing' };
+        }
+      }
+      return null;
+    },
+  },
+  {
+    // $81:895B-$81:89A9 (landing) / $81:8A56 (rolling)
+    name: 'finish-landing-or-roll',
+    run: (_world, s) => {
+      const w = s.w;
+      if (w.lost !== 0) return null; // the lost path bypasses the tail
+      if (s.reroute === 'rolling') {
+        rollDefault(s.ctx, w, s.modifier);
+        return null;
+      }
+      if (s.reroute === 'done') return null;
+      if (s.entry === 'gravityOnly') {
+        gravityTail(w);
+        return null;
+      }
+      if (s.outcome) finishLanding(s.ctx, w, s.outcome);
+      return null;
+    },
+  },
+  {
+    // $81:9BE5: the step's tail - the facts become events here
+    name: 'emit-step-effects',
+    run: (world, s) => {
+      const ev = tailEvent(s.w);
+      if (ev) emit(world, { frame: world.get(Time)!.frame }, ev.kind, ev.romSfx);
+      s.w.tailSfx = 0xffff;
+      return null;
+    },
+  },
+  {
+    // $82:F1E3: the work copy -> the block
+    name: 'store-ball-work',
+    run: (world, s) => {
+      storeBallWork(world, s.w);
+      return null;
+    },
+  },
+  {
+    // $81:A5CD
+    name: 'count-still-frames',
+    run: (world, s) => {
+      countStill(s.w);
+      const e = ballEntity(world);
+      e.set(StillCount, { over: s.w.over, frames: s.w.frames });
+      return null;
+    },
+  },
+];
+
+function applyRoute(s: StepState, out: DispatchOutcome): void {
+  s.reroute = out.next;
+  if (out.next === 'landing') s.entry = out.entry ?? 'full';
+}
+
+/** The tail sfx -> event kinds ($81:9BE5). */
+function tailEvent(w: BallWorkFields): { kind: string; romSfx: number } | null {
+  if (w.tailSfx !== 0xffff) {
+    const kind = w.hitStep !== 0 ? 'step' : w.hitWall !== 0 ? 'wall' : 'tile';
+    return { kind, romSfx: w.tailSfx };
+  }
+  if (w.air !== 0 && w.bounced !== 0 && w.vz >= 0) {
+    const sfx = w.vz >= 0x0500 ? 1 : w.vz >= 0x0200 ? 2 : 3;
+    return { kind: 'bounce', romSfx: sfx };
+  }
+  return null;
+}
+
+/**
+ * Runs one core frame's ball step. A hit-stop request suspends the list;
+ * the stall runner resumes it at the saved index on a later frame.
+ */
+export function runBallStep(world: World, ctx: Ctx): void {
+  const stall = world.get(Stall)!;
+  if (stall.framesLeft > 0) {
+    const pad = world.get(Pad)!;
+    world.set(Pad, { ...pad, stallLatch: wrap16(pad.stallLatch | pad.held) });
+    // SoA traits: world.get returns a copy, so the tick writes back.
+    const left = stall.framesLeft - 1;
+    if (left > 0) {
+      world.set(Stall, { ...stall, framesLeft: left, padLatch: wrap16(stall.padLatch | pad.held) });
+      return;
+    }
+    // the stall is over: merge the latch into the pad ($81:8CD5-$81:8CDE)
+    const latched = wrap16(stall.padLatch | pad.held);
+    world.set(Pad, {
+      ...pad,
+      held: wrap16(pad.held | latched),
+      prev: wrap16(pad.prev | latched),
+      stallLatch: 0,
+    });
+    const pending: PendingState | null = stall.pRoute === '' ? null : {
+      route: { kind: stall.pRoute as BallRoute['kind'] },
+      reroute: (stall.pReroute || undefined) as StepState['reroute'],
+      entry: (stall.pEntry || undefined) as StepState['entry'],
+      outcome: stall.pOutcome
+        ? ({ kind: stall.pOutcome } as LandingOutcome)
+        : undefined,
+    };
+    world.set(Stall, { kind: 'none', framesLeft: 0, resumeAt: -1, padLatch: 0, pRoute: '', pReroute: '', pEntry: '', pOutcome: '' });
+    runFrom(world, ctx, stall.resumeAt, pending);
+    return;
+  }
+  runFrom(world, ctx, 0, null);
+}
+
+interface PendingState {
+  route: BallRoute;
+  outcome?: LandingOutcome;
+  reroute?: StepState['reroute'];
+  entry?: StepState['entry'];
+}
+
+function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | null): void {
+  const e = world.queryFirst(BallWork);
+  if (e === undefined) throw new Error('no ball entity');
+  const w = e.get(BallWork)!;
+  const mod = e.get(Modifier)!;
+  const s: StepState = {
+    ctx,
+    w,
+    modifier: { kind: mod.kind, timer: mod.timer },
+    route: pending?.route ?? { kind: 'land' },
+    outcome: pending?.outcome,
+    reroute: pending?.reroute,
+    entry: pending?.entry,
+  };
+  for (let i = start; i < BALL_STEP.length; i++) {
+    const req = BALL_STEP[i].run(world, s);
+    if (req) {
+      world.set(Stall, {
+        kind: req.frames === 4 ? 'hitStop' : 'stepStop',
+        framesLeft: req.frames,
+        resumeAt: i + 1,
+        padLatch: 0,
+        pRoute: s.route.kind,
+        pReroute: s.reroute ?? '',
+        pEntry: s.entry ?? '',
+        pOutcome: s.outcome?.kind ?? '',
+      });
+      return;
+    }
+  }
+}
+
+// ------------------------------------------------------------------
+// Block <-> work copy ($82:F030 / $82:F1E3)
+// ------------------------------------------------------------------
+
+/** The ball entity (the world's only one in phase 4). */
+export function ballEntity(world: World): import('koota').Entity {
+  const e = world.queryFirst(BallWork);
+  if (e === undefined) throw new Error('no ball entity');
+  return e;
+}
+
+/** $82:F030: the block traits -> the work copy. */
+function loadBallWork(world: World, w: BallWorkFields): void {
+  const e = ballEntity(world);
+  const pos = e.get(BallPos)!;
+  const vel = e.get(BallVel)!;
+  const air = e.get(BallAir)!;
+  const spin = e.get(BallSpin)!;
+  const mode = e.get(BallMode)!;
+  const holed = e.get(BallHoled)!;
+  const heading = e.get(BallHeading)!;
+  const still = e.get(StillCount)!;
+  const mod = e.get(Modifier)!;
+  w.xc = pos.xc; w.xf = pos.xf; w.yc = pos.yc; w.yf = pos.yf; w.z = pos.z;
+  w.vx = vel.vx; w.vy = vel.vy; w.vz = vel.vz;
+  w.air = air.air;
+  w.spinX = spin.sx; w.spinY = spin.sy; w.spinPending = spin.pending;
+  w.mode = mode.mode;
+  w.holed = holed.holed;
+  w.lastDeg = heading.last;
+  w.over = still.over;
+  w.frames = still.frames;
+  w.modifierKind = mod.kind;
+  w.modifierWindow = mod.window;
+  w.modifierTimer = mod.timer;
+  // $DA2C <- block $D886 (a scratch the step never reads; kept for the
+  // round trip's shape)
+  w.scratch = 0;
+  const shot = e.get(Shot)!;
+  w.shotAim = shot.aim;
+  w.shotElev = shot.elev;
+  // the coefficients ($DA30-$DA46) are block-backed at $D922-$D94E; in
+  // phase 4 they hold the set-up constants and only the tile handlers
+  // mutate the copies, so they stay work-only (deviation noted in
+  // docs/engine.md).
+}
+
+/** $82:F1E3: the work copy -> the block traits. */
+function storeBallWork(world: World, w: BallWorkFields): void {
+  const e = ballEntity(world);
+  e.set(BallPos, { xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z });
+  e.set(BallVel, { vx: w.vx, vy: w.vy, vz: w.vz });
+  e.set(BallAir, { air: w.air });
+  e.set(BallSpin, { sx: w.spinX, sy: w.spinY, pending: w.spinPending });
+  e.set(BallMode, { mode: w.mode });
+  e.set(BallHoled, { holed: w.holed });
+  e.set(BallHeading, { deg: w.deg, last: w.lastDeg });
+  e.set(StillCount, { over: w.over, frames: w.frames });
+  e.set(Modifier, { kind: w.modifierKind, window: w.modifierWindow, timer: w.modifierTimer });
+}
+
+// ------------------------------------------------------------------
+// Small helpers
+// ------------------------------------------------------------------
+
+/** $81:8751: the previous-frame copy ($D9EC-$DA0B -> $DA0C-$DA2B). */
+function copyPrev(w: BallWorkFields): void {
+  w.pAir = w.air;
+  w.pOnOverlay = w.onOverlay;
+  w.pXf = w.xf; w.pXc = w.xc;
+  w.pYf = w.yf; w.pYc = w.yc;
+  w.pZ = w.z;
+  w.pCell = w.cell; w.pShape = w.shape;
+  w.pElev = w.elev; w.pQuad = w.quad;
+  w.pCode = w.code; w.pGround = w.ground;
+  w.pTile = w.tile;
+}
+
+/** $81:87FB: $D9EE is cleared unless the tile is in $60-$6F. */
+function overlayProbe(w: BallWorkFields): void {
+  w.onOverlay = w.tile >= 0x60 && w.tile < 0x70 ? 1 : 0;
+}
+
+function highWord(z: number): number {
+  return (z >>> 16) & 0xffff;
+}
+
+/**
+ * $82:DA51: the A/Y modifier arming and countdown. The press test reads
+ * the current pad ($006B); the arming also plays sfx $26 and curls Kirby
+ * (the event is emitted here; the pose is phase 5).
+ */
+function armModifier(world: World, w: BallWorkFields): void {
+  if (w.lost !== 0 || w.holed !== 0) return;
+  if (w.modifierWindow !== 0) {
+    w.modifierWindow -= 1;
+    w.modifierTimer -= 1;
+    if (w.modifierTimer < 0) {
+      w.modifierTimer = 0; // $82:DA79: INC back to 0
+      w.modifierKind = -1; // $82:DA7C: disarmed
+    }
+    return;
+  }
+  const pad = world.get(Pad)!;
+  if ((pad.held & 0x4080) === 0) return; // A ($0080) or Y ($4000)
+  w.modifierKind = (pad.held & 0x0080) !== 0 ? 0 : 2;
+  w.modifierWindow = 0x78; // $82:DAB1
+  w.modifierTimer = w.air !== 0 ? 15 : 3; // $82:DAC1
+  emit(world, { frame: world.get(Time)!.frame }, 'modifier', 0x26);
+}

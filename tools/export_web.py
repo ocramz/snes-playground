@@ -150,6 +150,127 @@ def build_tables(d):
     # folded x fraction >> 10 (sub_cup_depth $82:AFE9). $5000 = flat centre.
     put("cupDepth", 0x88, 0x8990, rom_words(d, 0x88, 0x8990, 32 * 32), 2)
 
+    # --- The special-tile dispatch ($81:8136 land, $81:8451 hit from the
+    # side): 256 entries of 3-byte long pointers each (docs/tiles.md "The
+    # dispatcher"). Exported as per-tile handler ids into the shared
+    # dispatchHandlers list, so the engine switches on a small enum rather
+    # than parsing ROM pointers. Every group must be named here; an unnamed
+    # group fails the export instead of slipping through silently.
+    handler_names = {
+        (0x81, 0x88F9): "landClear",        # tile $00 on land: clears per-player tracking, then land
+        (0x81, 0x8905): "land",             # the default landing handler
+        (0x81, 0x8A47): "rollClear",        # tile $00 on roll: clears per-player tracking, then roll
+        (0x81, 0x8A56): "roll",             # the default rolling handler
+        (0x82, 0x94D3): "pillar",           (0x82, 0x957C): "pillarHit",      # $02
+        (0x82, 0x8EFB): "rough",            (0x82, 0x8F30): "roughHit",       # $04
+        (0x82, 0xA55E): "hazard05",         (0x82, 0xA576): "hazard05Hit",    # $05
+        (0x82, 0xAD8E): "cup",              (0x82, 0xAD36): "cupHit",         # $08
+        (0x82, 0xA7DD): "kicker",           (0x82, 0xA88C): "kickerHit",      # $10-$13
+        (0x82, 0xA6C7): "unk14",            (0x82, 0xA74F): "unk14Hit",       # $14, $16 (undocumented)
+        (0x82, 0xA70B): "unk15",            (0x82, 0xA783): "unk15Hit",       # $15, $17 (undocumented)
+        (0x82, 0xA5B1): "snap",             (0x82, 0xA5E6): "snapHit",        # $18-$1B
+        (0x82, 0x9342): "rough05",          (0x82, 0x9356): "rough05Hit",     # $1C ($936A shared with $05)
+        (0x82, 0x938E): "rough05b",         (0x82, 0x93A2): "rough05bHit",    # $1D ($93B6 shared with $05)
+        (0x82, 0x8F77): "friction",         (0x82, 0x8F9D): "frictionHit",    # $20-$24
+        (0x82, 0x8FF1): "outlineWall",      (0x82, 0x8FE3): "outlineWallHit", # $28-$2D
+        (0x82, 0x9DB3): "boostN",           (0x82, 0x9CBF): "boostNHit",      # $30 $35 $38
+        (0x82, 0x9DD7): "boostE",           (0x82, 0x9CFC): "boostEHit",      # $31 $37 $3A
+        (0x82, 0x9DFB): "boostS",           (0x82, 0x9D39): "boostSHit",      # $32 $34 $39
+        (0x82, 0x9E1F): "boostW",           (0x82, 0x9D76): "boostWHit",      # $33 $36 $3B
+        (0x82, 0x8967): "enemy",            # $40-$52, $57 on land; $40-$4C, $57 on roll
+        (0x82, 0x8963): "enemyRollAlt",     # $4D-$52 on roll (no owner test)
+        (0x82, 0xA25D): "unk58",            (0x82, 0xA2F5): "unk58Hit",       # $58, $59 (undocumented)
+        (0x82, 0xA1B1): "unk5a",            (0x82, 0xA175): "unk5aHit",       # $5A, $5B (undocumented)
+        (0x82, 0xA3EB): "unk5c",            (0x82, 0xA43E): "unk5cHit",       # $5C, $5D (undocumented)
+        (0x82, 0x80F6): "overlay",          (0x82, 0x8000): "overlayHit",     # $60-$6F
+        # $70-$7B: the toggled directional impulse, one handler per tile
+        (0x82, 0x9FE3): "toggle70", (0x82, 0x9F0B): "toggle70Hit",
+        (0x82, 0xA01A): "toggle71", (0x82, 0x9F3D): "toggle71Hit",
+        (0x82, 0x9FFF): "toggle72", (0x82, 0x9F24): "toggle72Hit",
+        (0x82, 0xA035): "toggle73", (0x82, 0x9F56): "toggle73Hit",
+        (0x82, 0x9FD1): "toggle74", (0x82, 0x9EF9): "toggle74Hit",
+        (0x82, 0xA008): "toggle75", (0x82, 0x9F2B): "toggle75Hit",
+        (0x82, 0x9FED): "toggle76", (0x82, 0x9F12): "toggle76Hit",
+        (0x82, 0xA023): "toggle77", (0x82, 0x9F44): "toggle77Hit",
+        (0x82, 0x9FDA): "toggle78", (0x82, 0x9F02): "toggle78Hit",
+        (0x82, 0xA011): "toggle79", (0x82, 0x9F34): "toggle79Hit",
+        (0x82, 0x9FF6): "toggle7A", (0x82, 0x9F1B): "toggle7AHit",
+        (0x82, 0xA02C): "toggle7B", (0x82, 0x9F4D): "toggle7BHit",
+        (0x82, 0x98F8): "hazard80",         (0x82, 0x9940): "hazard80Hit",    # $80-$8F, $98-$A1
+        (0x82, 0x9653): "hazard90",         (0x82, 0x9693): "hazard90Hit",    # $90-$97
+        (0x82, 0x9858): "hazardA2",         (0x82, 0x987B): "hazardA2Hit",    # $A2
+        (0x82, 0x86B9): "hazardAC",         (0x82, 0x8656): "hazardACHit",    # $AC-$AE
+        (0x82, 0xA980): "unkB0",            (0x82, 0xA9DB): "unkB0Hit",       # $B0-$B9 (undocumented)
+    }
+
+    def dispatch_ids(bank, addr):
+        o = snes_to_file(bank, addr)
+        ptrs = []
+        for i in range(256):
+            lo, hi, bk = d[o + 3 * i], d[o + 3 * i + 1], d[o + 3 * i + 2]
+            ptrs.append((bk, (hi << 8) | lo))
+        order = []
+        for p in ptrs:
+            if p not in order:
+                order.append(p)
+        return [order.index(p) for p in ptrs], order
+
+    land_ptrs = []
+    hit_ptrs = []
+    def dispatch_ptrs(bank, addr, out):
+        o = snes_to_file(bank, addr)
+        for i in range(256):
+            lo, hi, bk = d[o + 3 * i], d[o + 3 * i + 1], d[o + 3 * i + 2]
+            out.append((bk, (hi << 8) | lo))
+    dispatch_ptrs(0x81, 0x8136, land_ptrs)
+    dispatch_ptrs(0x81, 0x8451, hit_ptrs)
+    order = []
+    for p in land_ptrs + hit_ptrs:
+        if p not in order:
+            order.append(p)
+    handlers = []
+    for p in order:
+        name = handler_names.get(p)
+        assert name is not None, "unnamed dispatch handler {}".format(src(*p))
+        handlers.append({"id": len(handlers), "name": name, "source": src(*p)})
+    ids = {p: h["id"] for h, p in zip(handlers, order)}
+    t["dispatchHandlers"] = handlers
+    put("landDispatch", 0x81, 0x8136, [ids[p] for p in land_ptrs], 1)
+    put("hitDispatch", 0x81, 0x8451, [ids[p] for p in hit_ptrs], 1)
+
+    # --- The outline-wall line test ($82:9019), as data:
+    # outlineLineTouch[tile * 4 + dir]: does the tile's line reach the edge
+    #   the ball exits through (dir 0..3 = the $0C movement code -y,-x,+x,+y);
+    # outlineContinuation[dir * 4 + i]: the three prev-tile values ($28 base)
+    #   whose line continues across that edge;
+    # outlineConnect[sidePair * 36 + prevTile * 6 + curTile]: how two lines
+    #   join across a cell boundary (0 = not connected, 1/2 = crossed),
+    #   sidePair = prevSide * 2 + curSide, sides from the line test.
+    line_touch = rom_bytes(d, 0x82, 0x9202, 24)
+    continuation = rom_bytes(d, 0x82, 0x921A, 24)
+    connect = []
+    for side, addr in enumerate((0x922A, 0x924E, 0x9272, 0x9296)):
+        block = rom_bytes(d, 0x82, addr, 36)
+        assert all(0 <= v <= 3 for v in block), "outlineConnect block out of range"
+        connect.extend(block)
+    put("outlineLineTouch", 0x82, 0x9202, line_touch, 1)
+    put("outlineContinuation", 0x82, 0x921A, continuation, 1)
+    # $81:92D0: the wall direction byte, indexed prevShape * 4 + edge
+    put("wallDirTable", 0x81, 0x92D0, rom_bytes(d, 0x81, 0x92D0, 16), 1)
+    put("outlineConnect", 0x82, 0x922A, connect, 1)
+
+    # per-mode tables of the rough ($05/$1C/$1D) and friction-tile ($04)
+    # handlers: 22 words each, indexed by ball mode.
+    put("hazard05Mode", 0x80, 0xDDB7, rom_words(d, 0x80, 0xDDB7, 22, True), 2)
+    put("hazard05ModeHit", 0x80, 0xDD8B, rom_words(d, 0x80, 0xDD8B, 22, True), 2)
+    put("frictionAltMode", 0x80, 0xDDF5, rom_words(d, 0x80, 0xDDF5, 22, True), 2)
+    put("frictionAltIndex", 0x80, 0xDE21, rom_words(d, 0x80, 0xDE21, 22), 2)
+    # $82:8F4e indexes these three with the frictionAltIndex value (0 or 2)
+    assert all(v <= 2 for v in rom_words(d, 0x80, 0xDE21, 22)), "frictionAltIndex out of range"
+    put("roughFriction", 0x80, 0xDD71, rom_words(d, 0x80, 0xDD71, 4, True), 2)
+    put("roughDampXY", 0x80, 0xDD75, rom_words(d, 0x80, 0xDD75, 4, True), 2)
+    put("roughDampZ", 0x80, 0xDD79, rom_words(d, 0x80, 0xDD79, 4, True), 2)
+
     # The play-area outline pulse (OUTLINE_* above): 15 CGRAM colours the
     # game steps one entry of BG2 palette 7 through. The walk is emulated,
     # not ROM data; keep it inside the table so a bad edit fails at export.
@@ -175,6 +296,38 @@ def build_tables(d):
     scalar("bounceDampZ", 0x80, 0xDD11)
     scalar("stepDamp", 0x80, 0xDD13)
     scalar("stepDampZ", 0x80, 0xDD15)
+    # --- special-tile handler constants ---
+    # friction tile $20-$24 ($82:8FA4) and the rough tile $04 ($82:8EFB)
+    scalar("frictionTileMu", 0x80, 0xDD7D)
+    scalar("frictionTileDampXY", 0x80, 0xDD7F)
+    scalar("frictionTileDampZ", 0x80, 0xDD81)
+    scalar("roughDampXY2", 0x80, 0xDD83)
+    scalar("roughDampZ", 0x80, 0xDD85)
+    scalar("roughDampZ6", 0x80, 0xDD87)
+    # boost panels ($82:9DB3+ land, $82:9CBF+ hit): impulses and gates
+    scalar("boostResetMu", 0x82, 0x9CAB, True)
+    scalar("boostResetDampXY", 0x82, 0x9CAD, True)
+    scalar("boostResetDampZ", 0x82, 0x9CAF, True)
+    scalar("boostSmall", 0x82, 0x9CB1, True)       # $0040: the hit-path nudge
+    scalar("boostSmallNeg", 0x82, 0x9CB3, True)    # $FFC0
+    scalar("boostE", 0x82, 0x9CB5, True)           # $0200: +512 along +x/+y
+    scalar("boostW", 0x82, 0x9CB7, True)           # $FE00: -512
+    scalar("boostBig", 0x82, 0x9CB9, True)         # $0400: the hit-path launch clamp
+    scalar("boostBigNeg", 0x82, 0x9CBB, True)      # $FC00
+    scalar("boostStraight", 0x82, 0x9CBD, True)    # $0080: |v| below this = straight hit
+    # kicker ($82:A7DD): the landing-vz clamp pair, two entries (normal, mode 6)
+    put("kickerMin", 0x80, 0xDDE3, rom_words(d, 0x80, 0xDDE3, 2), 2)
+    put("kickerMax", 0x80, 0xDDE5, rom_words(d, 0x80, 0xDDE5, 2), 2)
+    scalar("kickerDamp", 0x80, 0xDDEB)
+    # kicker per-mode gates ($82:A7DD/$82:A88C), 22 words each
+    put("kickerMode", 0x80, 0xDEA5, rom_words(d, 0x80, 0xDEA5, 22), 2)
+    put("kickerModeHit", 0x80, 0xDED1, rom_words(d, 0x80, 0xDED1, 22), 2)
+    # toggled impulse ($70-$7B): the two magnitudes (tiles.md)
+    scalar("toggleImpulseBig", 0x80, 0xDDED)
+    scalar("toggleImpulseSmall", 0x80, 0xDDEF)
+    # rough/hazard-05 recovery launch ($82:93DA)
+    scalar("hazard05Div", 0x80, 0xDD89)
+
     return t
 
 
