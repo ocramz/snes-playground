@@ -50,10 +50,14 @@ passing traces:
 - **The cup fold is EOR #$FFFF only ($82:AFEC).** Not a negation: $8000
   maps to $7FFF (the table's far corner, word 1023 = the $5000 centre),
   $C000 to $3FFF. My first fold (negation) read the wrong end.
-- **The step-clamp table ($81:93E2) maps edge 2 (S) to yf = $FFFF, same
+- ~~**The step-clamp table ($81:93E2) maps edge 2 (S) to yf = $FFFF, same
   as edge 0 (N)** — my first read (from a desynced listing) had S -> 0.
   With it, both vertical crossings use edge index 2 ($81:906C-$81:9075)
-  and the emulated "+y step clamps yf to 7+$FFFF" falls out.
+  and the emulated "+y step clamps yf to 7+$FFFF" falls out.~~
+  **Wrong (2026-11-14):** the first read was right. The table is $93FA,
+  $9402, $93EA, $93F2, and $93EA sets yf = 0. Moving +y uses edge 0 (N):
+  $9051 TAX leaves X = dx = 0. Recorded in web_step and web_ramps; see
+  docs/physics.md "Cell edges, walls and steps".
 - **The hit-dispatch ids in tables.json.** The exporter's first cut
   assigned ids per table, so hit entries pointed at land handlers; now
   both tables remap into one shared handler list (`dispatchHandlers`).
@@ -82,7 +86,7 @@ passing traces:
 - **Hazards $80-$8F/$90-$97/$98-$A1/$A2/$AC-$AE**: the actor-box tests
   walk the enemy list ($82:997E/$82:9ABF/$82:E701) — needs phase 6's
   enemy entities. The handlers return "plain ground" for now.
-- **unk14/unk15/unk58/unk5a/unk5c/unkB0** (tiles $14-$17, $58-$5D,
+- **unk14/unk15/unk58/unk5a/unk5c/unkB0** (tiles $14-$17 — since ported as the arrow panels, docs/tiles.md — $58-$5D,
   $B0-$B9): handlers located, not read (tiles.md "Not established").
 - **Snap gate $82:A692** and the snap impulses' exact clamps: stubbed
   pending a trace that reaches them.

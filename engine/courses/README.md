@@ -14,7 +14,7 @@ files by hand).
 | t3-diagonals | diagonal corners `$14-$17` (a hill) and `$10-$13` (a hollow), full diagonal ramps `$18-$1B` |
 | t4-steps-walls | terraces at elevations 0, 1, 3 (steps up block, steps down launch), a fence of layer-4 walls |
 | t5-islands | two islands, open edges: a fall loses the ball |
-| t6-surfaces | friction `$20-$24`, rough `$04`, boost `$30-$3B`, kickers `$10-$13`, snaps `$18-$1B` |
+| t6-surfaces | friction `$20-$24`, rough `$04`, boost `$30-$3B`, kickers `$10-$13`, snaps `$18-$1B`, arrows `$14-$17` |
 | t7-hazards | the hazard tiles (`$80`, `$98`, `$90`, `$AC-$AE`, `$05`, `$A2`) and pillars `$02` |
 | t8-outline | an octagon of outline walls `$28-$2D`, hovering enemies (`$4D`, `$50`, `$51`) |
 

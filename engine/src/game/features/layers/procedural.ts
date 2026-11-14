@@ -26,6 +26,7 @@ function tileColour(tile: number): number {
   if (tile === 0x08) return 0x205020; // the cup's tile, once revealed
   if (tile === 0x0c) return 0x98d898; // the tee
   if (tile >= 0x10 && tile <= 0x13) return 0xa060d0; // kickers
+  if (tile >= 0x14 && tile <= 0x17) return 0xe8e040; // arrow panels
   if (tile >= 0x18 && tile <= 0x1b) return 0x40c0d0; // snaps
   if (tile >= 0x20 && tile <= 0x24) return 0xd8c078; // friction
   if (tile >= 0x30 && tile <= 0x3b) return 0xe89030; // boost panels

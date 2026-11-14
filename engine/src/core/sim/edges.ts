@@ -11,10 +11,18 @@
  *   moveDir    ($6A78)  0-7 the crossing taken, $FFFF when the cell did
  *                       not change; diagPick ($6A74), crossAxis ($6A76)
  *
+ * The edge index is the edge of the NEW cell the ball entered by, so the
+ * step is level(new, edge) - level(old, opposite edge) ($81:925E: $44/$46
+ * the new cell, $4A/$4C the old): > 0 a step up, < 0 a drop. A crossing
+ * along y enters by N (edge 0) moving +y and by S (edge 2) moving -y: at
+ * $9051 `TAX` leaves X = dx = 0, which `BMI $9075` keeps for +y; only -y
+ * loads 2 ($906F). (A first port read edge 2 for both, and the sign the
+ * other way round, which made +y ramp edges steps and inverted every
+ * non-flush cardinal step; web/src/sim/ball.ts, checked against the game,
+ * agrees with this reading.)
+ *
  * Quirks kept from the ROM:
  * - the off-course early exit leaves stepHeight untouched ($9015);
- * - both vertical crossings use edge index 2, so the step test compares the
- *   new cell's S edge with the old cell's N edge either way ($906C-$9075);
  * - a diagonal move checks the step to the cell crossed first and, only
  *   when that is flush, the step from there to the destination ($91FF,
  *   confirmed by web-demo.md "Edge crossing, two axes at once").
@@ -39,7 +47,11 @@ function wallFlagAt(course: Ctx['course'], cell: number, maskEdge: number): bool
   return (course.walls[cell] & (1 << maskEdge) & 0xf) !== 0;
 }
 
-/** $81:925E: level(to, toEdge) - level(from, fromEdge), in half steps. */
+/**
+ * $81:925E: level(to, toEdge) - level(from, fromEdge), in half steps; `from`
+ * is the cell the ball left ($4A/$4C/$4E), `to` the one it entered
+ * ($44/$46/$48).
+ */
 function stepBetween(
   rules: RomRules,
   fromShape: number,
@@ -81,18 +93,18 @@ function cardinal(ctx: Ctx, w: Work, dx: number, dy: number): void {
   w.moveDir = 2; // $9037's default
   let edge: number;
   if (dx < 0) {
-    w.moveDir = 1; // +x
+    w.moveDir = 1; // +x, entered by W
     edge = 3;
   } else if (dx > 0) {
-    w.moveDir = 3; // -x
+    w.moveDir = 3; // -x, entered by E
     edge = 1;
   } else if (dy < 0) {
-    edge = 2; // +y: $6A78 stays 2
+    edge = 0; // +y, entered by N: X = dx = 0 ($9051 TAX, $906D BMI); $6A78 stays 2
   } else {
-    w.moveDir = 0; // -y
+    w.moveDir = 0; // -y, entered by S
     edge = 2;
   }
-  const step = stepBetween(rules, w.shape, w.elev, edge, w.pShape, w.pElev, oppositeDir(edge));
+  const step = stepBetween(rules, w.pShape, w.pElev, oppositeDir(edge), w.shape, w.elev, edge);
   if (step !== 0) w.edge = edge;
   // $9089: the old cell's wall flag on the shared edge (mask = opposite)
   if (wallFlagAt(ctx.course, w.pCell, oppositeDir(edge))) {
@@ -160,8 +172,8 @@ function diagonal(ctx: Ctx, w: Work, dx: number, dy: number): void {
   const step2 = stepBetween(ctx.rules, s2shape, s2elev, oppositeDir(edge2), w.shape, w.elev, edge2);
   if (step2 !== 0) w.edge = edge2;
   w.stepHeight = step2;
-  // $9240: only when boundary 1 raised no wall flag.
-  if (w.wallEdge === 0xffff && step2 !== 0) {
+  // $9248: only when boundary 1 raised no wall flag, whatever step2 is.
+  if (w.wallEdge === 0xffff) {
     wallCheck(ctx, w, second, oppositeDir(edge2), edge2);
   }
 }

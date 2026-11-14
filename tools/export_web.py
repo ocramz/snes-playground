@@ -234,8 +234,8 @@ def build_tables(d):
         (0x82, 0xA55E): "hazard05",         (0x82, 0xA576): "hazard05Hit",    # $05
         (0x82, 0xAD8E): "cup",              (0x82, 0xAD36): "cupHit",         # $08
         (0x82, 0xA7DD): "kicker",           (0x82, 0xA88C): "kickerHit",      # $10-$13
-        (0x82, 0xA6C7): "unk14",            (0x82, 0xA74F): "unk14Hit",       # $14, $16 (undocumented)
-        (0x82, 0xA70B): "unk15",            (0x82, 0xA783): "unk15Hit",       # $15, $17 (undocumented)
+        (0x82, 0xA6C7): "arrowNS",          (0x82, 0xA74F): "arrowNSHit",     # $14, $16: the N/S arrow panels
+        (0x82, 0xA70B): "arrowEW",          (0x82, 0xA783): "arrowEWHit",     # $15, $17: the E/W arrow panels
         (0x82, 0xA5B1): "snap",             (0x82, 0xA5E6): "snapHit",        # $18-$1B
         (0x82, 0x9342): "rough05",          (0x82, 0x9356): "rough05Hit",     # $1C ($936A shared with $05)
         (0x82, 0x938E): "rough05b",         (0x82, 0x93A2): "rough05bHit",    # $1D ($93B6 shared with $05)
@@ -390,6 +390,9 @@ def build_tables(d):
     # kicker per-mode gates ($82:A7DD/$82:A88C), 22 words each
     put("kickerMode", 0x80, 0xDEA5, rom_words(d, 0x80, 0xDEA5, 22), 2)
     put("kickerModeHit", 0x80, 0xDED1, rom_words(d, 0x80, 0xDED1, 22), 2)
+    # arrow panel per-mode gates ($82:A6C7/$82:A70B land, $82:A74F/$82:A783 hit), 22 words each
+    put("arrowMode", 0x80, 0xDE4D, rom_words(d, 0x80, 0xDE4D, 22), 2)
+    put("arrowModeHit", 0x80, 0xDE79, rom_words(d, 0x80, 0xDE79, 22), 2)
     # toggled impulse ($70-$7B): the two magnitudes (tiles.md)
     scalar("toggleImpulseBig", 0x80, 0xDDED)
     scalar("toggleImpulseSmall", 0x80, 0xDDEF)

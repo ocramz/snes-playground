@@ -69,6 +69,9 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
       return cupLand(ctx, w);
     case 'kicker':
       return kickerLand(ctx, w);
+    case 'arrowNS':
+    case 'arrowEW':
+      return arrowLand(ctx, w);
     case 'snap':
       return snapLand(ctx, w);
     case 'friction':
@@ -124,6 +127,9 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
       return cupHit(ctx, w);
     case 'kickerHit':
       return kickerHit(ctx, w);
+    case 'arrowNSHit':
+    case 'arrowEWHit':
+      return arrowHit(ctx, w);
     case 'snapHit':
       return snapHit(ctx, w);
     case 'frictionHit':
@@ -157,8 +163,8 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
  * - overlay ($60-$6F, +hits): enter/leave tracking ($82:80F6) — not read;
  *   the $D9EE flag itself IS ported (the $82:C85F probe wrapper).
  * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
- * - unk14/unk15/unk58/unk5a/unk5c/unkB0 (+hits): handlers located, not
- *   read (docs/tiles.md "Not established").
+ * - unk58/unk5a/unk5c/unkB0 (+hits): handlers located, not read
+ *   (docs/tiles.md "Not established").
  * Each returns its group's default routing so an unported tile behaves
  * like plain ground.
  */
@@ -367,6 +373,66 @@ function kickerApply(ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome {
   updateHeading(ctx.rules, w);
   if (w.mode !== 6) w.dampXY = ctx.rules.const_('kickerDamp');
   return { next: out.next, entry: 'grounded' }; // JML $81:892B
+}
+
+// --- arrow panels ($14-$17: land $82:A6C7/$82:A70B, hit $82:A74F/$82:A783) ---
+
+/** $82:ECFC's jump table ($82:ED06): the heading each arrow turns the ball to, N E S W. */
+const ARROW_HEADING = [270, 0, 90, 180];
+
+/**
+ * The handlers' position window: the long axis in [$2800, $DFFF), the narrow
+ * one in [$4800, $B7FF) on landing, [$6000, $9FFF) from the side. The N/S
+ * arrows ($14, $16) are narrow in x, the E/W ones ($15, $17) in y.
+ */
+function arrowWindow(w: Work, narrowLo: number, narrowHi: number): boolean {
+  const ns = ((w.tile - 0x14) & 1) === 0;
+  const narrow = ns ? w.xf : w.yf;
+  const long = ns ? w.yf : w.xf;
+  return narrow >= narrowLo && narrow < narrowHi && long >= 0x2800 && long < 0xdfff;
+}
+
+function arrowLand(ctx: Ctx, w: Work): DispatchOutcome {
+  // $82:A6C7/$82:A70B: at or under the surface, inside the window; outside
+  // the gate the latch clears ($82:A701). Then JML $81:8905.
+  if (!grounded(w) || !arrowWindow(w, 0x4800, 0xb7ff)) {
+    w.enemyLatch = 0;
+    return LANDING;
+  }
+  if (ctx.rules.table('arrowMode')[w.mode] !== 0) arrowTurn(ctx, w); // $80:DE4D
+  return LANDING;
+}
+
+function arrowHit(ctx: Ctx, w: Work): DispatchOutcome {
+  // $82:A74F/$82:A783: no height test, a narrower window; JML $81:8A56
+  if (!arrowWindow(w, 0x6000, 0x9fff)) {
+    w.enemyLatch = 0;
+    return ROLLING;
+  }
+  if (ctx.rules.table('arrowModeHit')[w.mode] !== 0) arrowTurn(ctx, w); // $80:DE79
+  return ROLLING;
+}
+
+/**
+ * $82:A7B7: once per pass (the latch $6A68, shared with the enemies and the
+ * pillar), $82:ECFC turns the velocity to the arrow's heading — a rotation by
+ * (heading - $D9DA) through $82:ED3B/$82:ED4C, so the speed is kept — and
+ * zeroes the cross axis (vx for N/S, vy for E/W), then $81:8E60. The spin is
+ * cleared and the step's tail plays $0C ($6A6C).
+ */
+function arrowTurn(ctx: Ctx, w: Work): void {
+  if (w.enemyLatch !== 0) return;
+  w.enemyLatch += 1;
+  const dir = (w.tile - 0x14) & 3;
+  const delta = s16(wrap16(ARROW_HEADING[dir] - w.deg)); // SEC / SBC $D9DA
+  const [vx, vy] = rotateBy(ctx, w.vx, w.vy, delta);
+  w.vx = (dir & 1) === 0 ? 0 : vx; // $82:ED1E: STZ $D9D4
+  w.vy = (dir & 1) === 0 ? vy : 0; // $82:ED33: STZ $D9D6
+  updateHeading(ctx.rules, w); // $82:ED36
+  w.spinX = 0;
+  w.spinY = 0;
+  w.spinPending = 0;
+  w.tailSfx = 0x000c;
 }
 
 // --- snap ($18-$1B) ---

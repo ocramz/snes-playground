@@ -78,6 +78,9 @@ describe.skipIf(!haveRules)('what core emits is in the table', () => {
     { name: 'web_haz94', to: 2571, hole: 11, offset: 2332, pokes: true },
     { name: 'web_hazad', to: 2799, hole: 54, offset: 2337, pokes: true },
     { name: 'web_hazac', to: 2799, hole: 54, offset: 2337, pokes: true },
+    { name: 'web_arrow', to: 3000, hole: 1, offset: 2332, pokes: true },
+    { name: 'web_ramps', to: 3000, hole: 1, offset: 2332, pokes: true },
+    { name: 'web_step', to: 3000, hole: 2, offset: 2333, pokes: true },
   ];
   for (const s of scripts) {
     it.skipIf(!haveRomTest || !loadFlow(s.name) || (s.hole !== undefined && !loadRomHole(s.hole)))(`${s.name}`, () => {

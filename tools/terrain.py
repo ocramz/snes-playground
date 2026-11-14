@@ -119,6 +119,10 @@ TILE_HANDLERS = {
     (0x82, 0xA7DD): ("kicker: turns landing vz into a directional impulse",
                      "solid"),
     (0x82, 0xA5B1): ("snaps Z to the surface and zeroes vz", "solid"),
+    (0x82, 0xA6C7): ("arrow panel N/S ($14 N, $16 S): turns the velocity to the arrow, same speed",
+                     "solid"),
+    (0x82, 0xA70B): ("arrow panel E/W ($15 E, $17 W): turns the velocity to the arrow, same speed",
+                     "solid"),
     (0x82, 0x8FF1): ("edge: falls through to $81:899F, keep applying gravity",
                      "likely"),
     (0x82, 0x80F6): ("surface overlay; tracks entering and leaving in $69CA+",
@@ -135,7 +139,7 @@ for _a in (0x9FFF, 0x9FED, 0x9FF6):
                                  "mechanics only")
 for _a in (0xA01A, 0xA008, 0xA011, 0xA035, 0xA023, 0xA02C):
     TILE_HANDLERS[(0x82, _a)] = ("toggled impulse ($6A2A)", "mechanics only")
-for _a in (0xA980, 0xA6C7, 0xA70B, 0xA25D, 0xA1B1, 0xA3EB, 0x9342, 0x938E):
+for _a in (0xA980, 0xA25D, 0xA1B1, 0xA3EB, 0x9342, 0x938E):
     TILE_HANDLERS.setdefault((0x82, _a), ("?", "unknown"))
 
 # Values the engine finds by scanning the whole grid at load rather than by

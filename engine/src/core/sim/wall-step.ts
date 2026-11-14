@@ -27,11 +27,15 @@ export function wallBounce(ctx: Ctx, w: Work): void {
   reflect(ctx.rules, w, 9 + w.wallEdge);
 }
 
-/** The step-bounce clamp table ($81:93E2): fraction forced to the edge. */
+/**
+ * The step-bounce clamp table ($81:93E2 = $93FA, $9402, $93EA, $93F2): the
+ * fraction forced to the old cell's side of the edge. N (moving +y) puts y at
+ * $FFFF, S (moving -y) at $0000 ($93EA: LDA #0 / STA $D9F4).
+ */
 const STEP_CLAMP: Array<['xf' | 'yf', number]> = [
   ['yf', 0xffff], // N
   ['xf', 0x0000], // E
-  ['yf', 0xffff], // S
+  ['yf', 0x0000], // S
   ['xf', 0xffff], // W
 ];
 

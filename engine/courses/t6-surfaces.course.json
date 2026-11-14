@@ -1,6 +1,6 @@
 {
   "name": "t6-surfaces",
-  "about": "Surface tiles: friction $20-$23 on ramps and $24 on flat, rough $04, boost panels $30-$33 (flat) and $34/$36/$38/$3A (on their ramps), kickers $10-$13, snaps $18-$1B.",
+  "about": "Surface tiles: friction $20-$23 on ramps and $24 on flat, rough $04, boost panels $30-$33 (flat) and $34/$36/$38/$3A (on their ramps), kickers $10-$13, snaps $18-$1B, arrow panels $14-$17.",
   "w": 16,
   "h": 10,
   "shape": [
@@ -47,7 +47,7 @@
     ".. .. .. .. .. .. .. .. .. .. .. .. 20 .. .. ..",
     ".. .. .. 18 19 1A 1B .. .. .. .. 23 .. 21 .. ..",
     ".. .. .. .. .. .. .. .. .. .. .. .. 22 .. .. ..",
-    ".. .. .. .. .. .. .. .. 4C .. .. .. .. .. .. ..",
+    ".. .. .. 14 15 16 17 .. 4C .. .. .. .. .. .. ..",
     ".. .. 40 .. .. .. .. .. .. .. .. .. .. .. 4B ..",
     ".. .. .. .. .. .. .. .. .. .. .. .. .. .. .. .."
   ]

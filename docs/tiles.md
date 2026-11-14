@@ -68,6 +68,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$04` | `$82:8EFB` | friction override, second variant |
 | `$30-$3B` | `$82:9DB3`+ | **boost panel**, four directions |
 | `$10-$13` | `$82:A7DD` | **kicker**: landing speed becomes a directional impulse |
+| `$14-$17` | `$82:A6C7`, `$82:A70B` | **arrow panel**: turns the ball to the arrow's direction, N/E/S/W, at the same speed |
 | `$70-$7B` | `$82:9FD1`+ | toggled directional impulse, two magnitudes |
 | `$18-$1B` | `$82:A5B1` | snaps Z to the surface and zeroes vz |
 | `$80-$8F`, `$98-$A1` | `$82:98F8` | **hazard**: the bumper track's shape, then a cube test against the riding bumpers (object 76) |
@@ -80,7 +81,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$28-$2D` | `$82:8FF1` | **the play-area outline**, a wall: see below |
 | `$60-$6F` | `$82:80F6` | surface overlay, with enter/leave tracking |
 | `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
-| `$14-$17`, `$1C`, `$1D`, `$58-$5D`, `$B0-$B9` | various | not established |
+| `$1C`, `$1D`, `$58-$5D`, `$B0-$B9` | various | not established |
 
 The shot guide does not use these two tables. It has its own, `$81:B455`, in
 which only the outline `$28-$2D` and the overlay `$60-$6F` act; every other
@@ -135,6 +136,41 @@ applies the delta.
 shapes** — `$34` on `$04`, `$36` on `$05`, `$38` on `$06`, `$3A` on `$07` —
 and in every case the boost direction is the *uphill* direction of the ramp
 it sits on. They are the panels that push you up a slope.
+
+### Arrow panels — `$14-$17`
+
+The arrows on the floor. They redirect the ball and do not speed it up.
+`$14` points N, `$15` E, `$16` S, `$17` W. There are 98 cells of `$14`/`$16` in 50 hole slots and 72 of
+`$15`/`$17` in 41 (`tools/terrain.py --tiles`),
+on course 1 at hole 2 (`$16` at (2,14)), hole 3 (`$16`, `$17`), hole 5 and
+hole 6. Read from `build/engine/disasm/handlers.txt` and
+`tools/dis65816.py '$82:ECFC'`:
+
+| handler | tiles | gate | then |
+|---|---|---|---|
+| `$82:A6C7` (land) | `$14`, `$16` | at or under the surface; x in [`$4800`, `$B7FF`), y in [`$2800`, `$DFFF`); `$80:DE4D`[mode] ≠ 0 | `JML $81:8905` |
+| `$82:A70B` (land) | `$15`, `$17` | the same with x and y swapped | `JML $81:8905` |
+| `$82:A74F` (hit) | `$14`, `$16` | x in [`$6000`, `$9FFF`), y in [`$2800`, `$DFFF`); `$80:DE79`[mode] ≠ 0 | `JML $81:8A56` |
+| `$82:A783` (hit) | `$15`, `$17` | the same with x and y swapped | `JML $81:8A56` |
+
+Outside the position window the enemy/pillar latch `$6A68` is cleared. Both mode tables are 2 in mode 0.
+Inside it, `$82:A7B7` acts once per pass (the latch):
+
+1. `$82:ECFC`(A = tile − `$14`) rotates (vx, vy) by (target − `$D9DA`)
+   through `$82:ED3B` → `$82:ED4C` (the rotation the pillar's push uses).
+   The targets come from its jump table `$82:ED06`: 270, 0, 90, 180 for
+   N, E, S, W.
+2. It zeroes the cross axis: vx for N/S (`$82:ED1E`), vy for E/W
+   (`$82:ED33`). Then `$81:8E60`.
+3. It clears the spin `$D9CC`-`$D9D0` and sets `$6A6C` = `$0C`, the sound the step's tail plays.
+
+*Emulated* (`tools/snesstep/inputs/web_arrow`, the engine's
+`test/trace-terrain.test.ts`): rolling at (−356, 2904), heading 97, into
+course 1 hole 2's `$16`, the ball leaves at (0, 2914). The speed is kept
+(friction takes the rest), and sound `$0C` is requested in the same
+iteration (2480).
+
+The shot guide's table `$81:B455` treats the arrows as plain ground.
 
 ### Kicker — `$10-$13`
 
@@ -342,7 +378,8 @@ Some layer-2 values are locked to a layer-1 shape:
 - What the `$60-$6F` overlay *is*. Its handler `$82:80F6` tracks entering and
   leaving via `$69CA`/`$69D2`-`$69DA`, and it appears in 45 holes with 1,807
   cells — the second largest group. Mechanics traced, identity not.
-- `$14-$17`, `$1C`, `$1D`, `$58-$5D`, `$B0-$B9`: handlers located, not read.
+- `$1C`, `$1D`, `$58-$5D`, `$B0-$B9`: handlers located, not read. (`$14-$17`
+  are settled: the arrow panels, above.)
 - The `$70-$7B` family's purpose. Twelve values in four groups of three,
   gated on a toggle at `$6A2A`, two impulse magnitudes (`$80:DDEF` = 4912 and
   `$80:DDF3` = 2456). Only four are used at all: `$74` (166 cells), `$75`

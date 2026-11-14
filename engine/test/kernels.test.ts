@@ -6,7 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { RomRules } from '../src/core/rules';
-import { haveRules, loadTables, loadRomCourse, haveRomTest } from './fixtures';
+import { haveRules, loadTables, loadRomCourse, loadRomHole, haveRomTest } from './fixtures';
 import { fromRomCourse } from '../src/core/course-data';
 import { kernelCourse, type Ctx, type Work } from '../src/core/sim/context';
 import { emptyWork } from '../src/core/traits/ball';
@@ -18,6 +18,8 @@ import { launchVelocity, shotSpin } from '../src/core/sim/shot';
 import { probe } from '../src/core/sim/probe';
 import { cupDepth } from '../src/core/sim/cup';
 import { crossEdges } from '../src/core/sim/edges';
+import { stepBounce } from '../src/core/sim/wall-step';
+import { hitDispatch, landDispatch } from '../src/core/sim/dispatch';
 import { s16, wrap16 } from '../src/core/fixed';
 
 describe.skipIf(!haveRules)('kernels vs the emulated numbers', () => {
@@ -222,18 +224,192 @@ describe.skipIf(!haveRules)('kernels vs the emulated numbers', () => {
     expect(s16(w2.vz)).toBe(-1064);
   });
 
-  it('edge crossing: a cardinal move finds the shared edge ($81:9001)', () => {
+  it('edge crossing: a flush ramp edge is no step, whichever way it is crossed ($81:9001)', () => {
     if (!course) return;
-    const w = work();
-    // hole 1: rolling +y from the flat tee area into the rim
-    w.xc = 6; w.xf = 0x8000; w.yc = 1; w.yf = 0x8000; w.z = 0;
-    probe(ctx, w);
-    w.pXc = 6; w.pYc = 0; // moved +y
-    w.pShape = course.shape[0 * course.w + 6];
-    w.pElev = course.elev[0 * course.w + 6];
-    crossEdges(ctx, w);
+    // hole 1: the rim ramp (6,0), $06 at elevation 1, falls S onto the flat
+    // (6,1) at elevation 0; crossing +y enters (6,1) by its N edge
+    const w = crossing(ctx, [6, 0], [6, 1]);
     expect(w.moveDir).toBe(2);
-    expect(w.stepHeight).not.toBe(0);
+    expect(w.stepHeight).toBe(0);
+    expect(w.edge).toBe(0xffff);
+    expect(crossing(ctx, [6, 1], [6, 0]).stepHeight).toBe(0); // -y, by the S edge
+  });
+});
+
+/** A kernel context over a small authored grid (flat unless `shape` says otherwise). */
+function gridCtx(rules: RomRules, w: number, h: number, elev: number[], opts: { shape?: number[]; walls?: number[]; tile?: number[] } = {}): Ctx {
+  const n = w * h;
+  return {
+    rules,
+    course: {
+      w, h,
+      shape: Uint8Array.from(opts.shape ?? new Array(n).fill(1)),
+      elev: Uint8Array.from(elev),
+      walls: Uint8Array.from(opts.walls ?? new Array(n).fill(0)),
+      layer2: Uint8Array.from(opts.tile ?? new Array(n).fill(0)),
+      originY: 0, screenBase: 224,
+    },
+  };
+}
+
+/** The ball probed at (x, y) and fractions, as a fresh work copy. */
+function at(ctx: Ctx, x: number, y: number, xf = 0x8000, yf = 0x8000): Work {
+  const w = emptyWork();
+  w.xc = x; w.xf = xf; w.yc = y; w.yf = yf;
+  probe(ctx, w);
+  return w;
+}
+
+/** The ball moved from `from` to `to` in one frame, then $81:9001. */
+function crossing(ctx: Ctx, from: [number, number, number?, number?], to: [number, number, number?, number?]): Work {
+  const p = at(ctx, ...from);
+  const w = at(ctx, ...to);
+  w.pXc = p.xc; w.pXf = p.xf; w.pYc = p.yc; w.pYf = p.yf;
+  w.pCell = p.cell; w.pShape = p.shape; w.pElev = p.elev;
+  w.pQuad = p.quad; w.pCode = p.code; w.pGround = p.ground; w.pTile = p.tile;
+  crossEdges(ctx, w);
+  return w;
+}
+
+describe.skipIf(!haveRules)('edge crossings, steps and drops ($81:9001, $81:925E, $81:93D1)', () => {
+  const rules = new RomRules(loadTables());
+  const hole = (n: number): Ctx | null => {
+    const j = haveRomTest ? loadRomHole(n) : null;
+    return j ? { rules, course: kernelCourse(fromRomCourse(j)) } : null;
+  };
+
+  it('course 1 hole 2: the pit\'s ramps join flush both ways along y', () => {
+    const h2 = hole(1);
+    if (!h2) return;
+    // (4,15) flat at 1 -> (4,16) $06 at 1 -> (4,17) flat at 0 -> (4,18) $04 at 1
+    for (const [a, b] of [[15, 16], [16, 17], [17, 18], [18, 19]] as const) {
+      const down = crossing(h2, [4, a], [4, b]);
+      expect(down.moveDir, `+y ${a}->${b}`).toBe(2);
+      expect(down.stepHeight, `+y ${a}->${b}`).toBe(0);
+      expect(down.edge).toBe(0xffff);
+      const up = crossing(h2, [4, b], [4, a]);
+      expect(up.moveDir, `-y ${b}->${a}`).toBe(0);
+      expect(up.stepHeight, `-y ${b}->${a}`).toBe(0);
+    }
+  });
+
+  it('course 1 hole 3: +y into the elevation-4 row is a step up of 6 by the N edge, -y off it a drop by the S edge', () => {
+    const h3 = hole(2);
+    if (!h3) return;
+    const up = crossing(h3, [2, 7], [2, 8]); // physics.md's emulated step hit
+    expect(up.moveDir).toBe(2);
+    expect(up.edge).toBe(0);
+    expect(up.stepHeight).toBe(6);
+    const down = crossing(h3, [5, 8], [5, 7]); // physics.md's emulated 2-step drop
+    expect(down.moveDir).toBe(0);
+    expect(down.edge).toBe(2);
+    expect(down.stepHeight).toBe(-4);
+  });
+
+  it('along x: a step up is positive, a drop negative', () => {
+    const c = gridCtx(rules, 3, 1, [0, 1, 0]);
+    const east = crossing(c, [0, 0], [1, 0]);
+    expect([east.moveDir, east.edge, east.stepHeight]).toEqual([1, 3, 2]);
+    const off = crossing(c, [1, 0], [2, 0]);
+    expect([off.moveDir, off.edge, off.stepHeight]).toEqual([1, 3, -2]);
+    const west = crossing(c, [2, 0], [1, 0]);
+    expect([west.moveDir, west.edge, west.stepHeight]).toEqual([3, 1, 2]);
+    // rolling off an island's edge into a gap is a drop
+    const gap = gridCtx(rules, 2, 1, [1, 0], { shape: [1, 0] });
+    expect(crossing(gap, [0, 0], [1, 0]).stepHeight).toBe(-4);
+  });
+
+  it('a diagonal move checks the second boundary\'s wall even when it is flush ($81:9248)', () => {
+    // 2x2 flat; walls on (1,0)'s S edge and (0,1)'s E edge, so whichever
+    // neighbour the cross product picks, the second boundary is walled
+    const c = gridCtx(rules, 2, 2, [0, 0, 0, 0], { walls: [0, 1 << 2, 1 << 1, 0] });
+    const w = crossing(c, [0, 0, 0xf000, 0xe000], [1, 1, 0x1000, 0x1000]);
+    expect(w.moveDir).toBe(5);
+    expect(w.stepHeight).toBe(0);
+    expect(w.wallEdge === 0 || w.wallEdge === 3, `wallEdge ${w.wallEdge}`).toBe(true);
+  });
+
+  it('the step bounce puts the ball on the old cell\'s side: $FFFF moving +y, $0000 moving -y ($81:93E2)', () => {
+    const h3 = hole(2);
+    if (h3) {
+      // the emulated +y hit at 3072: y clamped to 7 + $FFFF, vy 2952 -> -1919, vx 738 -> 737
+      const w = crossing(h3, [2, 7, 0x8000, 0xff00], [2, 8, 0x8000, 0x0200]);
+      w.vx = 738; w.vy = 2952;
+      stepBounce({ rules, course: h3.course }, w);
+      expect([w.yc, w.yf]).toEqual([7, 0xffff]);
+      expect(s16(w.vy)).toBe(-1919);
+      expect(s16(w.vx)).toBe(737);
+    }
+    // -y into a higher row: back to the old cell's top, y fraction 0
+    const c = gridCtx(rules, 1, 2, [1, 0]);
+    const w = crossing(c, [0, 1, 0x8000, 0x0100], [0, 0, 0x8000, 0xff00]);
+    expect([w.edge, w.stepHeight]).toEqual([2, 2]);
+    w.vy = wrap16(-1000);
+    stepBounce(c, w);
+    expect([w.yc, w.yf]).toEqual([1, 0]);
+    expect(s16(w.vy)).toBeGreaterThan(0);
+  });
+});
+
+describe.skipIf(!haveRules)('the arrow panels $14-$17 ($82:A6C7, $82:A70B, $82:A74F, $82:A783, $82:A7B7)', () => {
+  const rules = new RomRules(loadTables());
+  // a 3x3 flat with the S arrow $16 in the middle and the E arrow $15 east of it
+  const c = gridCtx(rules, 3, 3, new Array(9).fill(0), { tile: [0, 0, 0, 0, 0x16, 0x15, 0, 0, 0] });
+  const mod = { kind: -1, timer: 0 };
+  const rolling = (x: number, xf: number, yf: number, vx: number, vy: number): Work => {
+    const w = at(c, x, 1, xf, yf);
+    w.z = w.ground;
+    w.vx = wrap16(vx); w.vy = wrap16(vy);
+    w.spinX = 300; w.spinPending = 1;
+    updateHeading(rules, w);
+    return w;
+  };
+
+  it('rolling onto the S arrow: the velocity turns to 90 at the same speed, the spin goes, sound $0C, once', () => {
+    const w = rolling(1, 0x8000, 0x3000, -1000, 1732); // heading 120
+    expect(w.deg).toBe(120);
+    expect(hitDispatch(c, w, mod).next).toBe('rolling');
+    expect(w.vx).toBe(0);
+    expect(Math.abs(s16(w.vy) - 2000)).toBeLessThanOrEqual(4);
+    expect(w.deg).toBe(90);
+    expect([w.spinX, w.spinPending, w.tailSfx, w.enemyLatch]).toEqual([0, 0, 0x0c, 1]);
+    // the latch: the next frame on the panel does nothing
+    w.vx = 500; w.tailSfx = 0xffff;
+    hitDispatch(c, w, mod);
+    expect([w.vx, w.tailSfx]).toEqual([500, 0xffff]);
+  });
+
+  it('outside the side window nothing turns and the latch clears', () => {
+    const w = rolling(1, 0x5000, 0x8000, -1000, 1732); // x below $6000
+    w.enemyLatch = 1;
+    hitDispatch(c, w, mod);
+    expect([s16(w.vx), s16(w.vy), w.enemyLatch, w.tailSfx]).toEqual([-1000, 1732, 0, 0xffff]);
+  });
+
+  it('landing: the wider window, only at or under the surface', () => {
+    const w = rolling(1, 0x5000, 0x8000, -1000, 1732); // x inside [$4800, $B7FF)
+    w.air = 1;
+    w.z = w.ground + 0x100; // above the surface
+    landDispatch(c, w, mod);
+    expect(s16(w.vx)).toBe(-1000);
+    w.z = w.ground - 0x100;
+    landDispatch(c, w, mod);
+    expect(w.vx).toBe(0);
+    expect(w.tailSfx).toBe(0x0c);
+  });
+
+  it('the E arrow turns the ball to 0 and zeroes vy', () => {
+    const w = rolling(2, 0x8000, 0x8000, 1732, 1000); // heading 30
+    hitDispatch(c, w, mod);
+    expect(w.vy).toBe(0);
+    expect(Math.abs(s16(w.vx) - 2000)).toBeLessThanOrEqual(4);
+    expect(w.deg).toBe(0);
+  });
+
+  it('the shot guide does not see the arrows ($81:B455)', () => {
+    const w = rolling(1, 0x8000, 0x8000, -1000, 1732);
+    hitDispatch({ ...c, presentation: false }, w, mod);
+    expect(s16(w.vx)).toBe(-1000);
   });
 });
 

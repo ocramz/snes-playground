@@ -110,7 +110,7 @@ export interface BallWorkFields {
   tailSfx: number; // $6A6C: the sfx id the step tail plays ($81:9BE5), $FFFF none
   hitStopLatch: number; // $6A70: a hit-stop already ran this step
   lock6a6e: number; // $6A6E (hit-stop scratch, presentation)
-  classIndex: number; // $6A72: mode * 8 + friction class * 2
+  classIndex: number; // $6A72: mode * 8 + $81:8C12[code] (a byte index)
 
   // --- the facts (one step, physics.md event table) ---
   stepHeight: number; // $DA4C: the edge step, half steps

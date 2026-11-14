@@ -34,7 +34,7 @@ export const EVENT_TABLE: Readonly<Record<string, EventRow>> = {
   bounce: { ids: [1, 2, 3, 5, 6], site: '$81:9BE5 by vz; $81:9BF4 the spin streak (5, 6)', react: 'sfx' },
   step: { ids: [4], site: '$81:8A2E the ball hits a step', react: 'sfx' },
   wall: { ids: [7], site: '$82:91E6 the outline wall', react: 'sfx' },
-  tile: { ids: [0x1a, 0x5f, 0x60, 0x6f, 0x11, 0x7c], site: 'the step tail: friction, rough, $05, snaps, a cone', react: 'sfx' },
+  tile: { ids: [0x1a, 0x5f, 0x60, 0x6f, 0x11, 0x7c, 0x0c], site: 'the step tail: friction, rough, $05, snaps, a cone, an arrow', react: 'sfx' },
   pillar: { ids: [0x71], site: '$82:956C/$82:95F8', react: 'sfx' },
   hazard: { ids: [0x6f], site: '$82:9C9D a bumper', react: 'sfx' },
   'hazard-hit': { ids: [], site: '$82:EED8 object $2F (not drawn)', react: 'none' },

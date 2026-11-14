@@ -327,15 +327,20 @@ the cell this frame with the previous one (`$DA12`/`$DA16`):
   are the four diagonal crossings, resolved by a cross product (`$81:9286`)
   into the edge crossed first.
 * The edge index used below, `$48`, is the edge of the **new** cell the
-  ball entered by, in N/E/S/W order with N = −y. Moving ±x that holds.
-  A crossing along y uses edge 2 (S) whichever way it goes
-  (`$81:906C`-`$81:9075`): the step compares the new cell's S edge with the
-  old cell's N edge, and `$D9E4` is 2. This is read from the disassembly,
-  and it is what makes the emulated +y step hit below come out exact.
+  ball entered by, in N/E/S/W order with N = −y: W moving +x, E moving −x,
+  N moving +y, S moving −y. For +y the 0 comes from `$81:9051`'s `TAX` of
+  dx (= 0), which `$81:906D BMI $9075` keeps; only −y loads 2 (`$81:9072`).
+  An earlier reading here had edge 2 for both directions along y; it fitted
+  the flat-cell cases (a flat cell's four edges are level) but makes every
+  +y crossing onto or off a ramp a step, and the recordings below refute it.
 * `sub_edge_step_height $81:925E` gives the new cell's surface at that edge
-  minus the old cell's at the opposite edge, in half steps. This is
-  **`$DA4C`**: > 0 a step up, < 0 a drop, 0 nothing. When it is non-zero,
-  `$D9E4` = the edge.
+  minus the old cell's at the opposite edge, in half steps (`$44`/`$46` the
+  new cell, `$4A`/`$4C` the old). This is **`$DA4C`**: > 0 a step up, < 0 a
+  drop, 0 nothing. When it is non-zero, `$D9E4` = the edge.
+* A diagonal crossing checks the old cell → the neighbour crossed first,
+  and only if that is flush the neighbour → the new cell (`$81:91FF`,
+  `$81:9221`). The second boundary's wall flag is checked whenever the
+  first raised none, flush or not (`$81:9248`).
 * `sub_edge_wall_flags $81:92AC` sets **`$D9E6`** = the edge when the
   layer-4 wall bit for it is set, and `$D9E8` from `$81:92D0`.
 
@@ -347,12 +352,12 @@ only: no layer-4 wall was hit in the runs below.
 **`sub_step_bounce $81:93D1`** (JSL), for running into a terrain step:
 
 1. Restore the previous position.
-2. Put the ball against the edge. The fraction on the crossing axis
-   becomes `$FFFF` or `$0000` (jump table `$81:93E2` by `$D9E4`: N `$FFFF`,
-   E x `$0000`, S `$FFFF`, W x `$FFFF`). With the edge-2 rule above, a +y
-   step hit puts y at `$FFFF` of the old cell (the emulated case below). A
-   −y one gets the same value; that is read from code only, since no
-   recorded shot hits a step moving −y.
+2. Put the ball against the edge, on the old cell's side. The fraction on
+   the crossing axis becomes `$FFFF` or `$0000` (jump table `$81:93E2` =
+   `$93FA`, `$9402`, `$93EA`, `$93F2` by `$D9E4`: N y `$FFFF`, E x `$0000`,
+   S y `$0000`, W x `$FFFF`). So a +y step hit (edge N) puts y at `$FFFF`
+   of the old cell (the emulated case below) and a −y one at `$0000`; the
+   −y case is read from code only.
 3. Reflect with matrix 9 + `$D9E4`.
 4. Scale the component normal to the edge by `$DA40` (default `$5332`,
    0.65). `$81:9EA9`/`$81:9EB1` are per-edge masks (`$3FFF` = scale this
@@ -367,6 +372,13 @@ also runs the hit-stop.
 * y is clamped to 7 + `$FFFF`;
 * vy 2952 → −2952 x 0.65 = −1919;
 * vx 738 → 737 is untouched.
+
+Recorded again as `tools/snesstep/inputs/web_step` (the ball poked at
+(2,6)): the step `$DA4C` = +6 by edge N, the bounce at 2505 (vy 2532 →
+−1646, y `$FFFF`), sound 4, and the 2-frame hit-stop of `$81:8C48`, which
+takes edges 0 and 1 only. `web_ramps` (course 1 hole 2, the pit at (4,17))
+rolls across four flush ramp edges, +y and −y: no step, no launch. Both are
+the engine's `test/trace-terrain.test.ts`.
 
 **`loc_launch $81:8B78`** (a step down; also `$81:8B7B` with A = a surface
 code, from the ramp-crest test `$81:980B`): the ball leaves the ground.
@@ -383,9 +395,18 @@ code, from the ramp-crest test `$81:980B`): the ball leaves the ground.
 cell: `$DA4C` = −4 half steps, vz = 0, airborne, then a fall under
 gravity. The ramp-edge cases (a non-zero vz) are read from code only.
 
-`$81:980B` decides when crossing a ramp's crest throws the ball. It is
-read only in part: it has per-crossing-type jump tables at `$81:983B`, and
-`$81:9B45` is a per-shape flag. **Unconfirmed.**
+`$81:980B` decides when crossing a ramp's crest throws the ball. With no
+edge crossed (`$6A78` = `$FFFF`, `$81:980E BPL`) it launches when the
+surface code changed and `$81:9B45`[shape] is set (the mound `$02`, the
+dimple `$03`, the diagonal halves `$0C`-`$13`), with A = the old code:
+*emulated* in web_arrow at 2541, the ball rolling +y across the `$11`
+corner (2,16) on course 1 hole 2, from its flat quadrant onto the diagonal
+one (vz 0, airborne). Across a cell edge it runs per-crossing-type jump
+tables (`$81:983B`) over quadrant samples (`$81:9A0D`+), read only in part.
+That branch launches the ball from the flat (4,15) onto the `$06` ramp
+(4,16) on the same hole (a recording of web_ramps' first draft, at 2473) and
+from the flat (6,13) onto the `$07` ramp (5,13) on course 1 hole 5
+(web_haz98, 2497). **Unconfirmed** beyond those.
 
 ### The shot: power, elevation, launch
 
@@ -620,7 +641,7 @@ traced aim sweeps matches the engine's port):
 | `$DA4C` | step height at an edge crossed this frame, half steps |
 | `$DA4E`, `$DA50`, `$DA52` | this frame: bounced, hit a step, hit a wall |
 | `$DA76`, `$DA78`, `$DA7A` | button modifier kind, window, timer |
-| `$6A72` | mode x 8 + class x 2, index into both mode tables |
+| `$6A72` | mode x 8 + the class's byte offset (0, 2, 4, 6), a byte index into both mode tables |
 | `$6ADC` | shot power P |
 | `$6B3A` | power meter |
 | `$6B50`, `$6B52` | spin selectors during the stage |
@@ -629,7 +650,8 @@ traced aim sweeps matches the engine's port):
 
 * Which mode is which copy ability, beyond the order of the demos and
   help strings.
-* `$81:980B`, the rules for leaving the ground over a ramp crest.
+* `$81:980B`'s cross-cell branches, the rules for leaving the ground over a
+  ramp crest at a cell edge (the in-cell case is known, above).
 * The landing lock-out counter `$6A7A`.
 * `$81:9BE5`'s effect objects (its sounds are known, "The two steps, in full").
 * `$D9E8` / `$81:92D0`.

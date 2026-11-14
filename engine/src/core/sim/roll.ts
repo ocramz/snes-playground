@@ -8,13 +8,19 @@ import { s16, wrap16, hi16, mulFloor } from '../fixed';
 import type { Ctx, Work } from './context';
 import { launch } from './wall-step';
 
-/** $81:80C5: classIndex = mode * 8 + frictionClass[code] * 2 (byte index). */
+/**
+ * $81:80C5: classIndex ($6A72) = mode * 8 + frictionClass[code], a byte
+ * index into the per-mode tables (4 words a mode). $81:8C12's words are
+ * already byte offsets (0, 2, 4, 6: classes 0-3, `ADC $81:8C12,X` at $80E1);
+ * a first port doubled them, which read mode 1's friction on the diagonal
+ * ramps (codes 5-8) and the faceted shapes $08-$0B.
+ */
 export function classIndex(ctx: Ctx, w: Work): void {
   const { rules } = ctx;
   let code = w.code;
   const shape = w.shape;
   if (shape >= 8 && shape < 12) code = 9; // shapes $08-$0B forced to class 6
-  w.classIndex = w.mode * 8 + rules.table('frictionClass')[code] * 2;
+  w.classIndex = w.mode * 8 + rules.table('frictionClass')[code];
   // $DA3A = tbl_roll_friction[$6A72]: the tables are word-indexed by
   // $6A72 / 2 = mode * 4 + class.
   w.rollMu = rules.table('rollFriction')[w.classIndex >> 1];
@@ -33,9 +39,10 @@ export function classIndex(ctx: Ctx, w: Work): void {
  */
 export function crestTest(ctx: Ctx, w: Work): number | null {
   w.launchLock = 0; // $81:980B: STZ $6A7A
-  if (w.moveDir < 0) {
-    // no edge crossed this frame ($6A78 = $FFFF)
-    if (w.code !== w.pCode && (ctx.rules.table('crestShape')[w.pShape] & 0xff) !== 0) {
+  if (w.moveDir === 0xffff) {
+    // no edge crossed this frame ($6A78 = $FFFF: $980E BPL not taken); the
+    // flag is the current shape's ($D9FE), the same cell as the last frame's
+    if (w.code !== w.pCode && (ctx.rules.table('crestShape')[w.shape] & 0xff) !== 0) {
       w.launchLock += 1;
       return w.pCode; // SEC
     }

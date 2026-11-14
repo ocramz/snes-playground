@@ -291,7 +291,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | bounce | 1, 2, 3, 5, 6 | `$81:9BE5` by vz; `$81:9BF4` the spin streak (5, 6) | `systems/ball-step.ts` | effect |
 | step | 4 | a step hit | `systems/ball-step.ts` | effect |
 | wall | 7 | `$82:91E6`, the outline wall | `sim/outline.ts` → the tail | effect |
-| tile | `$1A`, `$5F`, `$60`, `$6F`, `$11`, `$7C` | the tail: friction, rough, `$05`, snaps, a cone | `sim/dispatch.ts`, `sim/hazards.ts` → the tail | effect |
+| tile | `$1A`, `$5F`, `$60`, `$6F`, `$11`, `$7C`, `$0C` | the tail: friction, rough, `$05`, snaps, a cone, an arrow panel (`$82:A7D6`) | `sim/dispatch.ts`, `sim/hazards.ts` → the tail | effect |
 | pillar | `$71` | `$82:956C` / `$82:95F8` | `systems/ball-step.ts` | effect |
 | hazard | `$6F` | `$82:9C9D`, a bumper | `systems/ball-step.ts` | effect |
 | hazard-hit | — | `$82:EED8`, object `$2F` | `systems/ball-step.ts` | nothing (not drawn) |
@@ -310,7 +310,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | song | 0, 11, 17, 18, 24, 25, 26 | `$80:B4AC` | `systems/hole-flow.ts`, `systems/camera.ts` (the fall) | the music: its own source node with the loop points; 0 stops |
 | cue | 29, 45, 47, 62, 98, 100, 103 | `cutscenes.json`'s cues | the bridge (`cutscene/director.ts`) | effect |
 
-`test/events.test.ts` checks the timing: every request the game makes from its main loop and physics matches an engine event in the same iteration with the same id. It covers seven recorded runs, about 230 requests. `trace-hazards.test.ts` does the same for the five hazard scenarios.
+`test/events.test.ts` checks the timing: every request the game makes from its main loop and physics matches an engine event in the same iteration with the same id. It covers seven recorded runs, about 230 requests. `trace-hazards.test.ts` and `trace-terrain.test.ts` do the same for the poked scenarios.
 
 ## The assets
 
@@ -366,7 +366,7 @@ The bridge:
 
 ## Verification
 
-`make engine-test` runs 30 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 31 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -378,6 +378,7 @@ The bridge:
 | `events` | every sound request of seven runs, on its iteration |
 | `stalls`, `reveal` | the hit-stops and the reveal's edges, frame-exact; the reveal's stages on course 1's holes 1-4 |
 | `hole-entities`, `hazards`, `hazard-actors`, `trace-hazards` | the sweep on all 8 holes; the five hazard scenarios (ball states, sounds, the actors' state sequences); `$A2` and the auto-tiling on t7 |
+| `trace-terrain` | three poked scenarios on course 1 holes 2 and 3 (`web_arrow`, `web_ramps`, `web_step`): the arrow panel's turn, the in-cell crest, flush ramp edges along ±y, a step hit by the N edge and its hit-stop; ball states and sounds (`test/scenarios.ts`, shared with `trace-hazards`) |
 | `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
 | `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists; every sound id has a file; nothing is emitted outside the event table |
 | `determinism` | host frames of 1, 2, 3 and mixed core frames give the same world and the same events (web_hole on hole 1; a pad policy on t1) |
@@ -397,11 +398,11 @@ The harness's conventions:
 ## Not ported, or approximated
 
 The physics:
-- `$81:980B`'s crest branches across cells: the eight per-crossing quadrant samples fall through to "no crest", which is exact for flat and same-shape crossings. web_haz98 2497 is the first recording of a flat → ramp launch, and it is not reproduced.
+- `$81:980B`'s crest branches across cells: the eight per-crossing quadrant samples fall through to "no crest", which is exact for flat and same-shape crossings. The game launches the ball rolling from a flat cell onto a ramp that falls away from it. Two recordings show it: web_haz98 at 2497, and web_ramps' first draft at 2473 (course 1 hole 2, the flat (4,15) onto the `$06` ramp). The engine rolls on instead. The in-cell branch (no edge crossed) is ported and recorded: web_arrow at 2541.
 - The toggle tiles `$70`-`$7B`: their direction map at `$88:9190` is not exported.
 - The overlay `$60`-`$6F`'s enter/leave tracking `$82:80F6` (its `$D9EE` flag is ported).
 - The snap gate `$82:A692` and the snaps' exact clamps (stubbed).
-- The tiles `$14`-`$17`, `$58`-`$5D` and `$B0`-`$B9` ([tiles.md](tiles.md) "Not established").
+- The tiles `$58`-`$5D` and `$B0`-`$B9` ([tiles.md](tiles.md) "Not established").
 - The pillar's mode-7 branch `$82:EE9A`, and the hazards' mode-7 destroy.
 - The rough tiles' `$80:A453` arithmetic: ported, but no trace exercises it.
 - `$68F0` outside the fly shot's first bounce.
@@ -442,7 +443,7 @@ The plan's risks, and their state now:
 | 2 | trace records are bursts | handled: the harness aligns states and carries the scanline |
 | 3 | the reveal's length | settled: 100 frames plus the pans (physics.md "Enemies and the cup") |
 | 4 | the A/Y bonus on walls | settled in code: the outline wall sets `$DA52`, which `$82:DB20` tests, and web_a135 matches |
-| 5 | the crest, pillars, boost gates | the pillar and the boost gates are ported from the disassembly, the gates exercised only on the test holes; the crest's cross-cell branches are not (above) |
+| 5 | the crest, pillars, boost gates | the pillar and the boost gates are ported from the disassembly, the gates exercised only on the test holes; the crest's in-cell branch is recorded (web_arrow), its cross-cell branches are not ported (above) |
 | 6 | the spin stage's pause | settled: 6 frames, which is twice the 3-frame step |
 | 7 | Koota's copy-on-get and change tracking | handled: SoA writes go through `set` or `updateEach`; `Course.layer2` is marked `changed` |
 | 8 | the hole songs per course | settled in the ROM, not yet in the engine: `$80:C967`'s table ([audio.md](audio.md)) |

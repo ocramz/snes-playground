@@ -319,6 +319,8 @@ $80:DD4D	0x005D4D	tbl	tbl_spin_fly_side	13	signed bytes -60..60 by 10: fly-shot 
 $80:DD7D	0x005D7D	data	tbl_tile_friction	14	coefficients the $20-$24 friction tiles write into $DA3A/$DA3C/$DA3E
 $80:DDE3	0x005DE3	data	tbl_kicker_clamp	4	impulse clamp for the $10-$13 kicker tiles
 $80:DDEF	0x005DEF	data	tbl_tile_impulse	10	impulse magnitudes for the $70-$7B toggled tiles
+$80:DE4D	0x005E4D	tbl	tbl_arrow_mode_land	44	22 words, one per ball mode: non-zero lets the arrow panels act on landing (2 in mode 0); $82:A6C7/$82:A70B
+$80:DE79	0x005E79	tbl	tbl_arrow_mode_hit	44	22 words, one per ball mode: the same gate for the rolling (hit-side) handlers $82:A74F/$82:A783
 $80:DF29	0x005F29	tbl	tbl_ability_hit_code_air	-	copy ability -> hit code, ball in the air
 $80:DF55	0x005F55	tbl	tbl_ability_hit_code_ground	-	copy ability -> hit code, ball on the ground
 $80:DFBA	0x005FBA	code	sub_thread_spawn	88	A = object type: claim a slot, load entry and list from tbl_thread_types. JSL/RTL, returns the new slot in Y
@@ -415,6 +417,11 @@ $82:9DB3	0x011DB3	code	sub_tile_boost_n	36	tiles $30 $35 $38; vy += -512
 $82:9DD7	0x011DD7	code	sub_tile_boost_e	36	tiles $31 $37 $3A; vx += +512
 $82:9DFB	0x011DFB	code	sub_tile_boost_s	36	tiles $32 $34 $39; vy += +512
 $82:9E1F	0x011E1F	code	sub_tile_boost_w	36	tiles $33 $36 $3B; vx += -512
+$82:A6C7	0x0126C7	code	sub_tile_arrow_ns	68	tiles $14, $16 on landing: at or under the surface, x in [$4800,$B7FF) and y in [$2800,$DFFF) -> sub_arrow_turn; outside, the latch $6A68 clears; then JML $81:8905
+$82:A70B	0x01270B	code	sub_tile_arrow_ew	68	tiles $15, $17 on landing: as sub_tile_arrow_ns with the axes swapped
+$82:A74F	0x01274F	code	sub_tile_arrow_ns_hit	52	tiles $14, $16 rolling: x in [$6000,$9FFF), y in [$2800,$DFFF) -> sub_arrow_turn; then JML $81:8A56
+$82:A783	0x012783	code	sub_tile_arrow_ew_hit	52	tiles $15, $17 rolling: as sub_tile_arrow_ns_hit with the axes swapped
+$82:A7B7	0x0127B7	code	sub_arrow_turn	38	JSR; once per pass ($6A68): sub_turn_to_dir(tile - $14), the spin cleared, $6A6C = $0C (emulated: web_arrow)
 $82:A7DD	0x0127DD	code	sub_tile_kicker	-	tiles $10-$13; landing vz becomes a directional vx/vy impulse
 $82:ACBF	0x012CBF	code	sub_find_marked_cell	-	scan layer 2 for $0C or $C3; records column, row and elevation+1
 $82:AD8E	0x012D8E	code	sub_tile_cup	-	layer-2 handler $08, the cup: holes the ball when $82:AFE9 says centre ($5000) and it is low enough
@@ -432,6 +439,7 @@ $82:DA51	0x015A51	code	sub_shot_buttons	-	JSR, from $82:CDFF; A or Y pressed whi
 $82:DB20	0x015B20	code	sub_shot_buttons_apply	85	JSR; on a bounce/step/wall event: vx, vy, vz += v*k/256, k = +39 (A) or -25 (Y) from $82:DB75 (emulated)
 $82:DB9A	0x015B9A	code	sub_kirby_hit_dispatch	-	a ball hit by another ball's ability: Kirby animation states 40-50 via tbl_hit_reactions
 $82:DBDE	0x015BDE	tbl	tbl_hit_reactions	-	hit code -> Kirby animation state (40-50)
+$82:ECFC	0x016CFC	code	sub_turn_to_dir	63	JSL, A = 0-3 (N E S W): rotates (vx, vy) by 270/0/90/180 - $D9DA through $82:ED3B, zeroes the cross axis, $81:8E60; the speed is kept (emulated: web_arrow)
 $82:F903	0x017903	code	sub_map_select	-	scene 17, MAP SELECT: course (NORMAL/EXTRA), course number and hole number, then plays that hole. From the title menu's MAP SELECT ($83:B95B)
 $83:ABC5	0x01ABC5	code	sub_tomato_queue_dec	-	queues a tomato -1 in the HUD ring $68FA (A = the player); callers: the roll's start $82:BFDB, the hazards, $82:C085 (a fall out of the world, only when $17FF is set: not in 1P); verified web_flow, web_fly, web_haz*
 $83:B406	0x01B406	code	sub_text_draw	-	walk a string, OR $3C00 (palette 7, priority) into each glyph and store into the BG3 tilemap buffer; $FE = newline, $F0-$FF dispatch through tbl_text_control
