@@ -3,7 +3,9 @@
 
 Replays `build/emu/autoplay/c1n` (course 1 played by tools/snesstep/autoplay.py,
 the same run the demo's sprites are cut from) with a snapshot at every frame of
-three windows and writes what the game drew in them:
+three windows and writes what the game drew in them. The windows are that run's
+frames; today's autoplay.py writes `course1` instead, whose trace differs in the
+enemies' pictures during the hole-out (docs/web-demo.md), so c1n is kept:
 
     intro      Kirby flies in on the warp star and jumps onto the tee
                (the hole is loaded at 2061; the aim stage starts at 2338)
@@ -29,6 +31,8 @@ routine (`$519C` = 0) is skipped: it shows nothing.
 
     python3 tools/snesstep/trace_cutscene.py            # about a minute
     python3 tools/snesstep/trace_cutscene.py --keep     # keep the snapshots
+    python3 tools/snesstep/trace_cutscene.py --replay build/emu/autoplay/course1 \
+        --out build/x                                   # another run, elsewhere
 
 Output: build/web-test/cutscene_hole0.json and build/web-test/cutscene_pics/
 (the snapshots go to build/emu/cutscene_hole0/<window>/, CHUNK frames at a
@@ -73,14 +77,14 @@ def s16(v):
 CHUNK = 48   # frames of snapshots held on disk at a time (~280 KB each)
 
 
-def run(name, first, last, extra):
+def run(name, first, last, extra, replay):
     out = os.path.join(RUN_DIR, name)
     if os.path.isdir(out):
         shutil.rmtree(out)
     snaps = ",".join(str(f) for f in range(first, last + 1))
     cmd = [BIN, "--frames", str(max(last + 1, 3962)),
-           "--input", os.path.join(REPLAY, "input.txt"),
-           "--pokes", os.path.join(REPLAY, "pokes.txt"),
+           "--input", os.path.join(replay, "input.txt"),
+           "--pokes", os.path.join(replay, "pokes.txt"),
            "--snap-at", snaps, "--log-pc", SFX_PC, "--log-pc", SONG_PC,
            "--no-dsp", "--quiet", "--out", out] + extra
     subprocess.run(cmd, check=True)
@@ -179,7 +183,7 @@ def objects(rom, snap, pics):
     return out
 
 
-def window(rom, name, first, last, extra, pics, palettes, keep):
+def window(rom, name, first, last, extra, pics, palettes, keep, replay):
     """Replays the run once per chunk of frames so that only CHUNK snapshots
     exist at a time (the replay itself takes about a second)."""
     frames = []
@@ -188,7 +192,7 @@ def window(rom, name, first, last, extra, pics, palettes, keep):
         b = min(last, a + CHUNK - 1)
         for attempt in range(3):
             try:
-                run_dir = run(name, a, b, extra)
+                run_dir = run(name, a, b, extra, replay)
             except subprocess.CalledProcessError:
                 continue
             got = frames_of(rom, a, b, run_dir, pics, palettes)
@@ -233,28 +237,34 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--keep", action="store_true", help="keep the snapshots")
     ap.add_argument("--only", choices=sorted(WINDOWS), action="append")
+    ap.add_argument("--replay", default=REPLAY,
+                    help="the autoplay run to replay (default {})".format(os.path.relpath(REPLAY, ROOT)))
+    ap.add_argument("--out", default=OUT_DIR,
+                    help="where cutscene_hole0.json and cutscene_pics/ go (default {})".format(
+                        os.path.relpath(OUT_DIR, ROOT)))
     args = ap.parse_args()
     if not os.path.exists(BIN):
         print("build the stepper first (docs/tooling.md)", file=sys.stderr)
         return 1
-    if not os.path.exists(os.path.join(REPLAY, "pokes.txt")):
+    if not os.path.exists(os.path.join(args.replay, "pokes.txt")):
         print("run `python3 tools/snesstep/autoplay.py --course 0` first "
-              "(expected {})".format(REPLAY), file=sys.stderr)
+              "(expected {})".format(args.replay), file=sys.stderr)
         return 1
     rom = load_rom()
-    pics = Pictures(os.path.join(OUT_DIR, "cutscene_pics"))
+    pics = Pictures(os.path.join(args.out, "cutscene_pics"))
     palettes = []
-    result = {"about": __doc__.strip().split("\n")[0], "source": os.path.relpath(REPLAY, ROOT),
+    result = {"about": __doc__.strip().split("\n")[0], "source": os.path.relpath(args.replay, ROOT),
               "windows": {}}
     for name in (args.only or list(WINDOWS)):
         first, last, extra = WINDOWS[name]
-        result["windows"][name] = window(rom, name, first, last, extra, pics, palettes, args.keep)
+        result["windows"][name] = window(rom, name, first, last, extra, pics, palettes, args.keep,
+                                         args.replay)
         w = result["windows"][name]
         print("{}: {} frames, {} cues".format(name, len(w["frames"]), len(w["cues"])))
     result["palettes"] = palettes
     result["pictures"] = pics.meta
-    os.makedirs(OUT_DIR, exist_ok=True)
-    path = os.path.join(OUT_DIR, "cutscene_hole0.json")
+    os.makedirs(args.out, exist_ok=True)
+    path = os.path.join(args.out, "cutscene_hole0.json")
     with open(path, "w") as f:
         json.dump(result, f, separators=(",", ":"))
     print("{} pictures -> {}".format(len(pics.meta), path))

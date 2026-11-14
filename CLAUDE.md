@@ -8,6 +8,7 @@ notes/          working scratch, per-session, unpolished, may be wrong
 tools/          analysis scripts
 web/            the Phaser 4 + Vite demo of one hole (docs/web-demo.md)
 symbols.tsv     machine-readable symbol/label table
+Makefile        `make` builds the web demo end to end; clean tiers (make help, docs/tooling.md)
 build/          all derived output — GITIGNORED (the demo's assets: build/web/)
 ```
 

@@ -8,11 +8,17 @@ and table is generated from your own ROM into `build/web/` (gitignored), and
 publish it).
 
 ```bash
-# once: the stepper, the replay of course 1 the sprites are cut from, the rendered audio
+make build                               # all of the setup below, skipping what build/ has (docs/tooling.md)
+
+# by hand, in this order: each step reads what the ones before it wrote
 CARGO_TARGET_DIR=build/snesstep cargo build --release --offline --manifest-path tools/snesstep/Cargo.toml
-python3 tools/snesstep/autoplay.py --course 0        # about 5 minutes
-python3 tools/render_audio.py
+python3 tools/spc_extract.py && python3 tools/nspc.py --all --midi --spc
+python3 tools/render_audio.py                        # the songs and effects as WAV
 python3 tools/snesstep/screens.py                    # build/screens (the HUD panel)
+python3 tools/kirbyanim.py --make-base && python3 tools/kirbyanim.py --clips   # Kirby's clips for the atlas
+python3 tools/snesstep/autoplay.py --course 0        # the replay the sprites are cut from, about 5 minutes
+                                                     # (not needed while build/emu/autoplay/c1n exists)
+python3 tools/snesstep/trace_cutscene.py             # the intro and hole-out (needs c1n, see below)
 
 python3 tools/export_web.py --golden     # ROM -> build/web/ (needs KDC_ROM, ffmpeg, the stepper)
 cd web && npm install
@@ -171,6 +177,25 @@ Two things about the traces, because they cost an afternoon:
 snapshot at every frame (48 at a time, so it stays small on disk) and reads the
 64 thread-object slots (`$4E1C` type, `$5F1C/$5F9C` position, `$5E1C/$5D9C`
 frame, `$519C` draw routine). Frame numbers below are the c1n run's.
+
+c1n is the course-1 run of `autoplay.py` from commit a776237, recorded on 13 Nov,
+and the current tools cannot record it again. Today's `autoplay.py --course 0` writes
+`build/emu/autoplay/course1`. Since commit 41fbc7e it drops the ball 0.5 height steps
+above an enemy instead of 1, so two pairs of pokes differ: those at frames 2991 and
+3001 (`$D8AA` 1999 vs 4000, `$D8BA` 87C3 vs B504). `input.txt` and every other poke
+before frame 4000 are the same.
+
+Tracing course1 with `trace_cutscene.py --replay build/emu/autoplay/course1`
+(2026-11-14, compared with c1n traced by the same code) gives:
+
+* the same intro, frame for frame;
+* in both hole-outs, the same scroll, brightness, palette, Kirby state and sound cues;
+* different enemies (type 73) from frame 3116 on: the same positions with other
+  pictures, in 629 of the 846 frames of `outroHio` and 362 of the 506 of `outro`.
+
+So `make distclean` keeps c1n. Where c1n is missing,
+`make CUTSCENE_REPLAY=build/emu/autoplay/course1` traces the close substitute. A plain
+`make` then exports without the intro and the hole-out.
 
 | | |
 |---|---|

@@ -29,6 +29,24 @@ comparison and nothing else depends on it. `rg`
 is not on `PATH` for shell commands; use `grep`. If a task genuinely needs one
 of the missing tools, say so and ask before installing.
 
+## Make
+
+`make help` lists the targets. `make` (= `make build`) builds the web demo end to
+end: the two Rust tools, then everything `tools/export_web.py` reads from other
+tools (the rendered audio, `build/screens`, Kirby's clips, the course-1 replay, the
+cutscene trace), then the export, `npm ci` and `vite build`. Each step is a file rule
+on the file its tool writes, so a finished step is skipped; delete an output to redo
+it. A rebuilt stepper does not re-run finished emulator runs. `make extract` runs
+`tools/extract_all.py`, which is not part of `build`. Pass the ROM with
+`make KDC_ROM=...`.
+
+Cleanup comes in three tiers:
+- `make clean`: `web/dist`, `build/web` and `__pycache__`, seconds to redo.
+- `make clean-rust`: `build/snesstep` and `build/spcrender`.
+- `make distclean`: also `web/node_modules` and all of `build/` except
+  `build/emu/autoplay/c1n`, which no current tool can record again
+  (docs/web-demo.md).
+
 ## Commands
 
 ```bash
