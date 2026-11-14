@@ -6,7 +6,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 const out = process.argv[2] ?? '../build/web-test/shots';
-const url = process.argv[3] ?? 'http://127.0.0.1:5173/';
+const url = process.argv[3] ?? 'http://127.0.0.1:5173/?nointro';
 mkdirSync(out, { recursive: true });
 const base = join(homedir(), 'Library/Caches/ms-playwright');
 const exe = ['chromium-1248', 'chromium-1234']

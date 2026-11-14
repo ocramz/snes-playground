@@ -10,7 +10,7 @@ const exe = ['chromium-1248', 'chromium-1234'].map((d) => join(base, d, 'chrome-
 const browser = await chromium.launch({ executablePath: exe, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: 256, height: 224 } });
 page.on('response', (r) => { if (r.status() >= 400) console.log('[http]', r.status(), r.url()); });
-await page.goto('http://127.0.0.1:5173/');
+await page.goto('http://127.0.0.1:5173/?nointro');
 await page.waitForTimeout(2000);
 await page.keyboard.press('Enter');
 await page.waitForTimeout(1200);

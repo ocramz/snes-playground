@@ -2,17 +2,25 @@
 // sound API has no loop points; the game's songs have an intro and a loop.)
 // Everything degrades to silence if the files are missing.
 
+interface SongFile { file: string; loopStart?: number; loopEnd?: number }
+
 interface AudioJson {
-  music?: { file: string; loopStart: number; loopEnd: number };
-  jingle?: string;
+  music?: SongFile;
+  /** by the game's song number (a request of id $7E + n plays song n) */
+  songs?: Record<string, SongFile>;
   sfx?: Record<string, string>;
 }
+
+/** The hole's song (course 1). */
+export const HOLE_SONG = 11;
 
 export class GameAudio {
   private ctx: AudioContext | null = null;
   private meta: AudioJson = {};
   private buffers = new Map<string, AudioBuffer>();
   private music: AudioBufferSourceNode | null = null;
+  /** the song playing, like the sound driver's current song ($7E:1004) */
+  private song = -1;
   private master: GainNode | null = null;
   muted = false;
 
@@ -34,8 +42,8 @@ export class GameAudio {
       this.meta = {};
     }
     const jobs: Promise<void>[] = [];
-    if (this.meta.music) jobs.push(this.load('music', this.meta.music.file));
-    if (this.meta.jingle) jobs.push(this.load('jingle', this.meta.jingle));
+    if (!this.meta.songs && this.meta.music) this.meta.songs = { [HOLE_SONG]: this.meta.music };
+    for (const [n, s] of Object.entries(this.meta.songs ?? {})) jobs.push(this.load(`song${n}`, s.file));
     for (const [id, file] of Object.entries(this.meta.sfx ?? {})) jobs.push(this.load(`sfx${id}`, file));
     await Promise.all(jobs);
   }
@@ -55,32 +63,36 @@ export class GameAudio {
     }
   }
 
-  playMusic(): void {
-    const buf = this.buffers.get('music');
-    if (!this.ctx || !buf || !this.meta.music || this.music) return;
+  /** The hole's music. */
+  playMusic(): void { this.playSong(HOLE_SONG); }
+
+  /**
+   * Song n, as the game's `sub_spc_play_song` requests it (id $7E + n): one song at a
+   * time, a new one replaces the old, the same one again is ignored, song 0 is silence.
+   */
+  playSong(n: number): void {
+    if (n === this.song && this.music) return;
+    this.stopMusic();
+    this.song = n;
+    const buf = this.buffers.get(`song${n}`);
+    const meta = this.meta.songs?.[String(n)];
+    if (!this.ctx || !buf || !meta) return;
     const src = this.ctx.createBufferSource();
     src.buffer = buf;
-    src.loop = true;
-    src.loopStart = this.meta.music.loopStart;
-    src.loopEnd = this.meta.music.loopEnd;
+    if (meta.loopStart !== undefined && meta.loopEnd !== undefined) {
+      src.loop = true;
+      src.loopStart = meta.loopStart;
+      src.loopEnd = meta.loopEnd;
+    }
     src.connect(this.master!);
     src.start();
     this.music = src;
   }
 
-  /** The hole-in jingle (song 17, 2.8 s), once. */
-  jingle(): void {
-    const buf = this.buffers.get('jingle');
-    if (!this.ctx || !buf || this.muted) return;
-    const src = this.ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(this.master!);
-    src.start();
-  }
-
   stopMusic(): void {
     this.music?.stop();
     this.music = null;
+    this.song = -1;
   }
 
   sfx(id: number): void {

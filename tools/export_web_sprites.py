@@ -226,12 +226,160 @@ def build(outdir):
     cone = snap.crop((137, 107, 144, 118))
     atlas.add("guide_cone", cone, 3, 10, trim=False)
 
+    cutscenes = build_cutscenes(atlas)
+    if cutscenes:
+        with open(os.path.join(outdir, "cutscenes.json"), "w") as f:
+            json.dump(cutscenes, f, separators=(",", ":"))
+
     sheet, frames = atlas.pack()
     sheet.save(os.path.join(outdir, "sprites.png"))
     with open(os.path.join(outdir, "sprites.json"), "w") as f:
         json.dump({"image": "sprites.png", "size": list(sheet.size),
                    "frames": frames, "clips": clips}, f, separators=(",", ":"))
-    return {"frames": len(frames), "clips": len(clips), "size": list(sheet.size)}
+    return {"frames": len(frames), "clips": len(clips), "size": list(sheet.size),
+            "cutscenes": sorted(cutscenes["windows"]) if cutscenes else None}
+
+
+# --------------------------------------------------------------------------
+# The intro and the hole-out, replayed from tools/snesstep/trace_cutscene.py
+
+CUTSCENE_TRACE = os.path.join(ROOT, "build", "web-test", "cutscene_hole0.json")
+CUTSCENE_PICS = os.path.join(ROOT, "build", "web-test", "cutscene_pics")
+# Thread-object types that take part (docs/web-demo.md). 74 (the cup's ring)
+# and 108 (the tee pad) keep world coordinates; every other type keeps screen
+# coordinates, so its world position is screen + scroll.
+CUTSCENE_TYPES = {
+    "intro": {104, 105, 106, 107, 108, 109},
+    "outro": {74, 108, 128, 129, 132},
+    "outroHio": {74, 108, 128, 129, 132, 17, 99, 100, 103, 130, 131},
+}
+WORLD_TYPES = {74, 108}
+ANCHOR_TYPE = {"tee": 108, "cup": 74}
+# Where each window starts: the intro at the request of the hole's song (the
+# screen is still black; it fades in from 2183), the hole-outs on the frame
+# the ball is holed (`$DA4A` = 1; the holed effect $21 follows two frames later).
+CUTSCENE_START = {"intro": 2169, "outro": 3121, "outroHio": 3121}
+
+
+def night_cgram():
+    """(day, night) BG CGRAM as 128 RGB colours each, from the HOLE IN ONE
+    window of the trace (the frame before the swap and the frame of it), or
+    None without a trace."""
+    if not os.path.exists(CUTSCENE_TRACE):
+        return None
+    from tiles import snes_color
+    tr = json.load(open(CUTSCENE_TRACE))
+    w = tr["windows"].get("outroHio")
+    if not w:
+        return None
+    pals = [bytes.fromhex(p) for p in tr["palettes"]]
+    frames = [fr for fr in w["frames"] if fr["f"] >= CUTSCENE_START["outroHio"]]
+    day = pals[frames[0]["pal"]]
+    swap = next((fr for fr in frames if pals[fr["pal"]][:2] != day[:2]), None)
+    if swap is None:
+        return None
+    night = pals[swap["pal"]]
+
+    def cols(b):
+        return [snes_color(b[2 * i] | (b[2 * i + 1] << 8)) for i in range(128)]
+    return cols(day), cols(night)
+
+
+def build_cutscenes(atlas):
+    """cutscenes.json: per window and frame, the sprites relative to an anchor
+    (the tee pad or the cup ring, where the recorded run had them), the camera
+    relative to the same anchor, the brightness and the sound requests."""
+    if not os.path.exists(CUTSCENE_TRACE):
+        print("cutscenes: {} missing (tools/snesstep/trace_cutscene.py); skipped".format(
+            CUTSCENE_TRACE))
+        return None
+    from PIL import Image
+    tr = json.load(open(CUTSCENE_TRACE))
+    pics = tr["pictures"]
+
+    def pos_of(win, typ):
+        for fr in win["frames"]:
+            for o in fr["objs"]:
+                if o[0] == typ:
+                    return o[2], o[3]
+        raise SystemExit("cutscenes: no type {} in the trace".format(typ))
+
+    anchors = {"tee": pos_of(tr["windows"]["intro"], ANCHOR_TYPE["tee"]),
+               "cup": pos_of(tr["windows"]["outro"], ANCHOR_TYPE["cup"])}
+    names = ["tee", "cup"]
+    palettes = [bytes.fromhex(p) for p in tr["palettes"]]
+    out = {"about": "tools/export_web_sprites.py build_cutscenes from {}".format(
+               os.path.relpath(CUTSCENE_TRACE, ROOT)),
+           "anchors": {k: list(v) for k, v in anchors.items()}, "windows": {}}
+    for name, win in tr["windows"].items():
+        types = CUTSCENE_TYPES[name]
+        start = CUTSCENE_START[name]
+        main = "tee" if name == "intro" else "cup"
+        ax, ay = anchors[main]
+        frames = [fr for fr in win["frames"] if fr["f"] >= start]
+        if name == "intro":
+            # until the aim stage (Kirby's state 4) takes over
+            end = next(fr["f"] for fr in frames if fr["state"] == 4)
+        else:
+            # until the screen is blanked after the fade-out
+            lit = False
+            end = None
+            for fr in frames:
+                if fr["inidisp"] & 0x80 == 0 and fr["inidisp"] & 15:
+                    lit = True
+                elif lit and fr["inidisp"] & 0x80:
+                    end = fr["f"]
+                    break
+        frames = [fr for fr in frames if fr["f"] < end]
+        day = palettes[frames[0]["pal"]]
+        night = None
+        sprites_ = []
+        for i, fr in enumerate(frames):
+            if night is None and palettes[fr["pal"]][:2] != day[:2]:
+                night = i
+            sx, sy = fr["scroll"]
+            row = []
+            for typ, slot, x, y, pic in fr["objs"]:
+                if typ not in types:
+                    continue
+                key = "cs_" + pic
+                if key not in atlas.names:
+                    m = pics[pic]
+                    img = Image.open(os.path.join(CUTSCENE_PICS, m["file"])).convert("RGBA")
+                    atlas.add(key, img, m["ox"], m["oy"], trim=False)
+                if typ in WORLD_TYPES:
+                    a = "tee" if typ == 108 else "cup"
+                    bx, by = anchors[a]
+                    row.append([key, x - bx, y - by, names.index(a), -1])
+                else:
+                    # screen space: lower slots are drawn on top
+                    row.append([key, x + sx - ax, y + sy - ay, names.index(main), 64 - slot])
+            sprites_.append(row)
+        camera = [[fr["scroll"][0] - ax, fr["scroll"][1] - ay] for fr in frames]
+        brightness = [0 if fr["inidisp"] & 0x80 else fr["inidisp"] & 15 for fr in frames]
+        # the scroll is set up under the blanked screen: show the first lit one
+        lit = next(i for i, b in enumerate(brightness) if b)
+        camera[:lit] = [camera[lit]] * lit
+        out["windows"][name] = {
+            "recorded": [frames[0]["f"], end],
+            "length": len(frames),
+            "anchor": main,
+            "camera": camera,
+            "brightness": brightness,
+            "hideKirby": next((i for i, fr in enumerate(frames) if fr["state"] == 1), None),
+            "night": night,
+            "cues": [[f - start, kind, i] for f, kind, i in win["cues"] if start <= f < end],
+            "sprites": sprites_,
+        }
+    out["nightPalette"] = None
+    if "outroHio" in out["windows"] and out["windows"]["outroHio"]["night"] is not None:
+        w = tr["windows"]["outroHio"]
+        i = out["windows"]["outroHio"]["night"]
+        f0 = [fr for fr in w["frames"] if fr["f"] >= CUTSCENE_START["outroHio"]]
+        out["nightPalette"] = {"day": tr["palettes"][f0[0]["pal"]],
+                               "night": tr["palettes"][f0[i]["pal"]],
+                               "frame": f0[i]["f"]}
+    return out
 
 
 if __name__ == "__main__":

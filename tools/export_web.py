@@ -17,7 +17,7 @@ emulator or other build/ output):
     font      the 8x8 font as a glyph sheet
     sprites   the atlas (tools/export_web_sprites.py; needs the stepper)
     ui        the shot panel sprites (tools/export_web_ui.py; needs the stepper)
-    audio     music (cut at its loop end), jingle and effects via ffmpeg
+    audio     music (cut at its loop end), the hole-out songs and effects via ffmpeg
     course    grid layers, tee, enemies, objects, projection origin
     tables    every ROM constant the TypeScript physics needs, each with its
               $bank:addr so a number in the browser can be traced to the ROM
@@ -259,7 +259,7 @@ def build_layers(d, index, outdir):
     pal = course_palette(d)
     W, H = map_w * 8, map_h * 8
 
-    def compose(want):
+    def compose(want, pal=pal):
         img = np.zeros((H, W, 4), dtype=np.uint8)
         ol = np.zeros((H, W, 4), dtype=np.uint8)
         # BG2 is behind BG1 at the same priority.
@@ -287,20 +287,46 @@ def build_layers(d, index, outdir):
     # of four colours, as coursemap.render builds them.
     page, tmap, cols = backdrop(d, index)
     cells = decode_tiles(page, 2)
-    pal2 = [[cols[g * 4 + c] for c in range(4)] for g in range(8)]
-    sky = np.zeros((BG3_MAP_TILES * 8, BG3_MAP_TILES * 8, 4), dtype=np.uint8)
-    for want in (0, 1):
-        for i, wd in enumerate(tmap[:BG3_MAP_TILES * BG3_MAP_TILES]):
-            if ((wd >> 13) & 1) != want:
-                continue
-            cy, cx = divmod(i, BG3_MAP_TILES)
-            blit_rgba(sky, pal2, cells, wd, cy * 8, cx * 8)
-    Image.fromarray(sky, "RGBA").save(os.path.join(outdir, "layer_bg3.png"))
-    wrote["layer_bg3.png"] = [256, 256]
+
+    def bg3(cols, path):
+        pal2 = [[cols[g * 4 + c] for c in range(4)] for g in range(8)]
+        sky = np.zeros((BG3_MAP_TILES * 8, BG3_MAP_TILES * 8, 4), dtype=np.uint8)
+        for want in (0, 1):
+            for i, wd in enumerate(tmap[:BG3_MAP_TILES * BG3_MAP_TILES]):
+                if ((wd >> 13) & 1) != want:
+                    continue
+                cy, cx = divmod(i, BG3_MAP_TILES)
+                blit_rgba(sky, pal2, cells, wd, cy * 8, cx * 8)
+        Image.fromarray(sky, "RGBA").save(os.path.join(outdir, path))
+        wrote[path] = [256, 256]
+
+    bg3(cols, "layer_bg3.png")
+    # The HOLE IN ONE sequence swaps the BG palettes for a night set (recorded
+    # by tools/snesstep/trace_cutscene.py; only hole 1's run is recorded).
+    # Every CGRAM entry that differs between the two recorded palettes takes
+    # its night value; the others keep the ROM colours used above.
+    night = None
+    if index == 0:
+        import export_web_sprites
+        night = export_web_sprites.night_cgram()
+    night_back = None
+    if night:
+        day_cg, night_cg = night
+        changed = {i: night_cg[i] for i in range(128)
+                   if day_cg[i] != night_cg[i] and i != OUTLINE_PAL * 16 + OUTLINE_COLOUR}
+        pal_n = [[changed.get(p * 16 + c, pal[p][c]) for c in range(16)] for p in range(len(pal))]
+        for want, path in ((0, "layer_back_night.png"), (1, "layer_front_night.png")):
+            arr, _ = compose(want, pal_n)
+            if arr[:, :, 3].any():
+                Image.fromarray(arr, "RGBA").save(os.path.join(outdir, path))
+                wrote[path] = [W, H]
+        bg3([changed.get(i, c) for i, c in enumerate(cols)], "layer_bg3_night.png")
+        night_back = list(changed.get(0, cols[0]))
     # The backdrop colour behind everything is the course palette's colour 0.
     from tiles import snes_color
     table = [snes_color(w) for w in rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15)]
     return {"files": wrote, "backColour": list(cols[0]), "name": name,
+            "nightBackColour": night_back,
             "outline": {"source": src(*OUTLINE_TABLE), "stepFrames": 3,
                         "cycle": [list(table[i]) for i in OUTLINE_WALK]}}
 
@@ -395,8 +421,8 @@ def encode(src_wav, dst_base, seconds=None):
 
 
 def build_audio(outdir):
-    """music (cut at its loop end), the hole-in jingle and the effects the
-    demo plays, with the loop points the browser needs."""
+    """music (cut at its loop end), the songs of the intro and the hole-out,
+    and the effects the demo plays, with the loop points the browser needs."""
     import csv
     amap = json.load(open(os.path.join(HERE, "web_audio_map.json")))
     index = os.path.join(WAV_DIR, "index.tsv")
@@ -407,24 +433,30 @@ def build_audio(outdir):
     with open(index) as f:
         for r in csv.DictReader(f, delimiter="\t"):
             rows[(r["kind"], r["id"])] = r
-    out = {}
-    n = amap["music"]["song"]
-    row = rows[("song", "{:02d}".format(n))]
-    start, length = float(row["loop_start_s"]), float(row["loop_length_s"])
-    end = start + length
-    encode(os.path.join(WAV_DIR, "songs", "song_{:02d}.wav".format(n)),
-           os.path.join(outdir, "music"), seconds=round(end + 0.05, 3))
-    out["music"] = {"file": "music.ogg", "loopStart": round(start, 4), "loopEnd": round(end, 4)}
-    j = amap["jingle"]["song"]
-    encode(os.path.join(WAV_DIR, "songs", "song_{:02d}.wav".format(j)), os.path.join(outdir, "jingle"))
-    out["jingle"] = "jingle.ogg"
+
+    def song(n, name):
+        row = rows[("song", "{:02d}".format(n))]
+        src = os.path.join(WAV_DIR, "songs", "song_{:02d}.wav".format(n))
+        if row["loop_start_s"] not in ("", "-"):
+            start, length = float(row["loop_start_s"]), float(row["loop_length_s"])
+            end = start + length
+            encode(src, os.path.join(outdir, name), seconds=round(end + 0.05, 3))
+            return {"file": name + ".ogg", "loopStart": round(start, 4), "loopEnd": round(end, 4)}
+        encode(src, os.path.join(outdir, name))
+        return {"file": name + ".ogg"}
+
+    out = {"music": song(amap["music"]["song"], "music"), "songs": {}}
+    # the songs keep the game's numbering: request id $7E + n is song n
+    out["songs"][str(amap["music"]["song"])] = out["music"]
+    for n in amap.get("songs", {}):
+        out["songs"][n] = song(int(n), "song_{:02d}".format(int(n)))
     out["sfx"] = {}
     for sid in amap["sfx"]:
         name = "sfx_{:02X}".format(int(sid))
         encode(os.path.join(WAV_DIR, "sfx", name + ".wav"), os.path.join(outdir, name))
         out["sfx"][sid] = name + ".ogg"
     write_json(os.path.join(outdir, "audio.json"), out, compact=False)
-    return {"music": out["music"], "sfx": len(out["sfx"])}
+    return {"music": out["music"], "songs": sorted(out["songs"]), "sfx": len(out["sfx"])}
 
 
 # --------------------------------------------------------------------------

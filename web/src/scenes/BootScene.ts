@@ -19,6 +19,7 @@ export class BootScene extends Phaser.Scene {
     this.load.json('atlas', 'sprites.json');
     this.load.json('layers', 'layers.json');
     this.load.json('ui', 'ui.json');
+    this.load.json('cutscenes', 'cutscenes.json'); // optional: the intro and the hole-out
     this.load.image(UI, 'ui.png');
     this.load.image('sprites', 'sprites.png');
     this.load.image('font', 'font.png');
@@ -43,6 +44,7 @@ export class BootScene extends Phaser.Scene {
     this.registry.set('course', course);
     this.registry.set('atlas', atlas);
     this.registry.set('layers', layers);
+    this.registry.set('cutscenes', this.cache.json.get('cutscenes') ?? null);
     this.scene.start('Title');
   }
 }

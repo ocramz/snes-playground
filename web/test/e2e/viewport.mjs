@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const url = process.argv[2] ?? 'http://127.0.0.1:5173/';
+const url = process.argv[2] ?? 'http://127.0.0.1:5173/?nointro';
 const base = join(homedir(), 'Library/Caches/ms-playwright');
 const exe = ['chromium-1248', 'chromium-1234']
   .map((d) => join(base, d, 'chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'))

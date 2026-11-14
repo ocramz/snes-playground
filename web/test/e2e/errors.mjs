@@ -10,7 +10,7 @@ const page = await browser.newPage({ viewport: { width: 512, height: 448 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
 page.on('response', (r) => { if (r.status() >= 400) console.log('[http]', r.status(), r.url()); });
 page.on('requestfailed', (r) => console.log('[failed]', r.url()));
-await page.goto(process.argv[2] ?? 'http://127.0.0.1:5173/?debug');
+await page.goto(process.argv[2] ?? 'http://127.0.0.1:5173/?debug&nointro');
 await page.waitForTimeout(1500);
 await page.keyboard.press('Enter');
 await page.waitForTimeout(2500);

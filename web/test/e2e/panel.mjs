@@ -20,7 +20,7 @@ const browser = await chromium.launch({
 });
 const page = await browser.newPage({ viewport: { width: 256, height: 224 } });
 page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-await page.goto('http://127.0.0.1:5173/?debug');
+await page.goto('http://127.0.0.1:5173/?debug&nointro');
 await page.waitForTimeout(1500);
 await page.keyboard.press('Enter');
 await page.waitForTimeout(800);

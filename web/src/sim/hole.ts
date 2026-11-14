@@ -18,7 +18,7 @@ export interface Pad {
 export const emptyPad = (): Pad => ({ left: false, right: false, up: false, down: false, a: false, b: false, y: false });
 
 export type Stage =
-  | 'aim' | 'spin' | 'power' | 'curl' | 'roll' | 'rest'
+  | 'intro' | 'aim' | 'spin' | 'power' | 'curl' | 'roll' | 'rest'
   | 'cupReveal' | 'sink' | 'lost' | 'done' | 'fail';
 
 /** Sound effect ids as the game numbers them (tools/web_audio_map.json). */
@@ -76,6 +76,8 @@ export class HoleSim implements BallWorld {
 
   stage: Stage = 'aim';
   stageTimer = 0;
+  /** frames of the hole intro (Kirby flies in on the warp star); see startIntro */
+  private introFrames = 0;
   /** frames since the A that confirmed the aim, through spin, power and curl */
   shotAge = 0;
   frame = 0;
@@ -138,6 +140,17 @@ export class HoleSim implements BallWorld {
     this.setStage('aim');
   }
 
+  /**
+   * Play the hole intro first: nothing answers for `frames` ticks, then the aim stage
+   * starts (the real game: the hole's song at frame 2169 of the c1n run, the aim, Kirby's
+   * state 4, at 2337, 168 frames later; docs/web-demo.md). The camera stays where
+   * restart() put it, Kirby in the middle, which is where the game has it all along.
+   */
+  startIntro(frames: number): void {
+    this.introFrames = frames;
+    this.setStage('intro');
+  }
+
   private resetShot(): void {
     this.restart();
   }
@@ -194,6 +207,9 @@ export class HoleSim implements BallWorld {
     this.prevPad = { ...pad };
 
     switch (this.stage) {
+      case 'intro':
+        if (this.stageTimer > this.introFrames) this.setStage('aim');
+        break;
       case 'aim': this.tickAim(pad, pressed); break;
       case 'spin': this.tickSpin(pad, pressed); break;
       case 'power': this.tickPower(pressed); break;

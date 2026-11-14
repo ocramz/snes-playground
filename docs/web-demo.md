@@ -17,20 +17,24 @@ python3 tools/snesstep/screens.py                    # build/screens (the HUD pa
 python3 tools/export_web.py --golden     # ROM -> build/web/ (needs KDC_ROM, ffmpeg, the stepper)
 cd web && npm install
 npm run dev                              # http://127.0.0.1:5173
-npm run traces                           # record the shots and the UI timeline from the real game (stepper)
-npm test                                 # 36 tests; the ROM-derived ones skip without build/web
+npm run traces                           # record the shots, the UI timeline, the intro and hole-out (stepper)
+npm test                                 # 40 tests; the ROM-derived ones skip without build/web
 npm run build                            # tsc + vite build -> web/dist
 python3 tools/check_web_ui.py            # the shot panel against the real sprites (needs npm run dev)
 ```
 
 `web/test/e2e/*.mjs` drive the dev server in headless Chromium (the build
 Playwright already cached; no download) and save screenshots: `play.mjs` takes a
-shot, `full.mjs` plays the hole through the `?debug` hook, `cup.mjs` holes out,
+shot, `full.mjs` plays the hole through the `?debug` hook, `cup.mjs` holes out
+and follows the star exit to the result card, `intro.mjs` steps the intro (or,
+with `--outro [--hio]`, a hole-out) frame by frame and saves the frames that the
+c1n snapshots have, for a side-by-side look with `tools/ppu_render.py`,
 `first.mjs` renders the first frame at 1:1 for comparison with
 `build/emu/holes/screens/hole000.png`, `viewport.mjs` checks that the canvas fits
 the window at 14 sizes and after resizing, `depth.mjs` that the cup stays under
 Kirby, `facing.mjs` saves Kirby at eight aims and `panel.mjs` the shot panel at
-given states. Start `npm run dev` first.
+given states. Start `npm run dev` first. Every script but `intro.mjs` opens the
+page with `?nointro`, which skips the warp-star intro.
 
 Keys: arrows aim (Left/Right), Up = fly shot, Down = grounder; **Z / Space /
 Enter = A** (confirm), **X / Esc = B** (back), **S / C = Y** (brake). During
@@ -39,13 +43,18 @@ works too.
 
 ## The loop
 
-Aim (Left/Right, Up/Down) → **A** → Kirby curls up while the camera moves to the
+The hole opens with the game's intro: the screen fades in, Kirby flies in on the
+warp star and jumps onto the tee pad, which dithers in (168 frames; nothing
+answers meanwhile). Then: aim (Left/Right, Up/Down) → **A** → Kirby curls up while the camera moves to the
 shot view and the panel opens (about 70 frames; nothing answers meanwhile) → spin
 (Left/Right = side spin; in a fly shot the top/back selector runs by itself) →
 **A** → power (the meter runs up and down; **A** latches it, or it shoots by itself
 when the meter is back at 0) → 23 frames → the ball rolls. Hit enemies (they leave
 a star; Kirby gets a tomato back); when one enemy is left it becomes the cup. Sink
-the ball in the cup to finish. Every shot costs a tomato, so does going out of
+the ball in the cup to finish: a ball rises out of the cup, turns into a star, Kirby
+jumps onto it and it flies up while the camera follows it into the sky, then the
+screen fades to the result card (in one stroke, the HOLE IN ONE banner, fireworks and
+1UP come first, over the course in its night palette). Every shot costs a tomato, so does going out of
 bounds; at zero tomatoes the hole is lost. After a shot the ball stays a ball until
 the next aim starts, 35 frames after it stopped (with one or two tomatoes left Kirby
 pants meanwhile).
@@ -60,6 +69,8 @@ pants meanwhile).
 | `tools/snesstep/trace_ball.py`, `inputs/web_*.txt` | per-frame ball traces from the real game |
 | `tools/export_web_ui.py`, `tools/check_web_ui.py` | the shot panel sprites read from the real game's OAM, and the pixel check of the browser's panel against them |
 | `tools/snesstep/trace_flow.py`, `inputs/web_flow.txt`, `web_ui.txt` | frame-level timeline of Kirby's state, the aim, the camera and the meter on the real game |
+| `tools/snesstep/trace_cutscene.py` | the intro and the two hole-outs, every frame of the c1n run: objects, pictures, scroll, brightness, palette, sound requests (`build/web-test/cutscene_hole0.json`); `export_web_sprites.build_cutscenes` turns it into `cutscenes.json` and the atlas frames `cs_*`, `export_web.build_layers` into the night layers |
+| `web/src/render/cutscene.ts` | replays a recorded window relative to its anchors (the tee pad, the cup ring); `HoleScene` draws it, owns the camera meanwhile and plays its cues |
 | `web/src/sim/` | the physics: `fixed.ts` (65816 integer maths), `trig.ts`, `terrain.ts`, `ball.ts`, `shot.ts`, `hole.ts` (shot flow, enemies, cup, score), `camera.ts`, `guide.ts`, `pose.ts` (Kirby's animation state). No Phaser import |
 | `web/src/render/`, `scenes/`, `audio/` | Phaser: layers, sprites, clips, HUD, the shot panel (`shotpanel.ts`), WebAudio with loop points |
 | `web/src/sim/__tests__/` | terrain parity, documented numbers, 11 frame-exact traces, facing, Kirby's states, camera and guide against the recorded game, a headless player |
@@ -152,7 +163,28 @@ Two things about the traces, because they cost an afternoon:
 | Panel sprites | all anchored to Kirby's ball point on the screen (same offsets with two different cameras): "1" at (-4, bob - 0 .. 8), face 3 x 3 tiles of 16 at (-24, 5), gauge frame at x 23..39, tomatoes at (-24 + 16 k, 53); the ruler and the marker at x = -4 + 2 (side - 6), the marker dot at y = 24 + 2 (topBack - 6); the face picture is the meter two frames ago, the gauge the meter one frame ago |
 | Camera | `$38AC/$38AE` (scroll x = `$38AC`, y = 456 - `$38AE`). Aim stage: pan every frame toward the **end of the shot guide**; first A: pan toward Kirby + `($81:C0F0, $81:C0F8)[quarter of the aim]` = (80, 0), (0, 40), (-80, 0), (0, -56) until it has arrived, then curl; at the shot (`$82:BFBC`) `$38C6/$38C8` = that offset and the follow starts locked on; during the roll `$38AC = Kirby x - 128 + $38C6`, `$38AE = Kirby y + 112 + $38C8` with the lag `$38C6 → -floor(24 dx)` (cut at $70) and `$38C8 → -floor(24 dy)` (at $60) eased by (\|e\| >> 5) + 1. Pan steps: x `min(10, (\|d\| >> 3) + 1)`, y `min(5, ...)`; follow steps `min(4, ...)` |
 | Guide | the ball launched at **full power** (meter 63) from Kirby, 40 steps if it rolls, until its first landing if it flies, projected: the aim camera's focus (`$6AAA/$6AAC`). The dots are 0.86 cells apart along it and move outward one spacing in 20 frames; the dot's 8 x 8 centre sits at the path + (-3, 0), the cone's top-left at the end + (-6, -15). While the aim turns the game runs a loop every third frame (it simulates the guide), which is why it turns 3 degrees per 3 frames |
-| Effects | `$81:9BE5`: bounce sound 1/2/3 by the speed it leaves with, 4 for a step; from the call sites of `$80:B542`: enemy `$4F` (`$82:8A92`), cup `$1C` (`$82:8D49`), hop `$26`, lost `$10`, launch `$18`. The jingle is guessed from where song 17 is requested |
+| Effects | `$81:9BE5`: bounce sound 1/2/3 by the speed it leaves with, 4 for a step; from the call sites of `$80:B542`: enemy `$4F` (`$82:8A92`), cup `$1C` (`$82:8D49`), hop `$26`, lost `$10`, launch `$18`. The songs and effects of the intro and the hole-out are below; the old guess of song 17 as the hole-out jingle was wrong (it is never requested in a hole-out) |
+
+## The intro and the hole-out (measured with the stepper)
+
+`tools/snesstep/trace_cutscene.py` replays `build/emu/autoplay/c1n` with a
+snapshot at every frame (48 at a time, so it stays small on disk) and reads the
+64 thread-object slots (`$4E1C` type, `$5F1C/$5F9C` position, `$5E1C/$5D9C`
+frame, `$519C` draw routine). Frame numbers below are the c1n run's.
+
+| | |
+|---|---|
+| Objects | intro: 105 warp star, 104 Kirby (riding, then the jump off, table `$89:9295` index 6), 106 trail sparkles, 107 star burst at the landing, 108 the tee pad (dithers in from 2294). Hole-out: 74 the cup ring (its colours cycle after the hole-out), 128 the ball that rises from the cup and becomes the star, 129 Kirby, 132 trail sparkles, 108 the tee pad (colour cycling); HOLE IN ONE adds 99 (the letters), 100 (fireworks) and 103 |
+| Coordinates | 74 and 108 keep **world** (course bitmap) coordinates; every other type above keeps **screen** coordinates (105 lands at (128, 112), the tee's screen position under the scroll (192, 152); 106's OAM entries are its position minus its origin, checked at f002230). Lower slots are drawn on top (Kirby over the star in the intro, the star over Kirby in the hole-out). A slot whose draw routine `$519C` is 0 shows nothing (109 in the intro; 17/130/131 after the 1UP) |
+| Intro | the hole's song (`$89`, song 11) at 2169 under a blank screen; scroll (192, 152) = Kirby in the middle, the same as the demo's restart snap; fade in 2183-2197 (INIDISP 1-15); effects `$64` (2200, the star comes in, `$84:B8F9`), `$62` (2239, the jump off, `$84:B90D`), `$2F` (2294, landing, `$84:B7F0`); Kirby's script object is not drawn until 2335; state 4 (aim) at 2337, and from there the camera's aim pan is the demo's, step for step (`cutscene.test.ts`) |
+| Hole-out | holed at 3121 (`$DA4A`); effect `$21` at 3123; Kirby's sprite gone at 3124 (state 1); the camera pans to the cup centred at (128, 128) on the screen (3121-3150). `$80:F60C` calls `$83:D2AB`, which tests the shot counter `$7E:D82A` (1 at the hole start, `$80:C1DC`; +1 at each shot set-up, `$80:C50B`; so 2 after one shot). Not 2: song 25 (`$97`, `$83:D2B6`) at 3181. 2: song 0 (silence) at 3181, the night palette at 3213, song 26 (`$98`, `$83:D2DD`) at 3208, HOLE IN ONE and fireworks (`$3E` ×3, `$84:BCF0`), 1UP (`$2D`, `$84:C2DD`). Then, either way: song 24 (`$96`, `$83:C748`), the ball rises (`$1D`, `$84:AAC1`), Kirby jumps onto the star, it flies up (`$67`, `$84:A917`) and the camera rises with it (scroll y 104 → -465 over 65 frames), fade out, blank at 3560 (or 3910 after a hole in one). The ordinary path was recorded by poking `$7E:D82A` = 3 at frame 3150 of the same run |
+| Night palette | a CGRAM swap of 68 BG colours (not a uniform darkening: `$7ED2` → `$4968`); OBJ colours are untouched and BG3 is not scrolled during the rise. The night layers are the course's ROM colours with every entry that differs between the recorded day and night CGRAM replaced; where the game loads the night set from was not traced |
+
+The demo replays the recording relative to anchors: the tee pad and the cup ring,
+where c1n had them ((320, 263) and (352, 232), the cup being the enemy at (6, 5)).
+So the hole-out plays at whichever enemy becomes the cup. It starts with the demo's
+own follow camera and pans onto the recorded track with `$81:BA8A`'s steps. The
+result card comes when the recording ends.
 
 ## Newly established (and not yet in physics.md / tiles.md)
 
@@ -178,7 +210,8 @@ Two things about the traces, because they cost an afternoon:
 | Pillars (tile `$02`, the trees) | a simplified solid: reflect and damp by `$4A3C` / `$4F5B`; the real handler `$82:94D3` / `$82:957C` is not ported. The guide runs into the same approximation (aim 256 ends 20 px off) |
 | Ball lost | −1 tomato, sound `$10`, back to where the shot was taken. The game queues the event (`$83:ABC5`); where it puts the ball is not traced |
 | Cup rim | the pull to the centre (`$82:AF51`) and the rim bounce (`$82:AF09`) are ported from the disassembly but only the centre is validated (the hole-out test). The camera pans to the cup (`$82:8B5C`) with the same pan as the aim stage; the game's timing and the way back are not measured |
-| Start of each aim | the game sets the aim toward its target, snapped to a multiple of 45° (`$80:C902`, from `$82:AFB0`, target `$6B6C/$6B70`; after the first shot of web_flow it jumped to 180). The demo keeps the last aim. There is no hole intro (the tee pad's dither-in, the camera at Kirby for 150 frames): the aim camera pans at once |
+| Start of each aim | the game sets the aim toward its target, snapped to a multiple of 45° (`$80:C902`, from `$82:AFB0`, target `$6B6C/$6B70`; after the first shot of web_flow it jumped to 180). The demo keeps the last aim |
+| Intro and hole-out | replayed from one recorded run (hole 1, the c1n replay), not computed: the sparkles' paths are that run's. The game shows only the Kirby portrait of the score panel during the intro; the demo hides the whole panel. The `$44` effect after the fade-out and the game's screens after it (the next hole's card, the score card) are not played: the demo's own result card follows |
 | Camera while aiming | frame-exact until the aim turns; then the game runs a loop every third frame (it simulates the guide on each change), the demo pans every frame |
 | Shot guide | physics, path, end and dots as measured, but the dots of a fly shot use the rolling shot's picture (the game draws them in other tiles that shrink with height), and the marching of the dots is a smooth 20 frame cycle instead of four steps |
 | Shot panel | pictures, offsets, timing and the meter's lags as recorded; not the portrait's face (the HUD box stays empty), not the tee pad changing colour while Kirby is curled, not the tomato about to be spent blinking, a lost tomato is dimmed instead of drawn with the game's picture |

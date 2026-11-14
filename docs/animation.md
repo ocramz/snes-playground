@@ -502,8 +502,8 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 
 | state | name | seen | switch | clips | evidence |
 |---|---|---|---|---|---|
-| 0 | hold: no script | play | - | - | script `$87:9B44` is a bare halt, so the pose is whatever was last shown; set by `$80:C4CE` as each hole starts (63 times in the full game) |
-| 1 | holed out: no script | play | - | - | same script as 0; set by `$82:AEDB`/`$82:B041` when the ball is holed (64 times in the full game, from 13 or 14) |
+| 0 | hold: no script | play | - | - | script `$87:9B44` is a bare halt, so the pose is whatever was last shown; set by `$80:C4CE` as each hole starts (63 times in the full game); during the hole intro Kirby is drawn by thread object 104 instead (riding the warp star 105, then jumping off; docs/web-demo.md) |
+| 1 | holed out: no script | play | - | - | same script as 0; set by `$82:AEDB`/`$82:B041` when the ball is holed (64 times in the full game, from 13 or 14); script object 0 is not drawn from 3 frames after the hole-out, and Kirby reappears as thread object 129 on the star 128 (docs/web-demo.md) |
 | 2 | hold the pose a script left | play | - | - | same script as 0; stored by the scripts of 8, 20 and by `$85:B4D2` (parasol); stone alternates 20/2 every frame (d10 2066-2096) |
 | 3 | hold for native code | play | - | - | same script as 0; set by `$82:DA4D` when a copy ability is taken (d10 2065, just before the ability's state; Spark has no state of its own and stays here, d16 2202), by `$82:E221` when health runs out (hole1long 7195), `$87:9239`, `$87:E8D8` |
 | 4 | aim, standing still | play | `$7E:D7C4` (8) | 8 script | set every frame by `$81:A804` while aiming with no d-pad/L/R held; switch on the facing `$7E:D7C4` |
