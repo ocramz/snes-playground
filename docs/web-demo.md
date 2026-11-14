@@ -139,7 +139,7 @@ Other checks against the recorded game (`npm run traces`, build/web-test/flow_*.
 * **Camera**: the aim-stage approach, the shot-view pan (every real position is one
   of mine, in order) and the whole follow (x within 1-2 px, y within 1-8 px over 400
   frames); **guide**: its end within 1 px of the aim camera's target for 105 of 110
-  aim angles (`camera.test.ts`).
+  aim angles (`camera.test.ts`). The other five run into the pillar, which the game's guide treats as plain ground ([physics.md](physics.md) "The shot guide").
 * **Shot panel**: 20 frames spanning the opening, the selector sweep and a whole
   meter cycle are pixel-identical to the real sprites above the tomato row
   (`tools/check_web_ui.py`).
@@ -158,7 +158,7 @@ Two things about the traces, because they cost an afternoon:
 
 | | |
 |---|---|
-| Aim | a press turns 1°; held for 17 frames it turns 3° every 3 frames (the game's loop runs every third frame while it simulates the guide); Left raises the angle. `$D9B4` |
+| Aim | a press turns 1°; held for 17 frames it turns 3° every 3 frames (the game's loop runs every third frame while it simulates the guide); Left raises the angle. `$D9B4`. The engine port read why: a hold counter that reaches 15, plus the guide's lag ([flow.md](flow.md) "The aim loop") |
 | Spin stage | top/back `$6B52` one step per 3 frames (`$6B5E` = 3), 6 → 0 → 12, pausing 6 frames at 0, 6 and 12. (The side selector's one step per 8 frames is from docs/physics.md.) |
 | Power meter | `$6B3A` counts 0 → 63 → 0 at one step per frame (`$6B3C` = 63) |
 | Launch delay | 23 frames from the last A to the first physics step (Kirby curls up) |
@@ -167,11 +167,11 @@ Two things about the traces, because they cost an afternoon:
 | Enemy | 8 pictures, ~8 frames each (63-frame cycle), then a star: 8 pictures of one frame each |
 | Facing | `$81:BB4A`: `$6ABE = (472 - phi) mod 360`; `$81:BCA0`: `v = $81:8E98[$6ABE]`, `$D7CC = v >> 1`, `$D7C4 = v >> 2`. phi 0 → 2 and 5. Screen direction of a facing `45 - 45 v` degrees (3 faces the camera) |
 | State timeline (hole 1) | aim 4, 5 while Left/Right is held; the first A → camera pan 19-26 frames (5 frames before it starts) → state 6 (curl, 35 frame clip) held through spin and power; the power A + 23 → 14 (15/16 with strong/medium spin); a hop is 13 for 17 frames, a hit-stop 12 for 4; 30 frames still → `$D9BE` → 35 more → state 4. No unroll (7) and no wait pose (9) in a 1P shot |
-| Panel timing | from the A that confirms the aim: the "1" at +46, the panel at +66 (the gauge frame slides in over 4 frames), the selectors answer from +70 (the first top/back step at +70, then every 3 frames); the meter starts 5 frames after the A that leaves the spin stage and the shot goes by itself when it is back at 0. A second A during the opening does nothing (the four-A script of docs/physics.md had one press too many) |
+| Panel timing | from the A that confirms the aim: the "1" at +46, the panel at +66 (the gauge frame slides in over 4 frames), the selectors answer from +70 (the first top/back step at +70, then every 3 frames); the meter starts 5 frames after the A that leaves the spin stage and the shot goes by itself when it is back at 0. A second A during the opening does nothing (the four-A script of docs/physics.md had one press too many). These are snapshot frames, one more than the iteration ([emulation.md](emulation.md) "Frames, iterations and snapshots"). The curl came 26 frames after the A. The panel closes in three steps after the meter's latch, and the tomato about to be spent blinks: [flow.md](flow.md) "The shot panel" |
 | Panel sprites | all anchored to Kirby's ball point on the screen (same offsets with two different cameras): "1" at (-4, bob - 0 .. 8), face 3 x 3 tiles of 16 at (-24, 5), gauge frame at x 23..39, tomatoes at (-24 + 16 k, 53); the ruler and the marker at x = -4 + 2 (side - 6), the marker dot at y = 24 + 2 (topBack - 6); the face picture is the meter two frames ago, the gauge the meter one frame ago |
 | Camera | `$38AC/$38AE` (scroll x = `$38AC`, y = 456 - `$38AE`). Aim stage: pan every frame toward the **end of the shot guide**; first A: pan toward Kirby + `($81:C0F0, $81:C0F8)[quarter of the aim]` = (80, 0), (0, 40), (-80, 0), (0, -56) until it has arrived, then curl; at the shot (`$82:BFBC`) `$38C6/$38C8` = that offset and the follow starts locked on; during the roll `$38AC = Kirby x - 128 + $38C6`, `$38AE = Kirby y + 112 + $38C8` with the lag `$38C6 → -floor(24 dx)` (cut at $70) and `$38C8 → -floor(24 dy)` (at $60) eased by (\|e\| >> 5) + 1. Pan steps: x `min(10, (\|d\| >> 3) + 1)`, y `min(5, ...)`; follow steps `min(4, ...)` |
 | Guide | the ball launched at **full power** (meter 63) from Kirby, 40 steps if it rolls, until its first landing if it flies, projected: the aim camera's focus (`$6AAA/$6AAC`). The dots are 0.86 cells apart along it and move outward one spacing in 20 frames; the dot's 8 x 8 centre sits at the path + (-3, 0), the cone's top-left at the end + (-6, -15). While the aim turns the game runs a loop every third frame (it simulates the guide), which is why it turns 3 degrees per 3 frames |
-| Effects | `$81:9BE5`: bounce sound 1/2/3 by the speed it leaves with, 4 for a step; from the call sites of `$80:B542`: enemy `$4F` (`$82:8A92`), cup `$1C` (`$82:8D49`), hop `$26`, lost `$10`, launch `$18`. The songs and effects of the intro and the hole-out are below; the old guess of song 17 as the hole-out jingle was wrong (it is never requested in a hole-out) |
+| Effects | `$81:9BE5`: bounce sound 1/2/3 by the speed it leaves with, 4 for a step; from the call sites of `$80:B542`: enemy `$4F` (`$82:8A92`), cup `$1C` (`$82:8D49`), hop `$26`, launch `$18`, and `$10`, which the demo plays for a lost ball. In the game `$10` is the tomato −1 landing, 20 frames after every launch, and a lost ball plays `$54` (flow.md "The roll"). The songs and effects of the intro and the hole-out are below; the old guess of song 17 as the hole-out jingle was wrong (it is never requested in a hole-out) |
 
 ## The intro and the hole-out (measured with the stepper)
 
@@ -209,6 +209,21 @@ So `make distclean` keeps c1n. Where c1n is missing,
 
 The demo replays the recording relative to anchors: the tee pad and the cup ring,
 where c1n had them ((320, 263) and (352, 232), the cup being the enemy at (6, 5)).
+The engine port pinned what the anchors are (its `cutscene.test.ts`):
+* the tee pad (type 108) is Kirby's projected point on the tee cell's
+  centre, 1 pixel up;
+* the cup ring (type 74) is at its cell's corner, as the enemies are.
+
+It also settled how the hole-out lines up with play (its `director.test.ts`):
+* **Index 2 of the hole-out is the sink's end.** c1n's window starts at `$DA4A` = 1
+  (3121), and `$21` comes at 3123, because its ball was put on the cup's centre and
+  sank in 2 frames. A ball that rolls in takes longer (web_hole: holed 1 at 3894,
+  then holed 2, `$21` and Kirby's state 1 together at 3908). The recording's index 2
+  is the frame the ball has sunk.
+* **The rest follows the camera's arrival at the cup.** c1n's index 29 is the frame
+  C of [flow.md](flow.md) "The hole-out". From there web_hole's own songs and
+  RESULT blank land on the recording's indices: song 25 at 60, song 24 at 176, the
+  end at 439; in one, song 0 at 60, 26 at 87, 24 at 527.
 So the hole-out plays at whichever enemy becomes the cup. It starts with the demo's
 own follow camera and pans onto the recorded track with `$81:BA8A`'s steps. The
 result card comes when the recording ends.
@@ -225,7 +240,10 @@ result card comes when the recording ends.
 * The A hop / Y brake bonus (`$82:DB20`) was **not** applied to an outline-wall
   hit in the trace (`web_a135`: a hop two frames before the wall left the speed
   unchanged). docs/physics.md lists walls among its triggers; the port applies it
-  to bounces and step hits only.
+  to bounces and step hits only. The engine port reads it otherwise: the outline
+  wall sets `$DA52` (`$82:9185`, INC), `$82:DB20` tests it, and the engine matches
+  web_a135 with the bonus allowed on walls. So the unchanged speed is not a wall
+  exception; why that press did not apply there was not analysed.
 * `$81:980B` (a surface-code change inside a cell throws the ball) is ported for
   the case where no cell edge was crossed, flagged per shape by `$81:9B45`
   (the mound and the diagonal halves). The cross-cell cases are not ported.

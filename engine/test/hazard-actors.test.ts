@@ -25,7 +25,7 @@ import {
   runFlowScript, loadActorRecords, alignActor, slotOf, actorState, engineStep, recordStep, stateRuns,
 } from './flow-harness';
 import { haveRules, haveRomTest, loadRomHole } from './fixtures';
-import { Hazards } from '../src/core/systems/actors';
+import { Hazards } from '../src/core/traits/hazards';
 import { tickActor, type BallView } from '../src/core/sim/actors';
 
 interface Scenario {

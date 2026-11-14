@@ -128,7 +128,7 @@ banks are now identified:
 
 Banks `$8A-$94` used to be "compressed graphics no pointer table reaches".
 The four loader jump tables now reach 70 of their 75 entries, so most of
-that bank range is attributed — see [docs/scenes.md](docs/scenes.md).
+that bank range is attributed — see [docs/scenes.md](scenes.md).
 Note that **not all graphics are compressed**: a VRAM record block can name
 a ROM bank directly. Nine tileset entries do, and so do most sprite tiles --
 `sub_vram_queue $80:8696` has 890 call sites, and 1,567 of the 2,101 records

@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import { createGameWorld } from '../src/core/world';
 import { runCoreFrame } from '../src/core/schedule';
 import { placeBall, startCourse } from '../src/core/actions';
-import { Stall } from '../src/core/systems/stall';
+import { Stall } from '../src/core/traits/stall';
 import { drainEvents } from '../src/core/events';
 import { BallPos, BallVel, BallAir, BallWork } from '../src/core/traits/ball';
 import { Pad } from '../src/core/traits/pad';

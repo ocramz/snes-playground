@@ -23,8 +23,8 @@ import { Camera } from './traits/camera';
 import { Guide } from './traits/guide';
 import { Pose, BallScreen } from './traits/pose';
 import { Course, setCourse, courseEntity } from './traits/course';
-import { Stall } from './systems/stall';
-import { Reveal } from './systems/reveal';
+import { Stall } from './traits/stall';
+import { Reveal } from './traits/reveal';
 import { Time } from './traits/time';
 import { Session, IsPaused } from './traits/session';
 import {

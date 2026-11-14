@@ -16,7 +16,7 @@ import { courseEntity, Course } from '../src/core/traits/course';
 import { BallAir, BallVel, BallWork } from '../src/core/traits/ball';
 import { Pose } from '../src/core/traits/pose';
 import { TomatoQueue } from '../src/core/traits/counters';
-import { Hazards } from '../src/core/systems/actors';
+import { Hazards } from '../src/core/traits/hazards';
 import { HURT_POSE } from '../src/core/systems/hazard-reaction';
 import { placeBall } from '../src/core/actions';
 import { s16 } from '../src/core/fixed';

@@ -26,7 +26,7 @@ import { Camera } from '../traits/camera';
 import { Shot } from '../traits/shot';
 import { BallScreen } from '../traits/pose';
 import { BallWork, StillCount, BallMode, BallHoled } from '../traits/ball';
-import { Stall } from './stall';
+import { Stall } from '../traits/stall';
 import type { Ctx } from '../sim/context';
 import { panStep, followStep } from '../sim/camera';
 import { project } from '../projection';

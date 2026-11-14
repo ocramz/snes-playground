@@ -3,11 +3,11 @@
  *
  *   prologue   advance-frame, latch-pad, tick-stall
  *   flow       update-hole-flow, setup-shot, update-aim, update-shot-guide,
- *              update-spin-stage, update-power-meter, launch-ball,
- *              apply-tomato-queue
- *   ball step  BALL_STEP (items 11-29): in Rolling, and in HoleOut while the
- *              ball sinks
+ *              update-spin-stage, update-power-meter, launch-ball
+ *   ball step  BALL_STEP (items 11-29): in Rolling (the roll loop; the sink
+ *              is part of it, and the roll ends once the ball has sunk)
  *   post-step  detect-ball-out, update-camera, update-pose
+ *   threads    the thread tick: the HUD's tomato queue, the hazard actors
  *
  * The stall runner: while a stall is active a frame runs only that stall's
  * own list. A hit-stop requested on frame F idles F+1..F+N-1; on F+N the
@@ -31,7 +31,7 @@ import { Time } from './traits/time';
 import { Pad } from './traits/pad';
 import { IsPaused, Session } from './traits/session';
 import { runBallStep, resumeBallStep, BALL_STEP } from './systems/ball-step';
-import { Stall } from './systems/stall';
+import { Stall } from './traits/stall';
 import { tickReveal } from './systems/reveal';
 import { latchPad } from './systems/pad';
 import { updateHoleFlow, setupShot, detectBallOut, ballStepRuns } from './systems/hole-flow';

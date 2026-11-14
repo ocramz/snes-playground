@@ -33,7 +33,7 @@ import type { Ctx } from '../src/core/sim/context';
 import { heldAt, parseInputScript } from './input-script';
 import { inputScriptPath, loadRomCourse, loadRomHole, loadTables } from './fixtures';
 import { existsSync } from 'node:fs';
-import { Hazards } from '../src/core/systems/actors';
+import { Hazards } from '../src/core/traits/hazards';
 import { iterationOf, romTestPath } from './fixtures';
 import { spawnActor, tickActor, type ActorRun, type BallView } from '../src/core/sim/actors';
 import type { BallTraceFrame, FlowEvent } from './align';

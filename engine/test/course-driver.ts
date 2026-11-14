@@ -23,7 +23,7 @@ import { Time } from '../src/core/traits/time';
 import { HoleFlow, type FlowPhase } from '../src/core/traits/flow';
 import { Cell, EnemyKind, Hover, IsCup, IsEnemy, TakenBy } from '../src/core/traits/hole';
 import { Course, courseEntity } from '../src/core/traits/course';
-import { Stall } from '../src/core/systems/stall';
+import { Stall } from '../src/core/traits/stall';
 import { loadTables } from './fixtures';
 
 const dir = resolve(fileURLToPath(new URL('.', import.meta.url)), '../courses');

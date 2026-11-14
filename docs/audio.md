@@ -614,6 +614,19 @@ the three song entry points, which share one body and take the id in a
 The last two are used as a pair, upload now and start later, for songs 16
 (`$83:D9FF`, `$83:DA11`) and 32 (`$83:D90F`, `$83:D921`).
 
+A request's byte is `$7E` + the song number (above), so `$89` is song 11.
+The engine's song events carry the number, not the byte. A song request
+also blocks the main loop on the APU's port handshake (`$80:B70A`-`$80:B724`)
+for about 3 frames. On the fall's request both fly traces skip from record
+3252 to 3256 (the engine's `apuLag` stall; [emulation.md](emulation.md)
+"Frames, iterations and snapshots"). Other requests probably lag the same
+way, but only the fall's is measured.
+
+Every song and effect request of a 1-player hole was matched to the game's own sound log on seven recorded runs, about 230 requests in all (the engine's `events.test.ts`). The list of who requests what in play, with the sites, is the event table of [engine.md](engine.md). Three of the requests are easy to miss:
+* the meter's latch requests effect 0 (stop all effects) twice (`$81:C038`, `$81:C046`);
+* a fly shot's first bounce plays `$68F0` + 4, set from the spin at the launch (`$84:89D0`, `$81:9BF4`; [physics.md](physics.md) "The two steps, in full");
+* the hole-out stops the music by setting its volume to 0 when the ball has sunk (`$80:B5F4`), not by a request.
+
 Of the 35 `JSL $80:B4AC`, 33 load a constant id with `LDA #$00xx` directly
 before the call: three pass 0 (stop the music) and 30 name a song. The other
 two compute it: `$83:BA26` is the SOUND ROOM's BGM row, and `$87:8580` is
@@ -621,9 +634,37 @@ one opcode of a script interpreter that takes the id from the next byte of
 its stream (`LDA [$D0] / INC $D0 / AND #$00FF`); the opcode beside it at
 `$87:856B` does the same for effects.
 
-That gives 21 songs at least one fixed caller. The other 12 (songs 3, 6-14,
-18 and 27) have none, which fits their being started from script data, but
-which scripts name them has not been traced, so that is an inference. The
+That gives 21 songs at least one fixed caller. Of the other 12 (songs 3,
+6-14, 18 and 27), eleven have a caller the scan cannot label (found
+2026-11-14):
+
+* **The hole songs.** `$80:C967` (JSL, ending in `JML $80:B4AC`) chooses
+  the song:
+  * song 27 (`$99`) when `$ED5B` is set;
+  * stop (`$7E`) when `$00C2` or `$ED07` is set;
+  * otherwise a byte of a per-course list, `$80:C99D`[`$6A5C`] →
+    [`$6A5E`, the hole]. The pointer table holds 28 words and the lists 8
+    bytes each.
+
+  Course 1 is entry 0: songs 11, 11, 11, 11, 7, 7, 7, 13. Every list but
+  the all-27 one ends with 13 (`$8B`), and the lists use exactly songs 6-14
+  and 27. Which `$6A5C` each other course or mode has is not measured.
+
+  *Emulated* on the course-1 autoplay replay (`--log-pc '$80:C999'`):
+  * `$89` (song 11) at the start of holes 1-4, `$85` (7) at holes 5-7 and
+    `$8B` (13) at hole 8;
+  * each twice: from the hole's start (`$80:C499`) and 13 frames later
+    (`$82:B0E8`).
+
+  The same routine restarts the song after a lost ball (`$82:B0E8`) and when
+  Kirby wakes after running out of tomatoes (`$82:E25B`;
+  [flow.md](flow.md)). So the "script data" guess was wrong for these ten.
+* **The fall.** `$81:A175` loads `$90` (song 18) and replaces it with `$8F`
+  (17) in ball mode 10, three instructions before its `JSL $80:B4AC` at
+  `$81:A183`. The scan saw only the second constant. *Emulated*: web_fly
+  requests `$90` at 3252 (caller `$81:A187`).
+
+So only song 3 has no known caller. The
 `used_by` column of `songs/summary.tsv` and of `wav/index.tsv` carries the
 call sites per song, and `sfx/index.tsv` does the same for effects. No
 names beyond that are offered: tying a call site to a screen is work for

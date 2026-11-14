@@ -10,7 +10,7 @@
  */
 import { fromAuthoredCourse, fromRomCourse, type AuthoredCourseJson, type CourseData, type CourseJson } from '../../core/course-data';
 import type { RomRules } from '../../core/rules';
-import { HOLE_SONG } from '../../core/systems/hole-flow';
+import { HOLE_SONG } from '../../core/traits/flow';
 import type { LayersJson } from './schema';
 
 export interface HoleAssets {

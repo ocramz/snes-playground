@@ -50,7 +50,7 @@ export const EVENT_TABLE: Readonly<Record<string, EventRow>> = {
   'life-lost': { ids: [0x0b], site: '$80:F8D0 / $80:F876', react: 'sfx' },
   'life-object': { ids: [0x77], site: '$80:F89B object $40', react: 'sfx' },
   'game-over': { ids: [], site: '$80:F387 / $80:F3B5', react: 'none' },
-  song: { ids: [0, 11, 17, 18, 24, 25, 26], site: '$80:B542 song requests ($7E + n)', react: 'song' },
+  song: { ids: [0, 11, 17, 18, 24, 25, 26], site: '$80:B4AC song requests ($7E + n)', react: 'song' },
   // the cutscenes' own sounds (features/cutscene/replay.ts), not core's
   cue: { ids: [29, 45, 47, 62, 98, 100, 103], site: 'cutscenes.json cues', react: 'sfx' },
 };

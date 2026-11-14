@@ -17,7 +17,7 @@ import type { Entity } from 'koota';
 import { Tex } from '../../assets/keys';
 import { playClip } from '../../assets/atlas';
 import { Cell, Hover } from '../../../core/traits/hole';
-import { HOVER_DROP, HOVER_DROP_EXTRA, Reveal } from '../../../core/systems/reveal';
+import { HOVER_DROP, HOVER_DROP_EXTRA, Reveal } from '../../../core/traits/reveal';
 import { cellCorner } from '../../bridge/placement';
 import type { View, ViewCtx } from '../../bridge/view';
 import type { Host } from '../../host';

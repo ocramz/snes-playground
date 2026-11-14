@@ -32,7 +32,7 @@ import { mulQ15s } from '../fixed';
 import { countStill } from '../sim/still';
 import { s16, wrap16, mul16x8 } from '../fixed';
 import { emit } from '../events';
-import { Stall } from './stall';
+import { Stall } from '../traits/stall';
 import { Pose, PoseState } from '../traits/pose';
 import { takeEnemy } from './take';
 import { pushTomato } from './counters';

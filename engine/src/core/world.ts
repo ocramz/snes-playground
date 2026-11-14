@@ -13,9 +13,9 @@ import {
 import { Tomatoes, Strokes, Stars, StockedAbility, Career, TomatoQueue } from './traits/counters';
 import { Session } from './traits/session';
 import { Visual } from './traits/visual';
-import { Stall } from './systems/stall';
-import { Reveal } from './systems/reveal';
-import { Hazards } from './systems/actors';
+import { Stall } from './traits/stall';
+import { Reveal } from './traits/reveal';
+import { Hazards } from './traits/hazards';
 
 /**
  * The one game world. No module-level world: the headless test harness and

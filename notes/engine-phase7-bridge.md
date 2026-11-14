@@ -1,5 +1,7 @@
 # Engine phase 7: the Phaser bridge
 
+> Promoted 2026-11-14 (engine phase 8): the facts below are in the subsystem docs (physics.md, flow.md, tiles.md, animation.md, audio.md, emulation.md, web-demo.md); the mapping, deviations, unported and unconfirmed lists are in docs/engine.md. This note is kept as the session's record.
+
 Date: 2026-11-14 (session 6). Plan: `plans/port_v1_koota_phaser4.md` item 7,
 "The Phaser bridge: the atlas->texture/animation conversion in PreloadScene,
 the views, the cutscene replay, the HUD and the panel, the audio feature".
@@ -190,7 +192,9 @@ them:
 - **Koota keeps at most 16 worlds per process.** The new tests destroy their
   worlds in `afterEach`.
 
-## For phase 8
+## For phase 8 (done 2026-11-14)
+
+All three were done in phase 8: docs/engine.md; CLAUDE.md; the traits moved to `core/traits/{stall,reveal,hazards}.ts` and `HOLE_SONG` to `core/traits/flow.ts`, with a test that `src/game` imports no `core/systems` or `core/sim`.
 
 - **`docs/engine.md`**:
   - the mapping;

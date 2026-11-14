@@ -9,7 +9,7 @@ import Phaser from 'phaser';
 import type { Entity } from 'koota';
 import { Tex } from '../../assets/keys';
 import { ActorType, Cell } from '../../../core/traits/hole';
-import { Hazards } from '../../../core/systems/actors';
+import { Hazards } from '../../../core/traits/hazards';
 import { actorRunPoint } from '../../bridge/placement';
 import type { View, ViewCtx } from '../../bridge/view';
 import type { Host } from '../../host';

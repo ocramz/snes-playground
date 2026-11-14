@@ -17,7 +17,7 @@ Purpose-built tools:
   snapshots VRAM, CGRAM, OAM and WRAM; `tools/ppu_render.py` draws a
   snapshot. It exists because some facts are only knowable at run time
   (what a screen loads, which tiles an object really shows). See
-  [docs/emulation.md](docs/emulation.md).
+  [docs/emulation.md](emulation.md).
 
 Use the stepper to check a claim, or to answer what the code cannot be read for; record which facts came from it ("emulated") the same way you record "verified with xxd".
 
@@ -40,12 +40,23 @@ it. A rebuilt stepper does not re-run finished emulator runs. `make extract` run
 `tools/extract_all.py`, which is not part of `build`. Pass the ROM with
 `make KDC_ROM=...`.
 
+The engine ([docs/engine.md](engine.md)) has its own targets, none of them part of `build`:
+
+| target | does |
+|---|---|
+| `make engine-assets` | `build/engine/assets` from the same exporters, with the `objects` step added |
+| `make engine-test` | the vitest suite (it needs only the rules and `build/engine/rom-test`; ROM-derived tests skip without them) |
+| `make engine-traces` | re-records the trace, flow, sound and actor fixtures into `build/engine/rom-test` (stepper runs) |
+| `make engine` | `npm ci` and `vite build` into `engine/dist` |
+| `make engine-e2e` | the browser smoke test; it needs `cd engine && npm run dev` running |
+
 Cleanup comes in three tiers:
-- `make clean`: `web/dist`, `build/web` and `__pycache__`, seconds to redo.
+- `make clean`: `web/dist`, `engine/dist`, `build/web`, `build/engine` and
+  `__pycache__`, seconds to redo.
 - `make clean-rust`: `build/snesstep` and `build/spcrender`.
-- `make distclean`: also `web/node_modules` and all of `build/` except
-  `build/emu/autoplay/c1n`, which no current tool can record again
-  (docs/web-demo.md).
+- `make distclean`: also `web/node_modules`, `engine/node_modules` and all of
+  `build/` except `build/emu/autoplay/c1n`, which no current tool can record
+  again (docs/web-demo.md).
 
 ## Commands
 
@@ -116,6 +127,8 @@ python3 tools/check_web_ui.py --target engine   # the same against engine/'s pan
 python3 tools/export_web.py --only objects --out build/engine/assets
 #   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?hole=N)
 #   make engine-e2e                  # the browser smoke test (needs the dev server)
+#   cd engine && npm test            # = make engine-test; npm run traces = make engine-traces
+#   (the keys, the debug hook and what each test checks: docs/engine.md)
 
 # Screens: PPU setup, what each loads, and the scene bundles
 python3 tools/scenes.py blocks            # the 20 screen setup blocks

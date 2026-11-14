@@ -27,7 +27,7 @@ ball).
 | `$DA38` | | gravity, `$FFC0` (`tbl_ball_gravity $80:DB6D`[0]), added to the vertical velocity each airborne frame |
 | `$DA3A` | | rolling friction, from `tbl_roll_friction $80:DC49` (`$0C00` on flat ground) |
 | `$DA3C`, `$DA3E` | | bounce factors, Q15: horizontal 0.98 (`$7D6F`), vertical 0.65 (`$5332`) |
-| `$DA4A` | `$D956` | **holed** (1), then 2 once the hole-out has run |
+| `$DA4A` | `$D956` | **holed**: 1 when the ball drops in, 2 once it has sunk (`$82:AE61`, below) |
 | `$DA58`, `$DA5C` | | the ball's projected screen position |
 
 The x/y/height triple is the one `sub_terrain_probe $81:9479` reads
@@ -47,6 +47,15 @@ In short:
 * spin is a one-off kick at a fly shot's first bounce, or a curve for a
   grounder until it first lands.
 
+The roll loop's frame calls, in order:
+1. the load `$82:EFCF`;
+2. the step `$81:801C` with its tail `$81:9BE5`;
+3. the Kirby state code `$82:CDBB`, which holds the A/Y arming `$82:DA51` and the bounce bonus `$82:DB20` ("Buttons while the ball moves");
+4. the store;
+5. the still count `$81:A5CD`.
+
+That order is from the disassembly, pinned by the engine's 15 recorded shots ([engine.md](engine.md)).
+
 ### The two steps, in full
 
 `sub_ball_physics_step $81:801C` (JSL) first clears the event flags
@@ -59,8 +68,9 @@ flag `$D9EC`.
 
 1. `$81:8805` adds the velocity to x, y and z. Then comes **air drag** on
    vx and vy (`$81:885C`), skipped in mode `$0A`:
-   `v -= (|v| + $80) >> 8` toward zero, about v x 255/256 a frame. vz has
-   no drag. *Emulated*: vx 1024 → 1020, 2217 → 2208.
+   `v -= (|v| + $80) >> 8` toward zero, about v x 255/256 a frame. The
+   two branches are chosen by the sign of the word (`BPL`), so |v| is the
+   magnitude of a signed velocity. vz has no drag. *Emulated*: vx 1024 → 1020, 2217 → 2208.
 2. `$81:8E60` sets the heading. `$DA48` (frames in the air) is incremented.
    Then the terrain probe runs, and `$81:87FB`.
 3. **`$DA3C` ← `$DA30`, `$DA3E` ← `$DA32`**, every airborne frame. A
@@ -110,8 +120,12 @@ It is not: it only applies after a wall flag has been crossed (step 6).
      (`$81:8436`). Its default `$81:8A56` is the rolling step proper: the
      button modifiers, friction, slope acceleration and curve.
 
-`$81:8D52` is a bare RTL. The step ends with `JSR $9BE5` (sound and effects,
-not read).
+`$81:8D52` is a bare RTL. The step ends with `JSR $9BE5`, its tail, which plays the step's sound:
+* `$6A6C`, when a handler set it: 4 for a step hit, 7 for the outline wall, and the tiles' own ids ([tiles.md](tiles.md));
+* else, for an airborne ball that bounced this frame, sound 1, 2 or 3 by the vz it leaves with (≥ `$0500`, ≥ `$0200`, less). There is none when that vz is negative (`$81:9C03`, BMI).
+* A fly shot's first bounce plays `$68F0` + 4 instead (`$81:9BF4`; `$68F0` is set by the spin streak at the launch, [flow.md](flow.md)).
+
+The sounds are from the disassembly and match the stepper's sound log on seven runs (the engine's `events.test.ts`). The tail's effect objects are not read.
 
 ### Heading
 
@@ -135,6 +149,12 @@ In `$81:8A81`-`$81:8B55`, per axis, with θ = `$D9DA`:
     fx = (P + $80) >> 8               if cos θ ≥ 0   (round)
        = (P - $80) >> 8, signed       if cos θ < 0   (floor: one unit more)
     vx = vx - fx, clamped at 0 (friction never reverses the ball)
+
+The clamp is on the 16-bit borrow, and its two branches are opposite (`$81:8AC8`):
+* for vx ≥ 0, a borrow (the unsigned |v| below fx) zeroes the axis;
+* for vx < 0, the axis is zeroed when there is *no* borrow, which means the sum crossed zero upward. A borrow keeps the wrapped remainder.
+
+From the disassembly, pinned by the engine's 11 seeded shot traces.
 
 vy is treated the same way with sin θ. On flat ground in mode 0, `$DA3A` =
 `$0C00`, a deceleration of 12/65536 cell per frame². The rounding is not
@@ -220,12 +240,20 @@ ends in RTL):
 7. `$D9D0` = 0: spin is spent at the first landing, whichever kind it was.
 8. If `$DA48` (frames since the last bounce) < `dat_bounce_min_frames
    $80:DCFD` = `$0010`, the ball **comes to rest vertically**: `$D9EC` = 0,
-   vz = 0, and it rolls from here.
+   vz = 0, and it rolls from here. This path returns before step 10, so vz stays 0
+   with no gravity added (`$81:896B`; web_flya 3335, matched by the engine's
+   traces).
 9. Otherwise (`$81:8975`) the velocities are damped through `sub_mul_q15s
    $81:9793`, a sign-magnitude Q15 multiply that rounds toward 0:
    * vx, vy x= `$DA3C`;
    * vz x= `$DA3E`;
    * `$DA48` = 0.
+
+   The velocity is A and the factor X. For A < 0 it negates |A| x X after
+   the floor, so the rounding is toward zero by the *velocity's* sign. It
+   is the only one of the three multiplies whose operands do not commute
+   (`$81:97A9` and `$80:A342` are symmetric in value). Pinned by the
+   engine's shot traces: with the factor as A, vx < 0 comes out 1 low.
 10. `$81:899F`: vz += `$DA38`.
 
 **`sub_reflect_surface $81:9444`** (JSL, A = matrix index) loads a 3 x 3
@@ -276,8 +304,14 @@ downhill.
 **Hit-stop.** `$81:8C79` (on landing): if `$6A70` = 0 and |vz| ≥ `$0900`,
 Kirby's animation state `$D7D4` becomes `$0C`, and `$81:8C95` calls
 `$80:8F78` Y = 4 times. That routine waits a frame and ORs the pad into
-`$6A7C`/`$6A7E`. The physics therefore stops for 4 frames, after which the
-state goes to `$0E` (unless it was `$0D`). `$81:8C48` does the same for
+`$6A7C`/`$6A7E`, both the held and the newly pressed words
+(`$81:8CAB`-`$81:8CBF`). `$81:8CD5`-`$81:8CDE` hands them back as the
+frame's pad when the wait is over, so a press during a hit-stop is not
+lost. The physics therefore stops for 4 frames, after which the
+state goes to `$0E` (unless it was `$0D`). The ball's block is not written
+meanwhile. A stop requested in frame F idles F+1 to F+3, and the step
+resumes where it stopped in F+4. This is frame-exact on web_fly's landing
+and step hit (the engine's `stalls.test.ts`). `$81:8C48` does the same for
 2 frames on a step hit, when |vx| + |vy| ≥ `$0300` and the edge is 0 or 1.
 *Emulated*: a fly shot landing with vz = −3901 is reflected at frame 3114
 and damped at 3118.
@@ -293,7 +327,11 @@ the cell this frame with the previous one (`$DA12`/`$DA16`):
   are the four diagonal crossings, resolved by a cross product (`$81:9286`)
   into the edge crossed first.
 * The edge index used below, `$48`, is the edge of the **new** cell the
-  ball entered by, in N/E/S/W order with N = −y. Moving +y enters by N (0).
+  ball entered by, in N/E/S/W order with N = −y. Moving ±x that holds.
+  A crossing along y uses edge 2 (S) whichever way it goes
+  (`$81:906C`-`$81:9075`): the step compares the new cell's S edge with the
+  old cell's N edge, and `$D9E4` is 2. This is read from the disassembly,
+  and it is what makes the emulated +y step hit below come out exact.
 * `sub_edge_step_height $81:925E` gives the new cell's surface at that edge
   minus the old cell's at the opposite edge, in half steps. This is
   **`$DA4C`**: > 0 a step up, < 0 a drop, 0 nothing. When it is non-zero,
@@ -310,7 +348,11 @@ only: no layer-4 wall was hit in the runs below.
 
 1. Restore the previous position.
 2. Put the ball against the edge. The fraction on the crossing axis
-   becomes `$FFFF` or `$0000` (jump table `$81:93E2` by `$D9E4`).
+   becomes `$FFFF` or `$0000` (jump table `$81:93E2` by `$D9E4`: N `$FFFF`,
+   E x `$0000`, S `$FFFF`, W x `$FFFF`). With the edge-2 rule above, a +y
+   step hit puts y at `$FFFF` of the old cell (the emulated case below). A
+   −y one gets the same value; that is read from code only, since no
+   recorded shot hits a step moving −y.
 3. Reflect with matrix 9 + `$D9E4`.
 4. Scale the component normal to the edge by `$DA40` (default `$5332`,
    0.65). `$81:9EA9`/`$81:9EB1` are per-edge masks (`$3FFF` = scale this
@@ -379,13 +421,17 @@ The spin stage comes between aiming and power (`$81:BF07`-`$81:BFCC`). Two
 selectors, each 0-12 with 6 = none:
 
 * **side**, `$6B50`. Left and Right move it one step per 8 frames
-  (`$81:C12E`). It is copied to `$D9B8` every frame so the guide can show
+  (`$81:C12E`), with sound `$46`. It is copied to `$D9B8` every frame so the guide can show
   it.
 * **top/back**, `$6B52`. It starts at 6 and moves **by itself**, in a fly
   shot only: one step every `$6B5E` frames, 6 → 0 → 12 → 0 …. It turns
-  round at 0 and 12, and pauses twice as long at 0, 6 and 12, with sound
-  `$3D`, or `$42` at 6 (`$81:C170`).
+  round at 0 and 12, and pauses twice as long (6 frames, with `$6B5E` = 3) at 0, 6 and 12. It plays
+  sound `$3D` on each step, or `$42` at 6 (`$81:C170`).
   The A press that ends the stage latches it.
+
+The stage's frames, from the curl to the latch, are in [flow.md](flow.md).
+The engine's flow trace of web_fly decides between "twice as long" and the
+web demo's 6 frames: they are the same.
 
 *Emulated*: the run below steps it every 3 frames (6 at 2869, 0 at 2885,
 back up from 2891). A at 2887, 2909 and 2927 latched 0, 6 and 11. In a
@@ -481,13 +527,25 @@ caller**: no JSL, JSR, JML or pointer to it was found.
 
 ### Buttons while the ball moves
 
-`$82:DA51`, from the Kirby state code at `$82:CDFF`, handles presses after
-the shot, and `$82:DB20` applies them.
+`$82:DA51`, from the Kirby state code at `$82:CDFF` (`$82:D588` in the
+other states), handles presses after the shot, and `$82:DB20` applies them.
+Both run **after** the physics step, on that frame's newly pressed pad, so a
+press reaches the physics in the next frame's step.
 
 Pressing **A** or **Y** (`$006B` & `$4080`) arms a modifier:
 * `$DA76` = 0 for A, 2 for Y;
 * `$DA7A` = 15 frames in the air, 3 on the ground;
-* `$DA78` = 22.
+* `$DA78` = 22, a window in which further presses are ignored; it and the
+  timer count down each frame, and the timer running out disarms;
+* A plays sound `$26`. It sets Kirby's hop pose (13) when the ball is on the
+  ground, or in the air with no spin pending (`$82:DA9B`-`$82:DAAE`). Y
+  plays nothing and sets no pose;
+* the arming is dropped when |vx| + |vy| ≥ `$3001` or |vz| ≥ `$3801`.
+
+`$82:DB20` runs on the arming frame and while the timer counts down
+above 0. An airborne bounce also sets Kirby's pose 14 unless he is hopping
+(`$82:CE24`). All of this is from the disassembly, pinned by the engine's
+trace and flow tests (the hop on web_fly).
 
 The modifier acts in two places:
 
@@ -512,7 +570,27 @@ the step on the work copy to predict the path: `$81:AF82`-`$81:B44B`, with
 `$6AC6` = the kind of point. It uses the same reflection, friction, slope,
 spin and edge routines, but its own integrator and no button modifiers.
 The real step then overwrites the work copy from the player block the next
-frame. Read from code only; what it draws is **unconfirmed**.
+frame.
+
+What it computes (`$81:A9B8`-`$81:AE35`, disassembly; every end of the
+traced aim sweeps matches the engine's port):
+* It starts from the aim's origin with the meter at its top (63), with the
+  aim, the elevation, and the spin from `$D9B8`/`$D9BA`.
+* Its step limit by kind (`$81:AA3E`) is 40, 80 or 496 steps.
+* A rolling guide ends after 40 steps, or when the airborne flag changes.
+  If it drops into a gap, the end goes on the edge it crossed.
+* A fly guide records an end at each landing until `$6ACE` ends; if the
+  ball settles, it rolls 40 more steps.
+* **The aim camera always looks at end 0** (`$81:AE26`, written to
+  `$6AAA`/`$6AAC`).
+* **It has its own tile table, `$81:B455`.** Only the outline (`$28`-`$2D`)
+  and the overlay (`$60`-`$6F`) act; pillars, enemies, the cup and every
+  other tile are plain ground for it. The web demo's few mismatched angles
+  ("the rest run into the pillar", [web-demo.md](web-demo.md)) are this.
+* Its own integrator `$81:AF82` is not needed to reproduce the ends: the
+  ordinary step with that tile table gives them.
+* When it runs, and how long the aim loop waits for it, is
+  [flow.md](flow.md) "The aim loop".
 
 ### More of the ball's WRAM
 
@@ -553,12 +631,11 @@ frame. Read from code only; what it draws is **unconfirmed**.
   help strings.
 * `$81:980B`, the rules for leaving the ground over a ramp crest.
 * The landing lock-out counter `$6A7A`.
-* `$81:9BE5`, the step's tail.
+* `$81:9BE5`'s effect objects (its sounds are known, "The two steps, in full").
 * `$D9E8` / `$81:92D0`.
 * `$DA44` (`$00A0`, `$80:DCFF`): written at set-up, no reader found in
   the step.
 * A layer-4 wall bounce has not been seen in a run.
-* What the shot guide draws.
 
 ### How these were measured
 
@@ -592,20 +669,61 @@ cup.** The game keeps its own count:
   offsets (index x 2), ended by a negative word. Each record, written by
   `sub_spawn_actor $82:B3AF`, has its thread slot in `$B4F8,e` and its
   spawn cell in `$B538,e` / `$B578,e`.
+* The list is in the order of the load-time actor sweep (`$82:B320`). It
+  runs the rows from the top and **each row from its last column**
+  (`$82:B35D`, DEX), so hole 1's list is (8,3), (8,5), (6,5). This is from
+  the disassembly, and the engine's sweep equals the exporter's lists on all
+  8 holes of course 1 (`hole-entities.test.ts`).
 * The slot field `$539C` is the enemy's **owner**: 2 until a ball hits it,
   then the player (`$1809`) who did. `loc_enemy_taken $82:8A98` stores it
-  and adds one to that player's star count `$6A10,X`.
+  and adds one to that player's star count `$6A10,X`. It queues a tomato
+  +1 (`$82:8B41` → `$83:ABAD`, [flow.md](flow.md)).
+* The take's sound is `$4F`, or `$50` for an enemy with a copy ability
+  (`$531C` ≠ 0). The ability enemy's take then also waits 4 frames
+  (`$82:8A83`).
 * `sub_count_enemies_left $82:8ACE` counts the owners still at 2. When
   one is left after a hit, `sub_find_last_enemy $82:8AEE` stores its slot
   in `$7E:69FE` and its record in `$7E:6A0A`, and
   `sub_last_enemy_to_cup $82:8B5C` turns it into the cup:
-  * it sets the record's kind `$B4B8` to 8;
+  * it clears the enemy latch `$6A68`, saves the camera (`$38B4/$38B6`),
+    and sets the record's kind `$B4B8` to 8;
+  * it sets the aim target `$6B6C`-`$6B76` to the cup: the cell + `$8C00`
+    in x and + `$7800` in y, with the cell's Z. On hole 1 that is
+    (6:`$8C00`, 5:`$7800`), from a stepper watch at 3245;
   * it writes tile `$08` into the layer-2 grid `$7E:8390` at the record's
     cell (y x width + x, the width being `$7E:8B92`);
-  * it pans the camera there and spawns object type 74 (actor `$004A`,
-    `$82:8D03`) over it.
+  * then the reveal runs (below).
 * `$69FE` and `$6A0A` are `$FFFF` until then (reset per hole at
   `$80:C185`).
+
+**The reveal.** The reveal runs inside the ball step of the take that left
+one enemy. That step blocks until the reveal is over and then finishes; the
+ball's block is not written meanwhile (web_flow's ball records jump from
+3245 to 3345). The stages run in order. The source is the disassembly, plus
+`--log-pc` on the stage entries on course 1's holes 1-4 (the autoplay
+replay) and web_flow/web_curve, in the engine's `reveal.test.ts`. The
+stages:
+
+| stage | routine | frames |
+|---|---|---|
+| lead | `$82:8BDD`: the cup graphics' decompression wait, a frame at a time while `$AB` is set | 8 to the pan stage. The HUD thread does not run in 5 of them, so a take's tomato +1 lands at take + 25, not + 20 |
+| pan to the cup | `$82:8D5A` | none when the enemy is on screen: its draw position (the cell corner's projection) minus the scroll lies inside `$10`-`$C7` x `$10`-`$D3`. Otherwise a frame, then a pan (`$81:BA8A`) toward the cup's projection `$ECBB/$ECBD` until a pan finds the camera there. Hole 3: 30 frames, hole 4: 35 |
+| hover drop | `$82:8C4F` | a hovering enemy on screen drops for `$82:8CE8`[h] + 8 frames (the table is 0, 4, 6, 10, 13, 17, 20, 23). The length is unmeasured |
+| ring | objects 74 (the ring, `$82:8D03`), 78, 97 and 79 spawn | sound `$1C` 31 frames on (`$82:8D49`). Object 97 raises `$6B88`, which `$82:8C1C` waits for, 92 frames on. After a pan both come a frame earlier |
+| pan back | `$82:8C27` | a pan toward the saved camera, then a frame, until a pan finds it there; none when the camera never moved (hole 3: 29 frames) |
+
+With the cup on screen (course 1 holes 1 and 2) the ring stage starts at
+take + 8, `$1C` comes at + 39, and the reveal ends at + 100. When it pans,
+each stage moves back by the pan:
+
+| hole | ring stage | `$1C` | `$6B88` | pan back done |
+|---|---|---|---|---|
+| 3 | + 38 | + 68 | + 129 | + 158 |
+| 4 | + 43 | + 73 | + 134 | not logged |
+
+Hole 4 has one lag frame of the game's in its first pan (the pan stage
+begins at 7131 and writes the camera at 7133). Plans risk 3 is so settled:
+100 frames plus the pans.
 
 *Emulated* on hole 1, from a snapshot after each hit:
 * the list has three entries, all owner 2;
@@ -633,6 +751,42 @@ Holing out is decided in `$82:AD8E`-`$82:AE5D`:
 3. the main flow (`$80:F37A`) sees the player's copy `$D956` and takes the
    holed path at `$80:F48C`.
 
+The handlers in full were re-read against web_hole, which rolls into the cup
+with no pokes and is matched state for state by the engine (`trace-script`):
+* The fold is `EOR #$FFFF` only (`$82:AFEC`), not a negation: `$8000` maps
+  to `$7FFF` and `$C000` to `$3FFF`. The profile is 32 x 32 words, indexed
+  by the folded fractions >> 10.
+* `$82:B048` runs first in both handlers and gates nothing. It is the cup
+  ring's latch, set over the middle half on or near the ground; it shares
+  `$6A68` with the enemies and the pillar.
+* **Rolling** (`$82:AD36`):
+  * depth 0 gives the ordinary roll;
+  * at the centre (depth `$5000`), or on the rim with |vx| + |vy| ≥ `$0300`,
+    the ball goes airborne with vz 0 and the gravity tail;
+  * otherwise the rim's pull `$82:AF51` (with a heading update), then the
+    ordinary roll.
+* **Landing** (`$82:AD8E`):
+  * the hole-out when z ≤ ground' + `$4000`;
+  * on the dish's wall below ground', the rim's damping `$82:AF09` and
+    the pull, then z = ground' and the gravity tail;
+  * otherwise the ordinary landing.
+* The hole-out `$82:AE2B` sets holed 1, keeps the ball airborne, records
+  ground' (`$6B80/$6B82`), spawns object 75 (`$82:AD13`), and clears vx,
+  vy and the spin. The step ends.
+* **The sink** `$82:AE61` runs each step after that while the ball is
+  airborne over tile `$08`. It never moves z (the step's own move adds vz).
+  * It adds gravity to vz, and a vz that would take z below 0 becomes
+    −z's low word.
+  * When z is at or below the recorded ground', the ball is set there and
+    stopped. Then come holed 2 (`$82:AEC1`), Kirby's state 1, the music's
+    volume 0 (`$80:B5F4`) and the sound `$82:AEF5`[mode], which is `$21`
+    in mode 0.
+  * It also sets the shot over (`$81:A612`), so the roll ends from the
+    still count.
+  * web_hole drops in at 3894 and has sunk at 3908, 14 frames. A ball put
+    still on the centre sinks in 2 (c1n: `$DA4A` = 1 at 3121, `$21` at
+    3123).
+
 Forcing that branch with a poke instead deadlocks two frames later
 (emulation.md); letting `$82:AE2E` set the flag runs the whole sequence.
 
@@ -648,7 +802,10 @@ airborne over the cell. `$82:8990` decides:
   H is the enemy's hover height: the slot's `$5B1C`, in height steps,
   converted to 16.16 through `tbl_height_z_lo`/`_hi` (`$88:8000`,
   `$88:80C8`). Ground enemies have 0; the pit enemies of course 5 hole 6
-  have 4;
+  have 4. The hover tiles `$4D`-`$52` take theirs from `$82:B703`[tile −
+  `$4D`] = 3, 1, 3, 4, 2, 4 at the hole's load;
+* those hover tiles on the *rolling* path go to `$82:8963` = `JML
+  $81:8A56`, the plain roll: a rolling ball never tests a hovering enemy;
 * a hit latches `$6A68,X`, and the latch clears only when the handler sees
   the ball in the cell but outside the middle half (`$82:8A21`). So one
   pass through counts once, and a ball moved straight from the middle of
@@ -676,6 +833,30 @@ pixels (*emulated*):
 C differs per hole. Thread objects (enemies, the cup) keep their position
 as ($DA58, $8B9A - $DA5C) in the same space; their coordinates are the
 corner of the cell they stand on.
+
+**`sub_project $81:A4C6`**, read from the disassembly and ported bit for bit
+by the engine (`projection.ts`; exact on more than 100 rolling frames of
+web_flow):
+
+    x  = 32 (x + y)                                       $6A82:$6A80
+    up = 16 (y − x) + Z x $2D42 / 2^24 − $8B9E + $8B9A    $6A86:$6A84
+
+* Both are 16.16, an integer pixel and a fraction. The bitmap's y is
+  `$8B9A − up`.
+* `$8B9A` is the course header's word 5 x 8 (456 on hole 1) and `$8B9E` its
+  word 7 (232). They are read at `$82:B1E8`-`$82:B209`. So C above is word 7,
+  and the course bitmap's y is `word7 + 16 (x − y) − 16 Z / $5A82`.
+* The shifts are ROL pairs through the carry (`$81:A4D1`, `$81:A4F7`). The
+  bits shifted out of the integer word come back in at the bottom of the
+  fraction.
+* Z's bits 8-23 go through the mode-7 multiplier (signed 16 x 8) by `$42`
+  and `$2D`, its low byte through the CPU multiplier by `$2D`. A negative
+  Z is negated first and the product subtracted. The projection then also
+  sets `$D9D2` bit 0 (`$81:A516`); that flag starts the fall's song
+  ([flow.md](flow.md)).
+* Kirby's fractions are 0 until the roll's first frame, because the turn
+  load `$80:F73B` writes only the integers. That is why the camera's first
+  follow step in x is small.
 
 ## Playing a course: tools/snesstep/autoplay.py
 
@@ -836,9 +1017,12 @@ The TypeScript port ([web-demo.md](web-demo.md)) reproduces eleven recorded
 shots integer-exact, which pinned down several things the sections above leave
 open. All of these are from the disassembly and confirmed by those traces.
 
-* **Order of a frame.** The A / Y arming and its countdown (`$82:DA51`) run
-  *before* the physics step; the bonus on a bounce (`$82:DB20`) runs after it.
-  An A press on the ground arms `$DA7A` = 3: the step on the press frame and the
+* **Order of a frame.** The web port ran the A / Y arming and its countdown
+  (`$82:DA51`) *before* the physics step and the bonus on a bounce (`$82:DB20`)
+  after it. The engine port read the Kirby state code (`$82:CDFF`): both run
+  after the step, on that frame's pad, and the same traces match with each
+  press one frame earlier ("Buttons while the ball moves"). An A press on the
+  ground arms `$DA7A` = 3: the step on the press frame and the
   two after skip friction and slope, the fourth applies them (the
   "vx held for 3 frames"). Y adds `$1100` to the friction for those three and
   skips it on the frame the timer reads 0 (the "1 frame with no friction").
@@ -878,20 +1062,22 @@ open. All of these are from the disassembly and confirmed by those traces.
   ≥ $0300`) or the centre drops the rolling ball into the air with `vz = 0`; a
   slow one on the rim is pulled to the centre (`vx += (−(x−½) × $0600) >> 15`).
 * **Aim and meter** (stepper): a press turns the aim 1°; held 17 frames, 3° every
-  3 frames; the power meter counts 0 → 63 → 0 one step a frame; the top/back
+  3 frames (the hold counter and the guide's lag, [flow.md](flow.md)); the power meter counts 0 → 63 → 0 one step a frame; the top/back
   selector steps every 3 frames (`$6B5E` = 3) and pauses 6 frames at 0, 6 and 12;
   the last A to the first physics step is 23 frames.
 * **The shot guide** is the same step run from Kirby at **full power** (meter 63),
   with the aim and elevation chosen, for 40 steps if the shot rolls and until the
   first landing if it flies; its end, projected, is where the aim stage's camera
   looks (`$6AAA/$6AAC`, written at `$81:AE29`). 105 of 110 aim angles match to a
-  pixel (the rest run into the pillar). The guide is not a different integrator in
+  pixel (the rest run into the pillar: the guide's own tile table treats a pillar
+  as plain ground, "The shot guide" above). The guide is not a different integrator in
   any way that showed. See [web-demo.md](web-demo.md).
 * **The shot flow has three presses, not four.** After the A that confirms the
   aim the game curls Kirby, opens the panel and waits (about 70 frames) before the
   spin stage answers; the "second A" of the script above did nothing. The power
   meter starts 5 frames after the A that leaves the spin stage, and if it is not
-  pressed the shot goes by itself when the meter is back at 0.
+  pressed the shot goes by itself when the meter is back at 0. The frames of
+  each stage are in [flow.md](flow.md).
 * **Camera and facing**: `$38AC/$38AE` is the world camera (`$80:BF4D` turns it
   into the scroll), moved by `$81:BA8A` in the aim stage and in the pan to the shot
   view, by `$80:B961` during the roll; Kirby's facing and shot angle come from the

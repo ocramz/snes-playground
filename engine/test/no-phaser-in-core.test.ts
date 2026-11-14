@@ -70,3 +70,25 @@ describe('the pure bridge modules import no phaser', () => {
     expect(bad).toEqual([]);
   });
 });
+
+/**
+ * Reference §3: the views read traits and call actions. So nothing under
+ * src/game (nor main.ts) imports core's systems or kernels; the traits, the
+ * actions, the schedule (the host runs it), the events, the rules and the
+ * pure maths (projection, terrain, sweep) are core's public face.
+ */
+describe('src/game reads core through traits and actions', () => {
+  it('no file under src/game imports core/systems or core/sim', () => {
+    const bad: string[] = [];
+    const files = [...walk(game), resolve(here, '../src/main.ts')];
+    for (const path of files) {
+      const src = readFileSync(path, 'utf8');
+      for (const m of src.matchAll(/(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]/g)) {
+        if (!m[1].startsWith('.')) continue;
+        const target = resolve(path, '..', m[1]);
+        if (target.startsWith(resolve(core, 'systems')) || target.startsWith(resolve(core, 'sim'))) bad.push(`${path}: ${m[1]}`);
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

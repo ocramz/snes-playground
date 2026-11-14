@@ -1,5 +1,7 @@
 # Engine phase 6: enemies, the cup, holing, the counters, the hole and course loop
 
+> Promoted 2026-11-14 (engine phase 8): the facts below are in the subsystem docs (physics.md, flow.md, tiles.md, animation.md, audio.md, emulation.md, web-demo.md); the mapping, deviations, unported and unconfirmed lists are in docs/engine.md. This note is kept as the session's record.
+
 Date: 2026-11-14 (session 5). Plan: `plans/port_v1_koota_phaser4.md` item 6,
 "Enemies, cup, holing, hazards, tomatoes, strokes and lives; the hole and
 course loop on the test courses". The session plan is in

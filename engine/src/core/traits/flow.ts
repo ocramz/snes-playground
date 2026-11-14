@@ -47,3 +47,9 @@ export const HoleFlow = trait({
   /** RollEnd: where the roll goes when it has ended. */
   next: 'SettleWait' as FlowPhase,
 });
+
+/** The hole's song: song 11 ($89), course 1 holes 1-4's. The game picks it per hole from
+ *  `$80:C967`'s table (course 1: 11, 11, 11, 11, 7, 7, 7, 13; docs/audio.md); the engine plays
+ *  11 everywhere for now (docs/engine.md "Deviations from the game, on purpose").
+ *  Song events carry the song's number (the request byte - $7E), as phase 5's fall song does. */
+export const HOLE_SONG = 0x89 - 0x7e;

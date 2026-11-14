@@ -1,5 +1,7 @@
 # Engine phase 4: the ball kernels
 
+> Promoted 2026-11-14 (engine phase 8): the facts below are in the subsystem docs (physics.md, flow.md, tiles.md, animation.md, audio.md, emulation.md, web-demo.md); the mapping, deviations, unported and unconfirmed lists are in docs/engine.md. This note is kept as the session's record.
+
 Date: 2026-11-14 (session 3). Plan: `plans/port_v1_koota_phaser4.md` item 4 —
 "Ball kernels plus `BALL_STEP` plus the stall runner, against the 11
 `trace_web_*` shots seeded at launch".

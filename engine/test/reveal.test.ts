@@ -24,7 +24,8 @@ import { fromRomCourse } from '../src/core/course-data';
 import { Camera } from '../src/core/traits/camera';
 import { Cell, IsEnemy } from '../src/core/traits/hole';
 import { drainEvents } from '../src/core/events';
-import { Reveal, startReveal, tickReveal } from '../src/core/systems/reveal';
+import { startReveal, tickReveal } from '../src/core/systems/reveal';
+import { Reveal } from '../src/core/traits/reveal';
 import { haveRules, loadRomHole, loadTables } from './fixtures';
 
 const CASES = [

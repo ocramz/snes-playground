@@ -33,7 +33,7 @@
  *                 the RESULT card (see HOLEOUT_*)
  */
 import type { World } from 'koota';
-import { HoleFlow } from '../traits/flow';
+import { HoleFlow, HOLE_SONG } from '../traits/flow';
 import { Shot, METER_TOP } from '../traits/shot';
 import { Camera } from '../traits/camera';
 import { Pose, PoseState, BallScreen } from '../traits/pose';
@@ -51,7 +51,8 @@ import { project } from '../projection';
 import { ball, emitEvent, enterPhase, phaseNow } from './flow-util';
 import { requestGuide } from './aim';
 import { rollPoseState } from './panel';
-import { freeEnemies, Reveal } from './reveal';
+import { freeEnemies } from './reveal';
+import { Reveal } from '../traits/reveal';
 import { changeTomatoes, gainLife, loseLife, setTomatoes, tomatoes } from './counters';
 
 /** RollEnd: `$82:C172` runs at least one frame after the over, then tests $68F4. */
@@ -61,10 +62,6 @@ export const SETTLE_FRAMES = 31;
 /** $80:F39F: the wait before the out-of-tomatoes test ($80:F3AC). */
 export const SETTLE_WAIT = 30;
 export const LAUNCH_FRAMES = 24;
-
-/** The hole's song: course 1's ($89, song 11; docs/emulation.md). Unconfirmed for other courses.
- *  Song events carry the song's number (the request byte - $7E), as phase 5's fall song does. */
-export const HOLE_SONG = 0x89 - 0x7e;
 
 /** BallLost, from the roll loop's exit E (web_fly 3498). */
 export const LOST_ZERO_AT = 30; // $80:F83B STZ $D7F0, song $7E ($80:F845): 3528

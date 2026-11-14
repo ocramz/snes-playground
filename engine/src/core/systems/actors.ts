@@ -5,17 +5,15 @@
  * the HUD thread (systems/counters.ts) — and not in the frames the cup
  * reveal's decompression wait holds it (TomatoQueue.hold).
  */
-import { trait, type World } from 'koota';
+import type { World } from 'koota';
 import type { Ctx } from '../sim/context';
 import type { HazardField } from '../sim/hazards';
 import { spawnActor, tickActor, autotileTracks, type BallView } from '../sim/actors';
 import type { HoleActors } from '../sweep';
 import { BallHoled, BallPos, BallWork } from '../traits/ball';
 import { HoleFlow } from '../traits/flow';
-import { Reveal } from './reveal';
-
-/** World singleton (AoS): the hole's hazard actors; ctx.course.hazards is this object. */
-export const Hazards = trait((): HazardField => ({ actors: [], list: [], atCell: new Int16Array(0) }));
+import { Reveal } from '../traits/reveal';
+import { Hazards } from '../traits/hazards';
 
 /**
  * `$82:B9C7` and `$82:BA87` at the hole's start: the actors at their cell

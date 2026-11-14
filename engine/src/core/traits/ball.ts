@@ -24,7 +24,7 @@ export const BallAir = trait({ air: 0 });
 export const BallSpin = trait({ sx: 0, sy: 0, pending: 0 });
 /** $D9C8: 0 normal, 1-21 the copy-ability modes; always 0 for now. */
 export const BallMode = trait({ mode: 0 });
-/** $DA4A: 1 holed, 2 once the hole-out has run. */
+/** $DA4A: 1 holed (in the cup), 2 once the ball has sunk ($82:AE61). */
 export const BallHoled = trait({ holed: 0 });
 /** $D9DA (heading, degrees 0-359), $D9E2 (last heading while moving). */
 export const BallHeading = trait({ deg: 0, last: 0 });

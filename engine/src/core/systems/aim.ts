@@ -22,7 +22,7 @@ import { Guide } from '../traits/guide';
 import { Camera } from '../traits/camera';
 import { Pose, PoseState } from '../traits/pose';
 import { BallWork, BallPos } from '../traits/ball';
-import { Stall } from './stall';
+import { Stall } from '../traits/stall';
 import type { Ctx } from '../sim/context';
 import { aimPad, PAD, type AimInput } from '../sim/aim';
 import { facingFromAim } from '../sim/facing';
