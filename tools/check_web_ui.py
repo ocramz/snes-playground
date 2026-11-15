@@ -2,13 +2,15 @@
 """Pixel check of the web demo's shot panel against the real game's sprites.
 
     python3 tools/check_web_ui.py            # writes the states, runs the browser, compares
+    python3 tools/check_web_ui.py --target engine   # the same for engine/ (its dev server, port 5174)
 
-Needs `npm run dev` running in web/, the snapshots of tools/export_web_ui.py and
+Needs `npm run dev` running in web/ (or engine/), the snapshots of tools/export_web_ui.py and
 Playwright's cached Chromium. For a set of frames of tools/snesstep/inputs/web_ui.txt
 it draws the UI sprites of the real snapshot (anchored at (128, 100)) and the panel as
 the browser draws it for the same side / top-back / meter / age, on black, and counts
 the differing pixels above the tomato row (the tomato about to be spent blinks).
 """
+import argparse
 import json
 import os
 import subprocess
@@ -20,7 +22,13 @@ sys.path.insert(0, HERE)
 
 FRAMES = [2870, 2871, 2872, 2900, 2960, 3000, 3040, 3092, 3128, 3129, 3134, 3135, 3137, 3140, 3160, 3180, 3189, 3200, 3220, 3250]
 A_FRAME = 2800
-OUT = os.path.join(ROOT, "build", "web-test", "panel")
+# where each target's ui.json is, which directory runs its browser half, and the output
+TARGETS = {
+    "web": {"ui": os.path.join(ROOT, "build", "web", "ui.json"), "cwd": os.path.join(ROOT, "web"),
+            "out": os.path.join(ROOT, "build", "web-test", "panel")},
+    "engine": {"ui": os.path.join(ROOT, "build", "engine", "assets", "ui.json"), "cwd": os.path.join(ROOT, "engine"),
+               "out": os.path.join(ROOT, "build", "engine", "test-panel")},
+}
 
 
 def real_state(frame, ui):
@@ -63,7 +71,11 @@ def main():
     import numpy as np
     from PIL import Image
     import export_web_ui as E
-    ui = json.load(open(os.path.join(ROOT, "build", "web", "ui.json")))
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--target", choices=sorted(TARGETS), default="web")
+    target = TARGETS[ap.parse_args().target]
+    OUT = target["out"]
+    ui = json.load(open(target["ui"]))
     os.makedirs(OUT, exist_ok=True)
     states, reals = [], {}
     for f in FRAMES:
@@ -75,7 +87,7 @@ def main():
         reals[f] = s
     sp = os.path.join(OUT, "states.json")
     json.dump(states, open(sp, "w"))
-    subprocess.run(["node", "test/e2e/panel.mjs", sp, OUT], cwd=os.path.join(ROOT, "web"), check=True)
+    subprocess.run(["node", "test/e2e/panel.mjs", sp, OUT], cwd=target["cwd"], check=True)
     bad = 0
     for f, st in zip(FRAMES, states):
         mine = np.array(Image.open(os.path.join(OUT, "panel_f%d.png" % f)).convert("RGBA"))
@@ -88,7 +100,7 @@ def main():
         bad += diff != 0
         if diff:
             Image.fromarray(np.hstack([a, b])).save(os.path.join(OUT, "diff_f%d.png" % f))
-    print("all identical" if not bad else "%d frames differ (see build/web-test/panel)" % bad)
+    print("all identical" if not bad else "%d frames differ (see %s)" % (bad, os.path.relpath(OUT, ROOT)))
     return 1 if bad else 0
 
 

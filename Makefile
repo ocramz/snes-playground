@@ -41,7 +41,7 @@ DIST   := web/dist/index.html
 WEB_SRC := $(shell find web/src -type f ! -path '*/__tests__/*' ! -name .DS_Store) \
            web/index.html web/hands.html web/vite.config.ts web/tsconfig.json web/package.json
 
-.PHONY: all build tools assets web extract help clean clean-rust distclean
+.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e extract help clean clean-rust distclean
 .DELETE_ON_ERROR:
 
 all: build
@@ -92,7 +92,7 @@ build/web-test/cutscene_hole0.json: $(CUTSCENE_REPLAY)/pokes.txt tools/snesstep/
 
 # export_web.py writes manifest.json last
 $(ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) tools/web_audio_map.json \
-           tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py | $(SNESSTEP)
+           tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py | $(SNESSTEP)
 ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
@@ -106,6 +106,73 @@ $(NODE): web/package.json web/package-lock.json
 $(DIST): $(NODE) $(ASSETS) $(WEB_SRC)
 	cd web && $(NPM) run build
 
+# ---- the engine (Koota x Phaser 4; plans/port_v1_koota_phaser4.md)
+#
+# build/engine/rules      tables.json: the ROM physics constants (ROM only)
+# build/engine/rom-test   course.json + terrain_golden.json (test hole), holes/N/
+#                         course.json (course 1, and the hazard holes 11 and 54),
+#                         and, after `make engine-traces`, the ball, flow, sound
+#                         and hazard-actor fixtures of tools/snesstep/inputs/web_*
+# build/engine/assets     the sprite atlas, ui, hud, font, audio, cutscenes
+#                         and the 8 course-1 holes' course.json + layers
+
+ENGINE_RULES   := build/engine/rules/tables.json
+ENGINE_ROMTEST := build/engine/rom-test/.stamp
+ENGINE_ASSETS  := build/engine/assets/manifest.json
+ENGINE_NODE    := engine/node_modules/.package-lock.json
+ENGINE_DIST    := engine/dist/index.html
+# the hazard actors' and the warp's emulated sheets (tools/emusheets.py over every hole); the
+# objects step skips a missing one and the engine draws a marker instead
+ENGINE_OBJ     := $(wildcard $(foreach t,063 064 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
+ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
+                  engine/index.html engine/vite.config.ts engine/tsconfig.json engine/package.json
+
+$(ENGINE_RULES): tools/export_web.py
+	$(PYTHON) tools/export_web.py --only tables --out build/engine/rules
+
+# one recipe writes course.json (to --out) and terrain_golden.json (to --test-out)
+$(ENGINE_ROMTEST): tools/export_web.py
+	$(PYTHON) tools/export_web.py --only course,golden --out build/engine/rom-test --test-out build/engine/rom-test
+	for h in 0 1 2 3 4 5 6 7 11 54; do \
+	  $(PYTHON) tools/export_web.py --hole $$h --only course --out build/engine/rom-test/holes/$$h || exit; \
+	done
+	@touch $@
+
+$(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) $(ENGINE_OBJ) tools/web_audio_map.json \
+                  tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py | $(SNESSTEP)
+ifeq ($(CUTSCENE),)
+	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
+	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
+endif
+	$(PYTHON) tools/export_web.py --only font,hud,sprites,ui,audio,objects --out build/engine/assets
+	for h in 0 1 2 3 4 5 6 7; do \
+	  $(PYTHON) tools/export_web.py --hole $$h --only course,layers --out build/engine/assets/holes/0$$h || exit; \
+	done
+	$(PYTHON) tools/export_web.py --only manifest --out build/engine/assets
+
+$(ENGINE_NODE): engine/package.json engine/package-lock.json
+	cd engine && $(NPM) ci
+	@touch $@
+
+$(ENGINE_DIST): $(ENGINE_NODE) $(ENGINE_ASSETS) $(ENGINE_RULES) $(ENGINE_SRC)
+	cd engine && $(NPM) run build
+
+engine-assets: $(ENGINE_ASSETS)
+
+engine: $(ENGINE_DIST)
+
+engine-test: $(ENGINE_NODE) $(ENGINE_RULES) $(ENGINE_ROMTEST)
+	cd engine && $(NPM) test
+
+# the trace and flow fixtures the headless tests compare against (stepper runs)
+engine-traces: | $(SNESSTEP)
+	cd engine && $(NPM) run traces
+
+# the browser smoke test: boots course 1, plays a shot, checks for errors.
+# Needs `cd engine && npm run dev` running (port 5174), like web/test/e2e.
+engine-e2e: $(ENGINE_NODE)
+	cd engine && $(NPM) run e2e
+
 # ---- not part of `build`
 
 extract: tools
@@ -118,8 +185,13 @@ help:
 	@echo "make tools         build/snesstep and build/spcrender (cargo, offline)"
 	@echo "make assets        build/web only (tools/export_web.py and what it needs)"
 	@echo "make web           web/dist (vite build)"
+	@echo "make engine        engine/dist (npm ci, vite build; needs engine-assets and the rules)"
+	@echo "make engine-assets build/engine/assets: the ROM assets for the engine (like make assets)"
+	@echo "make engine-e2e    browser smoke test of the engine (needs cd engine && npm run dev)"
+	@echo "make engine-test   the engine's vitest suite (ROM-derived tests skip without build/engine)"
+	@echo "make engine-traces the trace/flow fixtures into build/engine/rom-test (stepper runs)"
 	@echo "make extract       tools/extract_all.py: every extractor + build/manifest.tsv"
-	@echo "make clean         web/dist, build/web, __pycache__: seconds to redo"
+	@echo "make clean         web/dist, engine/dist, build/web, build/engine, __pycache__: seconds to redo"
 	@echo "make clean-rust    the cargo target dirs build/snesstep, build/spcrender"
 	@echo "make distclean     clean + web/node_modules + build/, except build/emu/autoplay/c1n"
 	@echo ""
@@ -128,7 +200,7 @@ help:
 # ---- clean-up, in three tiers
 
 clean:
-	rm -rf web/dist build/web
+	rm -rf web/dist engine/dist build/web build/engine
 	find tools -name __pycache__ -type d -prune -exec rm -rf {} +
 
 clean-rust:
@@ -137,7 +209,7 @@ clean-rust:
 # Keeps build/emu/autoplay/c1n: no current tool can record it again, and the
 # cutscene trace is cut from it (docs/web-demo.md).
 distclean: clean
-	rm -rf web/node_modules
+	rm -rf web/node_modules engine/node_modules
 	@if [ -d $(C1N) ]; then \
 	  echo "keeping $(C1N)"; set -x; \
 	  find build -mindepth 1 -maxdepth 1 ! -name emu -exec rm -rf {} +; \

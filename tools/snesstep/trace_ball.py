@@ -17,6 +17,14 @@ must reproduce the rest.
     python3 tools/snesstep/trace_ball.py web_fly --frames 3700
     python3 tools/snesstep/trace_ball.py all          # every inputs/web_*.txt
 
+A script may come with inputs/<name>.pokes (the stepper's --pokes format); it
+is passed along when it exists. FRAMES below lengthens the run of the scripts
+that need it.
+
+Each record also carries `ln`, the scanline of its burst's first store: the
+game's main loop often runs past the vblank, so a burst in the first lines of
+frame F belongs to the loop iteration of F - 1 (the engine tests convert).
+
 Output: build/web-test/trace_<name>.json (gitignored with the rest of build/).
 """
 
@@ -43,16 +51,46 @@ def s16(v):
     return v - 65536 if v >= 32768 else v
 
 
+# Scripts that run longer than the default --frames (a second shot, a hole-out).
+FRAMES = {"web_hole": 4700, "web_tomatoes": 5200}
+
+
 def trace(args):
     inp = os.path.join(HERE, "inputs", args.name + ".txt")
     run = os.path.join(ROOT, "build", "emu", "trace_" + args.name)
     os.makedirs(run, exist_ok=True)
-    subprocess.run([BIN, "--frames", str(args.frames), "--input", inp,
-                    "--watch-write", "$7E:{:04X}-$7E:{:04X}".format(*BLOCK),
-                    "--watch-write", "$7E:D9B4-$7E:D9B7",
-                    "--no-dsp", "--quiet", "--out", run], check=True)
+    frames = max(args.frames, FRAMES.get(args.name, 0))
+    cmd = [BIN, "--frames", str(frames), "--input", inp,
+           "--watch-write", "$7E:{:04X}-$7E:{:04X}".format(*BLOCK),
+           "--watch-write", "$7E:D9B4-$7E:D9B7"]
+    pokes = os.path.join(HERE, "inputs", args.name + ".pokes")
+    if os.path.exists(pokes):
+        cmd += ["--pokes", pokes]
+    subprocess.run(cmd + ["--no-dsp", "--quiet", "--out", run], check=True)
     mem = {}
     out = []
+    # The stepper writes a poke at the start of a frame's vblank, not through
+    # the CPU, so the watch never sees it: apply them to the model at their
+    # frame, before that frame's writes ({frame: [(addr, value)]}).
+    poked = {}
+    if os.path.exists(pokes):
+        for line in open(pokes):
+            line = line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            fr, rest = line.split(":", 1)
+            addr, val = rest.split("=")
+            a = int(addr.split(":")[1], 16)
+            poked.setdefault(int(fr), []).append((a, int(val, 16)))
+    applied = set()
+
+    def apply_pokes(upto):
+        for pf in sorted(poked):
+            if pf <= upto and pf not in applied:
+                for a, v in poked[pf]:
+                    mem[a] = v & 0xFF
+                    mem[a + 1] = (v >> 8) & 0xFF
+                applied.add(pf)
     # The game copies the work copy back to the player block in a short burst
     # of stores (pcs $82:F1BF, F1C5, F1CB, ... in increasing order). A burst
     # can straddle a frame boundary, so a snapshot per *frame* is sometimes
@@ -61,9 +99,10 @@ def trace(args):
     def w(a):
         return mem.get(a, 0) | (mem.get(a + 1, 0) << 8)
 
-    def snap(frame):
+    def snap(frame, line):
         s = {k: w(a) for k, a in FIELDS.items()}
         s["f"] = frame
+        s["ln"] = line
         s["z"] = s["zhi"] * 65536 + s["zlo"]
         if s["zhi"] >= 32768:
             s["z"] -= 2 ** 32
@@ -71,27 +110,28 @@ def trace(args):
             s[k] = s16(s[k])
         return s
 
-    burst_frame, last_pc, seen = None, -1, set()
+    burst_frame, burst_line, last_pc, seen = None, 0, -1, set()
     with open(os.path.join(run, "watch.tsv")) as f:
         next(f)
         for line in f:
-            fr, _, pc, addr, _, new = line.rstrip("\n").split("\t")
+            fr, ln, pc, addr, _, new = line.rstrip("\n").split("\t")
             fr = int(fr)
+            apply_pokes(fr)
             a = int(addr.split(":")[1], 16)
             pcv = int(pc.split(":")[1], 16)
             in_block = BLOCK[0] <= a < BLOCK[1]
             if in_block:
                 if (pcv < last_pc or a in seen) and burst_frame is not None:
                     if burst_frame >= args.start:
-                        out.append(snap(burst_frame))
+                        out.append(snap(burst_frame, burst_line))
                     burst_frame, seen = None, set()
                 if burst_frame is None:
-                    burst_frame = fr
+                    burst_frame, burst_line = fr, int(ln)
                 last_pc = pcv
                 seen.add(a)
             mem[a] = int(new, 16)
     if burst_frame is not None and burst_frame >= args.start:
-        out.append(snap(burst_frame))
+        out.append(snap(burst_frame, burst_line))
     os.makedirs(args.out, exist_ok=True)
     path = os.path.join(args.out, "trace_{}.json".format(args.name))
     with open(path, "w") as f:

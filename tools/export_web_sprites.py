@@ -50,7 +50,10 @@ TREE_REF = "f002302"       # camera (192, 152): tree frame top-left at (168, 168
 KIRBY_CLIP_NAMES = (
     "aim_facing", "aim_turn_facing", "curl_into_ball_angle", "unroll_angle",
     "wait_turn_facing", "ball_squash_squash", "hop_", "ball_roll", "ball_sink",
-    "tired_health")
+    "tired_health",
+    # the engine's asleep (pose 3, object $BE stands in) and hazard poses
+    # (49 dizzy after a bumper, 40 the volcano's throw), engine/ phase 7
+    "fall_asleep", "dizzy", "hit_burn_")
 
 
 # --------------------------------------------------------------------------
@@ -203,6 +206,13 @@ def build(outdir):
 
     ring = sheet_frames(os.path.join(SHEET_DIR, "obj_074"))
     atlas.add("cupring", *ring[0])
+    # Object 75, spawned at the hole-out ($82:AD13): four 16x16 sprites at OAM
+    # priority 0 and a lower OAM index than Kirby (web_hole0 f003124), so
+    # where it is opaque the course shows through and Kirby is hidden: the
+    # cup's near rim. Only its alpha is used (the engine's cup-mask.ts); the
+    # notch in rows 0-1 is the ring's opening.
+    mask = sheet_frames(os.path.join(SHEET_DIR, "obj_075"))
+    atlas.add("cupmask", *mask[0])
     tee = sheet_frames(os.path.join(SHEET_DIR, "obj_108"))
     atlas.add("tee", *tee[3])
     shadow = sheet_frames(os.path.join(SHEET_DIR, "obj_121"))
@@ -238,6 +248,60 @@ def build(outdir):
                    "frames": frames, "clips": clips}, f, separators=(",", ":"))
     return {"frames": len(frames), "clips": len(clips), "size": list(sheet.size),
             "cutscenes": sorted(cutscenes["windows"]) if cutscenes else None}
+
+
+# --------------------------------------------------------------------------
+# The hazard actors' pictures, for the engine (tools/export_web.py --only objects)
+
+OBJECT_SHEETS = os.path.join(ROOT, "build", "sprites", "emu")
+# The bumpers 76 (rides its track) and 77 (bobs), the volcanoes 81-83
+# (docs/tiles.md; engine/src/core/sim/actors.ts). actors.tsv rates all five
+# actor ids a "match" for these types. 63 and 64 are the warp's: Kirby curls
+# up and bursts into stars at the warp he went into, stars and a flash where
+# he comes out ($82:AAE5, $82:AB6E; engine/src/core/systems/warp.ts).
+OBJECT_TYPES = (63, 64, 76, 77, 81, 82, 83)
+
+
+def build_objects(outdir):
+    """objects.png + objects.json: the emulated sheets of OBJECT_TYPES
+    (build/sprites/emu/obj_NNN, tools/emusheets.py over every hole), packed like
+    sprites.json. A sheet lists its pictures by frame table ($89:xxxx, one per
+    look: the courses dress the same object differently) and index within it;
+    frame `oTTT_K_II` is type TTT, the K-th table in the sheet's order, index
+    II. `objects[type].tables[K]` names the table and `.frames[K][II]` the
+    frame, so a view picks a picture from the thread's frame number. Which
+    table a course uses is not traced (the first is the one seen on course 1:
+    h003 for 76)."""
+    atlas = Atlas()
+    objects = {}
+    for t in OBJECT_TYPES:
+        stem = os.path.join(OBJECT_SHEETS, "obj_%03d" % t)
+        if not os.path.exists(stem + ".json"):
+            print("objects: {}.json missing (tools/emusheets.py); type {} skipped".format(stem, t))
+            continue
+        meta = json.load(open(stem + ".json"))
+        cells = sheet_frames(stem)
+        tables, frames = [], []
+        for f, (img, ox, oy) in zip(meta["frames"], cells):
+            if f["table"] not in tables:
+                tables.append(f["table"])
+                frames.append([])
+            k = tables.index(f["table"])
+            row = frames[k]
+            while len(row) <= f["index"]:
+                row.append(None)
+            row[f["index"]] = atlas.add("o%03d_%d_%02d" % (t, k, f["index"]), img, ox, oy)
+        objects[str(t)] = {"tables": tables, "frames": frames,
+                           "source": os.path.relpath(stem + ".json", ROOT)}
+    if not objects:
+        return None
+    sheet, packed = atlas.pack()
+    sheet.save(os.path.join(outdir, "objects.png"))
+    with open(os.path.join(outdir, "objects.json"), "w") as f:
+        json.dump({"image": "objects.png", "size": list(sheet.size), "frames": packed,
+                   "clips": {}, "objects": objects}, f, separators=(",", ":"))
+    return {"types": sorted(int(k) for k in objects), "frames": len(packed),
+            "size": list(sheet.size)}
 
 
 # --------------------------------------------------------------------------

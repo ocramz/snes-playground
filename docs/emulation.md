@@ -272,6 +272,26 @@ mean anything.
 **`coverage.tsv`**: `snes_addr file_offset m x len`, one row per
 instruction start and M/X combination seen.
 
+### Frames, iterations and snapshots
+
+The stepper counts video frames. The game counts main-loop iterations, and the two do not line up. These rules were found while porting the engine; its tests, which compare every recorded store and sound request, depend on them.
+
+* **A stamp early in a frame belongs to the iteration before it.** The roll loop routinely runs past the vblank, so a store or a sound request in the first lines of frame F was made by the iteration of F − 1. The recorders therefore carry the scanline:
+  * `ln` in `trace_ball.py`'s records;
+  * the line column of `trace_flow.py`'s sound log (`sounds_<name>.json`, every `$80:B542` / `$80:B4AC` call).
+
+  The tests convert a stamp below line 112 to the previous iteration, and with that every event of the recordings lines up on one convention. Example: web_flow's launch pushes a tomato −1 at 2982 that lands at 3002. A take's +1 pushed at 3067 lands at 3087, though the store is stamped 3088 because it happens in the first lines of that frame. Counted this way, the phase-5 "32 frames to the set-up" was 33 iterations.
+* **A snapshot shows the iteration before it.** A vblank snapshot `fFFFFFF` holds the WRAM as iteration f − 1 left it, and the picture built from it. web_ui: the flow trace writes the meter's 1 at 3249, snapshot 3250 has 1 and snapshot 3251 has 0. Ages measured on snapshots (the shot panel's, [flow.md](flow.md)) are therefore one more than the same moments in iterations.
+* **Trace records are write-back bursts, not frames.** The game copies the work ball back in a burst of stores that can straddle a frame. When it lags and catches up, two physics steps can fall in one frame ([web-demo.md](web-demo.md) "Verified against the real game"). The engine's harness aligns states, so it never assumes one record per frame.
+* **Lag frames.** An iteration that outlasts its frame delays the next one:
+  * the shot guide's simulation (flow.md "The aim loop");
+  * the APU handshake of a song request (audio.md);
+  * a busy hole.
+
+  The thread scheduler then drops ticks, which shifts the hazard actors' phase ([tiles.md](tiles.md) "Hazards"). Course 1 hole 4's cup reveal shows one such frame, and the volcano holes show 4-7 over an eruption.
+
+Input scripts can carry a `<name>.pokes` file beside them (`tools/snesstep/inputs/`), which `trace_ball.py`, `trace_flow.py` and `trace_actors.py` pass to the stepper: the hazard scenarios pick their hole and place the ball this way.
+
 ## Speed
 
 Apple M1, release build: about 2,700 frames/s with the S-DSP

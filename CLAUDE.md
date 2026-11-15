@@ -7,9 +7,13 @@ docs/           long-form findings: memory maps, data formats, subsystems
 notes/          working scratch, per-session, unpolished, may be wrong
 tools/          analysis scripts
 web/            the Phaser 4 + Vite demo of one hole (docs/web-demo.md)
+engine/         the Koota + Phaser 4 reimplementation (docs/engine.md)
+plans/          design plans for work in progress
 symbols.tsv     machine-readable symbol/label table
-Makefile        `make` builds the web demo end to end; clean tiers (make help, docs/tooling.md)
-build/          all derived output — GITIGNORED (the demo's assets: build/web/)
+Makefile        `make` builds the web demo end to end; `make engine-*` the engine;
+                clean tiers (make help, docs/tooling.md)
+build/          all derived output — GITIGNORED (the demo's assets: build/web/;
+                the engine's: build/engine/)
 ```
 
 `docs/` is for things believed true. `notes/` is for things being worked out;
@@ -39,7 +43,7 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/terrain.md](docs/terrain.md) — the playfield: elevation, the 28
   terrain shapes, the surface equation, and how gaps work.
 - [docs/tiles.md](docs/tiles.md) — the special-tile layer: the dispatch
-  tables, friction overrides, boost panels, kickers and hazards.
+  tables, friction overrides, boost panels, kickers, warp panels and hazards.
 - [docs/scenes.md](docs/scenes.md) — the 20 screen setup blocks, the four
   loader jump tables, and which graphics and palette each screen loads.
 - [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,
@@ -53,6 +57,16 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/emulation.md](docs/emulation.md) — the headless stepper: what is
   emulated, how it was validated against the static facts, input scripts,
   pokes, and which screens they reach.
+- [docs/flow.md](docs/flow.md) — the 1-player turn and hole as the game
+  runs them: the set-up and the aim target, the aim loop and the guide's lag,
+  the shot thread's stages and the shot panel's timing, the roll's end, the
+  tomato queue, lives and strokes, running out of tomatoes, the lost ball and
+  the hole-out's timeline.
+- [docs/engine.md](docs/engine.md) — the Koota × Phaser 4 reimplementation in
+  `engine/`: how to run and test it, the dependency rules, the event model,
+  the frame (every system with the routine it ports), the traits, the hole
+  flow, the bridge and views, the event and asset tables, the deviations from
+  the game, and what is unported, deferred or unconfirmed.
 - [docs/web-demo.md](docs/web-demo.md) — the browser demo of course 1 hole 1:
   how to export the assets and run it, the TypeScript port of the ball physics
   and how it was checked frame by frame against the game, what was measured

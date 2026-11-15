@@ -43,6 +43,14 @@ The tile page and palette come from the course scene's own loaders:
 
 so VRAM tiles 0-255 come from `$90:9E9E` and 256-847 from `$8B:DAB1`.
 
+That is the page every hole starts from. A hole with water (`$60-$6F` in
+layer 2, and no boost panel `$30-$3B`) then gets its own tiles `$180-$1AB`
+from `$91:ED29` at the load (`$82:BCD7` -> `$80:CCEF`), and object 113 cycles
+palette 4's colours 1-7 through three sets every 8 frames (`$84:8533`), so the
+course CGRAM image's colours there -- the boost panels' red cycle -- are not
+what a water hole shows. `hole_page` and `hole_palette` apply both; the
+render uses the first ripple set.
+
 BG3 carries the scenery behind the course, and all of it is per-course
 rather than per-hole. `sub_load_course_backdrop $80:D6A8` selects tiles and
 tilemap with `course & 7` from the tables at `$80:D748` and `$80:D768`, and
@@ -118,6 +126,34 @@ BG3_PALETTE_TABLE = (0x80, 0xD517)
 BG3_PALETTE_ALT = (0x80, 0xD527)      # taken instead when $7E:6A2E is set
 BG3_PALETTE_COLOURS = 40
 
+# Per-hole surface graphics (docs/courses.md "Per-hole surface graphics").
+# At the hole's load `$82:BCD7` reads the per-value counts of the layer-2 grid
+# at `$7E:B3B8`: any boost panel `$30-$3B` sets `$B6FA` = 1 and spawns object
+# 112 (`$84:876C`, the panels' colour cycle) and nothing else; otherwise any
+# water `$60-$6F` sets `$B6FA` = 2, spawns object 113 (`$84:8293`, the water's
+# ripple) and calls graphics set A entry 2 (`$80:CCDF`), whose record
+# `$80:CCEF` copies 1408 uncompressed bytes from `$91:ED29` to VRAM word
+# `$1800` -- tiles `$180-$1AB`, which the course page otherwise fills from
+# `$8B:DAB1`. (`$80:CCF8`, a zero fill, is taken instead while `$69CA` is set.)
+BOOST_VALUES = range(0x30, 0x3C)
+WATER_VALUES = range(0x60, 0x70)
+WATER_GFX = (0x91, 0xED29)
+WATER_GFX_BYTES = 1408
+WATER_FIRST_TILE = 0x180
+# Object 113's per-frame hook `$84:8533` steps a phase (phase + 1) & 3 every
+# `$84:8576`[phase] frames and writes 7 colours from bank `$98` at
+# base + `$84:857E`[phase] to CGRAM colour `$41` (palette 4, colours 1-7)
+# through `sub_cgram_partial`. The base is `$84:84AF`[`$6A5C`], and `$6A5C` is
+# 2 * course in every snapshot recorded for courses 0-15. `$84:84F1` is the
+# table taken while `$7E:6A2E` is set, and `$7E:ED5B` picks `$98:EA50`/`$EA7A`;
+# neither is modelled here.
+WATER_BASES = (0x84, 0x84AF)
+WATER_PHASE_FRAMES = (0x84, 0x8576)
+WATER_PHASE_OFFSET = (0x84, 0x857E)
+WATER_PHASES = 4
+WATER_CGRAM = 0x41
+WATER_COLOURS = 7
+
 W_CELLS, W_WIDTH, W_HEIGHT, W_AREA, W_MAPW, W_MAPH = 0, 1, 2, 3, 4, 5
 EMPTY = 0xFFFF
 
@@ -151,6 +187,85 @@ def course_palette(d):
     raw = d[off:off + 512]
     cols = [snes_color(w) for w in words(raw)]
     return [cols[i * 16:(i + 1) * 16] for i in range(16)]
+
+
+def surface_kind(d, index):
+    """"boost", "water" or None: which branch `$82:BCD7` takes for this hole.
+
+    The boost panels are tested first, so a hole with both gets no water
+    graphics, as in the game.
+    """
+    _, fields, _, _ = header(d, index)
+    n = fields[W_WIDTH] * fields[W_HEIGHT]
+    try:
+        values = set(table(d, index, 2)[:n])
+    except CompressionError:
+        return None
+    if values & set(BOOST_VALUES):
+        return "boost"
+    if values & set(WATER_VALUES):
+        return "water"
+    return None
+
+
+def hole_page(d, index):
+    """The course page as it is while this hole is in play: `course_page`,
+    with the water tiles at `$180-$1AB` on a water hole."""
+    page = course_page(d)
+    if surface_kind(d, index) != "water":
+        return page
+    src = snes_to_file(*WATER_GFX)
+    at = WATER_FIRST_TILE * TILE_BYTES4
+    return page[:at] + d[src:src + WATER_GFX_BYTES] + page[at + WATER_GFX_BYTES:]
+
+
+def water_ripple(d, index):
+    """Object 113's ripple for a water hole, or None.
+
+    `sets` are the distinct 7-colour sets in first-use order and `order` the
+    set of each phase, so course 1 gives order [0, 1, 0, 2]; each phase lasts
+    `stepFrames`. The phase starts at 0 when the object spawns, at the load.
+    """
+    if surface_kind(d, index) != "water":
+        return None
+
+    def word(bank, addr):
+        o = snes_to_file(bank, addr)
+        return int.from_bytes(d[o:o + 2], "little")
+
+    course = index // 8
+    base = word(WATER_BASES[0], WATER_BASES[1] + 2 * course)
+    frames = [word(WATER_PHASE_FRAMES[0], WATER_PHASE_FRAMES[1] + 2 * p)
+              for p in range(WATER_PHASES)]
+    if len(set(frames)) != 1:
+        raise ValueError("water phases of unequal length: {}".format(frames))
+    offsets = [word(WATER_PHASE_OFFSET[0], WATER_PHASE_OFFSET[1] + 2 * p)
+               for p in range(WATER_PHASES)]
+    distinct = list(dict.fromkeys(offsets))
+    sets = []
+    for off in distinct:
+        o = snes_to_file(CGRAM_BANK, base + off)
+        sets.append([snes_color(w) for w in words(d[o:o + 2 * WATER_COLOURS])])
+    return {
+        "source": fmt_snes(0x84, 0x8533),
+        "colours": fmt_snes(CGRAM_BANK, base),
+        "stepFrames": frames[0],
+        "order": [distinct.index(off) for off in offsets],
+        "sets": sets,
+    }
+
+
+def hole_palette(d, index, ripple_set=0):
+    """`course_palette` with a water hole's ripple set in palette 4."""
+    pal = course_palette(d)
+    rip = water_ripple(d, index)
+    if rip is None:
+        return pal
+    sub, first = divmod(WATER_CGRAM, 16)
+    row = list(pal[sub])
+    row[first:first + WATER_COLOURS] = rip["sets"][ripple_set]
+    pal[sub] = row
+    return pal
 
 
 def backdrop(d, index):
@@ -371,11 +486,8 @@ def main():
     except (CompressionError, ValueError) as e:
         print("error: course tile page: {}".format(e), file=sys.stderr)
         return 1
-    tiles = decode_tiles(page, 4)
-    palettes = course_palette(d)
-    back_colour = palettes[0][0]
     print("tile page {} tiles from {} + {}; palette {}".format(
-        len(tiles), fmt_snes(*GFX_LOW), fmt_snes(*GFX_HIGH), fmt_snes(*PALETTE)))
+        len(page) // TILE_BYTES4, fmt_snes(*GFX_LOW), fmt_snes(*GFX_HIGH), fmt_snes(*PALETTE)))
 
     worst = 0
     for i in indices:
@@ -385,6 +497,10 @@ def main():
             os.makedirs(hole_dir)
         map_w, map_h, g1, g2, rows = unpack(d, i, fields)
         bg3 = None if args.no_backdrop else backdrop(d, i)
+        # The water holes replace tiles $180-$1AB and palette 4's colours 1-7.
+        tiles = decode_tiles(hole_page(d, i), 4)
+        palettes = hole_palette(d, i)
+        back_colour = palettes[0][0]
         used = [w & 0x3FF for w in g1 + g2 if w != EMPTY]
         top = max(used) if used else 0
         worst = max(worst, top)
@@ -414,12 +530,13 @@ def main():
                 os.path.join(hole_dir, "bg1.png"))
             render(map_w, map_h, blank, g2, tiles, palettes, back_colour).save(
                 os.path.join(hole_dir, "bg2.png"))
-        print("{:3d} {:12s} {:3d}x{:3d} tiles, {:5d} stored, max tile ${:03X}{}".format(
+        print("{:3d} {:12s} {:3d}x{:3d} tiles, {:5d} stored, max tile ${:03X}{}{}".format(
             i, name, map_w, map_h, len(used) // 2, top,
-            ", {} MISSING".format(missing) if missing else ""))
+            ", {} MISSING".format(missing) if missing else "",
+            ", water" if surface_kind(d, i) == "water" else ""))
 
     print("{} holes rendered; highest tile index ${:03X} of {} in the page".format(
-        len(indices), worst, len(tiles)))
+        len(indices), worst, len(page) // TILE_BYTES4))
     return 0
 
 

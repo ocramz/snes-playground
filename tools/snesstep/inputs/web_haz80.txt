@@ -1,0 +1,18 @@
+# Course 1 hole 4 (index 3): the bumper on tile $80 (object 76) at (8,18).
+# The hole is chosen by web_haz80.pokes (the course and hole at 2050, as
+# tools/snesstep/holes.py does); a weak shot from the tee, then, once the
+# ball rolls, a poke sets it rolling north at the bumper (engine phase 6:
+# the hazard's handler, its bounce and penalty, against the recorded game).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2359 A 2        # aim (the set-up's 180)
+2432 A 2        # spin
+2439 A 2        # power (meter 2)

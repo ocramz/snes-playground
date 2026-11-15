@@ -25,3 +25,7 @@ target/
 # Web demo
 web/node_modules/
 web/dist/
+
+# Engine
+engine/node_modules/
+engine/dist/

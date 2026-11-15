@@ -16,13 +16,15 @@ emulator or other build/ output):
     manifest  ROM hash, exporter version
     font      the 8x8 font as a glyph sheet
     sprites   the atlas (tools/export_web_sprites.py; needs the stepper)
+    objects   the hazard actors' pictures from build/sprites/emu (the engine's
+              second atlas; tools/export_web_sprites.py build_objects)
     ui        the shot panel sprites (tools/export_web_ui.py; needs the stepper)
     audio     music (cut at its loop end), the hole-out songs and effects via ffmpeg
     course    grid layers, tee, enemies, objects, projection origin
     tables    every ROM constant the TypeScript physics needs, each with its
               $bank:addr so a number in the browser can be traced to the ROM
     layers    the isometric course bitmap as RGBA, split by tile priority,
-              and the BG3 scenery
+              the water's ripple overlays on a water hole, and the BG3 scenery
     golden    terrain.py's surface_z sampled over every cell (a test fixture)
 
 Facts used here, and where they come from:
@@ -30,8 +32,10 @@ Facts used here, and where they come from:
                 word7 is header word 7 (docs/courses.md); checked against the
                 first populated BG row in 230 of 232 holes.
     priority    mode 1 with the BG3 priority bit draws, back to front,
-                BG2.0, BG1.0, [OBJ priority 2], BG2.1, BG1.1 (coursemap.render).
-                Sprites go between the two layer images.
+                BG2.0, BG1.0, [OBJ priority 2], BG2.1, BG1.1, [OBJ priority 3]
+                (coursemap.render). The bitmaps keep the two halves apart, but
+                every sprite of play is priority 3 (the OAM of web_hole0 from
+                2185 on), so the sprites go over both layer images.
 """
 
 import argparse
@@ -46,7 +50,7 @@ sys.path.insert(0, HERE)
 
 from courses import ENTRIES, default_entries, header  # noqa: E402
 from coursemap import (  # noqa: E402
-    EMPTY, backdrop, course_page, course_palette, unpack, BG3_MAP_TILES)
+    EMPTY, backdrop, hole_page, hole_palette, unpack, water_ripple, BG3_MAP_TILES)
 from lorom import snes_to_file  # noqa: E402
 from romcheck import EXPECTED_SHA1, RomError, load_rom  # noqa: E402
 from terrain import Tables, Z_UNIT, load_hole, tile_table  # noqa: E402
@@ -83,6 +87,16 @@ def rom_bytes(d, bank, addr, n, signed=False):
 
 def src(bank, addr):
     return "${:02X}:{:04X}".format(bank, addr)
+
+
+# The play-area outline is BG2 palette 7, colour 15, and the game animates
+# that one CGRAM entry (an object at $84:81A3 steps it through a table every
+# 3 frames; measured with snesstep --watch-write '$7E:04FE-$7E:04FF'). So
+# those pixels are written to a separate white mask that the browser tints.
+OUTLINE_PAL, OUTLINE_COLOUR = 7, 15
+OUTLINE_TABLE = (0x98, 0xD3E6)      # 15 colours; the cycle walks it ping-pong
+OUTLINE_WALK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 14, 13,
+                12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]   # emulated, 3 frames each
 
 
 # --------------------------------------------------------------------------
@@ -135,10 +149,208 @@ def build_tables(d):
     put("spinFlyTB", 0x80, 0xDD33, rom_words(d, 0x80, 0xDD33, 13, True), 2)
     put("spinFlySide", 0x80, 0xDD4D, rom_bytes(d, 0x80, 0xDD4D, 13, True), 1)
     put("buttonModifier", 0x82, 0xDB75, rom_words(d, 0x82, 0xDB75, 2, True), 2)
+    # The shot view: Kirby's screen position + this offset by aim quarter
+    # (0-89, 90-179, 180-269, 270-359), where the camera pans after the aim
+    # is confirmed ($81:BE9A-$81:BEC7; docs/web-demo.md "Camera").
+    put("shotViewX", 0x81, 0xC0F0, rom_words(d, 0x81, 0xC0F0, 4, True), 2)
+    put("shotViewY", 0x81, 0xC0F8, rom_words(d, 0x81, 0xC0F8, 4, True), 2)
+    # The shot guide's own tile classes ($81:B455, read by $81:B0C4 and
+    # $81:B285): 1 = the play-area outline ($28-$2D), 2 = the surface
+    # overlay ($60-$6F), 0 = plain ground (pillars, enemies, the cup and
+    # every other special tile are invisible to the guide).
+    put("guideTiles", 0x81, 0xB455, rom_bytes(d, 0x81, 0xB455, 256), 1)
 
     # The cup's dish: 32 x 32 words, row = folded y fraction >> 10, column =
     # folded x fraction >> 10 (sub_cup_depth $82:AFE9). $5000 = flat centre.
     put("cupDepth", 0x88, 0x8990, rom_words(d, 0x88, 0x8990, 32 * 32), 2)
+
+    # --- The hole's actors (docs/tiles.md "Actors"; read 2026-11-14) ---
+    # $82:B320's load-time sweep looks each non-zero layer-2 byte up here:
+    # $FFFF = no actor, else the thread object type $82:B3AF spawns.
+    put("actorIds", 0x82, 0xBDBC, rom_words(d, 0x82, 0xBDBC, 256), 2)
+    # $82:B674: the copy ability an enemy gives, by species = tile - $40
+    # (tiles $50-$52 fold onto $4D-$4F first, $82:B648); 0 = none, $0B =
+    # the roulette (tile $57), $FF = not an enemy species.
+    put("enemyAbility", 0x82, 0xB6EB, rom_bytes(d, 0x82, 0xB6EB, 24), 1)
+    # $82:B691: the hover height $5B1C in height steps, for the unfolded
+    # tiles $4D-$52 (& 7); every other enemy tile hovers at 0.
+    put("enemyHover", 0x82, 0xB703, rom_bytes(d, 0x82, 0xB703, 6), 1)
+    # $82:B464: the height an actor's position adds to elevation x $5A82,
+    # by the cell's shape (the cell corner's ground; flat = one step). Only
+    # 16 entries are data: shapes $10-$1B read the code that follows, which
+    # is what the ROM would do, so all 28 are exported as read.
+    put("actorGround", 0x82, 0xB477, rom_words(d, 0x82, 0xB477, 28), 2)
+    # $82:AEE5: the sound of the sink's end by ball mode ($D9C8, 22 modes):
+    # $21 in mode 0
+    put("holedSfx", 0x82, 0xAEF5, rom_bytes(d, 0x82, 0xAEF5, 22), 1)
+    # $84:88CB: the fly shot's spin streak (object 25) sets $68F0 from the
+    # larger selector distance |$6B54-6|, |$6B58-6| (0-6); the step's tail
+    # ($81:9BF4) then plays $68F0 + 4 for the first bounce.
+    put("spinBounceSfx", 0x84, 0x89D0, rom_bytes(d, 0x84, 0x89D0, 7), 1)
+
+    # --- The hazards' actors (engine phase 6; read 2026-11-14) ---
+    # $82:BA87 auto-tiles the bumper tracks at load: each tile $80-$A2 has a
+    # connection mask (bit 1 N, 2 E, 4 S, 8 W) at $82:BB8B[tile - $80]; a
+    # tile whose sides do not all connect becomes the dead end of its one
+    # connected side ($82:BB82[bit]: N $A0, E $A1, S $9E, W $9F), or $A2.
+    put("trackMask", 0x82, 0xBB8B, rom_bytes(d, 0x82, 0xBB8B, 35), 1)
+    put("trackDeadEnd", 0x82, 0xBB82, rom_bytes(d, 0x82, 0xBB82, 9), 1)
+    # Object 76 (the bumper on a track, $84:DED6): 1/64 cell per tick
+    # ($84:E04F); at a cell centre the new direction is $84:E051[(tile -
+    # $80) * 4 + direction] (0 N, 1 E, 2 S, 3 W; $FF none), tiles $80-$A1.
+    put("trackSpeed", 0x84, 0xE04F, rom_words(d, 0x84, 0xE04F, 1), 2)
+    put("trackTurn", 0x84, 0xE051, rom_bytes(d, 0x84, 0xE051, 34 * 4), 1)
+    # Object 77 (the bobbing bumper, $84:DD9D): 22 steps of [frame, shadow,
+    # wait, flag] ($84:DE0F); the box's height by frame, $82:967B.
+    put("bobPhases", 0x84, 0xDE0F, rom_bytes(d, 0x84, 0xDE0F, 22 * 4), 1)
+    put("bobHeight", 0x82, 0x967B, rom_words(d, 0x82, 0x967B, 13), 2)
+    # Objects 81-83 (the volcanoes, $84:E166): the frames shown after a poke
+    # ($84:E1F5, 33 ticks, $FF ends).
+    put("volcanoPoked", 0x84, 0xE1F5, rom_bytes(d, 0x84, 0xE1F5, 34), 1)
+    # The hazard handlers ($82:98F8 ... $82:9C8D, $82:E701, $82:E7B0):
+    # the shape by tile - $80 ($82:997E: 0/1 bands, 2-5 L-pieces, 6-9 end
+    # caps), the quarter disc the round parts test (64 rows of 8 bytes, bit
+    # 0 = column 0), the bounce's push by direction and its two gates, and
+    # the per-degree reflection rows (m00 m01 m02 m11 m12 m22) of $82:E6C1.
+    put("hazardShape", 0x82, 0x9A9D, rom_bytes(d, 0x82, 0x9A9D, 34), 1)
+    put("hazardDisc", 0x88, 0xA470, rom_bytes(d, 0x88, 0xA470, 512), 1)
+    put("bumpPushX", 0x82, 0x9BED, rom_words(d, 0x82, 0x9BED, 4, True), 2)
+    put("bumpPushY", 0x82, 0x9BF5, rom_words(d, 0x82, 0x9BF5, 4, True), 2)
+    put("bumpSignGate", 0x82, 0x9C7D, rom_bytes(d, 0x82, 0x9C7D, 16), 1)
+    put("bumpHeadingGate", 0x82, 0x9BFD, rom_bytes(d, 0x82, 0x9BFD, 128), 1)
+    put("reflectDeg", 0x88, 0x9390, rom_words(d, 0x88, 0x9390, 360 * 6, True), 2)
+
+    # --- The special-tile dispatch ($81:8136 land, $81:8451 hit from the
+    # side): 256 entries of 3-byte long pointers each (docs/tiles.md "The
+    # dispatcher"). Exported as per-tile handler ids into the shared
+    # dispatchHandlers list, so the engine switches on a small enum rather
+    # than parsing ROM pointers. Every group must be named here; an unnamed
+    # group fails the export instead of slipping through silently.
+    handler_names = {
+        (0x81, 0x88F9): "landClear",        # tile $00 on land: clears per-player tracking, then land
+        (0x81, 0x8905): "land",             # the default landing handler
+        (0x81, 0x8A47): "rollClear",        # tile $00 on roll: clears per-player tracking, then roll
+        (0x81, 0x8A56): "roll",             # the default rolling handler
+        (0x82, 0x94D3): "pillar",           (0x82, 0x957C): "pillarHit",      # $02
+        (0x82, 0x8EFB): "rough",            (0x82, 0x8F30): "roughHit",       # $04
+        (0x82, 0xA55E): "hazard05",         (0x82, 0xA576): "hazard05Hit",    # $05
+        (0x82, 0xAD8E): "cup",              (0x82, 0xAD36): "cupHit",         # $08
+        (0x82, 0xA7DD): "kicker",           (0x82, 0xA88C): "kickerHit",      # $10-$13
+        (0x82, 0xA6C7): "arrowNS",          (0x82, 0xA74F): "arrowNSHit",     # $14, $16: the N/S arrow panels
+        (0x82, 0xA70B): "arrowEW",          (0x82, 0xA783): "arrowEWHit",     # $15, $17: the E/W arrow panels
+        (0x82, 0xA5B1): "snap",             (0x82, 0xA5E6): "snapHit",        # $18-$1B
+        (0x82, 0x9342): "rough05",          (0x82, 0x9356): "rough05Hit",     # $1C ($936A shared with $05)
+        (0x82, 0x938E): "rough05b",         (0x82, 0x93A2): "rough05bHit",    # $1D ($93B6 shared with $05)
+        (0x82, 0x8F77): "friction",         (0x82, 0x8F9D): "frictionHit",    # $20-$24
+        (0x82, 0x8FF1): "outlineWall",      (0x82, 0x8FE3): "outlineWallHit", # $28-$2D
+        (0x82, 0x9DB3): "boostN",           (0x82, 0x9CBF): "boostNHit",      # $30 $35 $38
+        (0x82, 0x9DD7): "boostE",           (0x82, 0x9CFC): "boostEHit",      # $31 $37 $3A
+        (0x82, 0x9DFB): "boostS",           (0x82, 0x9D39): "boostSHit",      # $32 $34 $39
+        (0x82, 0x9E1F): "boostW",           (0x82, 0x9D76): "boostWHit",      # $33 $36 $3B
+        (0x82, 0x8967): "enemy",            # $40-$52, $57 on land; $40-$4C, $57 on roll
+        (0x82, 0x8963): "enemyRollAlt",     # $4D-$52 on roll (no owner test)
+        (0x82, 0xA25D): "unk58",            (0x82, 0xA2F5): "unk58Hit",       # $58, $59 (undocumented)
+        (0x82, 0xA1B1): "unk5a",            (0x82, 0xA175): "unk5aHit",       # $5A, $5B (undocumented)
+        (0x82, 0xA3EB): "unk5c",            (0x82, 0xA43E): "unk5cHit",       # $5C, $5D (undocumented)
+        (0x82, 0x80F6): "overlay",          (0x82, 0x8000): "overlayHit",     # $60-$6F
+        # $70-$7B: the toggled directional impulse, one handler per tile
+        (0x82, 0x9FE3): "toggle70", (0x82, 0x9F0B): "toggle70Hit",
+        (0x82, 0xA01A): "toggle71", (0x82, 0x9F3D): "toggle71Hit",
+        (0x82, 0x9FFF): "toggle72", (0x82, 0x9F24): "toggle72Hit",
+        (0x82, 0xA035): "toggle73", (0x82, 0x9F56): "toggle73Hit",
+        (0x82, 0x9FD1): "toggle74", (0x82, 0x9EF9): "toggle74Hit",
+        (0x82, 0xA008): "toggle75", (0x82, 0x9F2B): "toggle75Hit",
+        (0x82, 0x9FED): "toggle76", (0x82, 0x9F12): "toggle76Hit",
+        (0x82, 0xA023): "toggle77", (0x82, 0x9F44): "toggle77Hit",
+        (0x82, 0x9FDA): "toggle78", (0x82, 0x9F02): "toggle78Hit",
+        (0x82, 0xA011): "toggle79", (0x82, 0x9F34): "toggle79Hit",
+        (0x82, 0x9FF6): "toggle7A", (0x82, 0x9F1B): "toggle7AHit",
+        (0x82, 0xA02C): "toggle7B", (0x82, 0x9F4D): "toggle7BHit",
+        (0x82, 0x98F8): "hazard80",         (0x82, 0x9940): "hazard80Hit",    # $80-$8F, $98-$A1
+        (0x82, 0x9653): "hazard90",         (0x82, 0x9693): "hazard90Hit",    # $90-$97
+        (0x82, 0x9858): "hazardA2",         (0x82, 0x987B): "hazardA2Hit",    # $A2
+        (0x82, 0x86B9): "hazardAC",         (0x82, 0x8656): "hazardACHit",    # $AC-$AE
+        (0x82, 0xA980): "warp",             (0x82, 0xA9DB): "warpHit",        # $B0-$B9: the warp panels
+    }
+
+    def dispatch_ids(bank, addr):
+        o = snes_to_file(bank, addr)
+        ptrs = []
+        for i in range(256):
+            lo, hi, bk = d[o + 3 * i], d[o + 3 * i + 1], d[o + 3 * i + 2]
+            ptrs.append((bk, (hi << 8) | lo))
+        order = []
+        for p in ptrs:
+            if p not in order:
+                order.append(p)
+        return [order.index(p) for p in ptrs], order
+
+    land_ptrs = []
+    hit_ptrs = []
+    def dispatch_ptrs(bank, addr, out):
+        o = snes_to_file(bank, addr)
+        for i in range(256):
+            lo, hi, bk = d[o + 3 * i], d[o + 3 * i + 1], d[o + 3 * i + 2]
+            out.append((bk, (hi << 8) | lo))
+    dispatch_ptrs(0x81, 0x8136, land_ptrs)
+    dispatch_ptrs(0x81, 0x8451, hit_ptrs)
+    order = []
+    for p in land_ptrs + hit_ptrs:
+        if p not in order:
+            order.append(p)
+    handlers = []
+    for p in order:
+        name = handler_names.get(p)
+        assert name is not None, "unnamed dispatch handler {}".format(src(*p))
+        handlers.append({"id": len(handlers), "name": name, "source": src(*p)})
+    ids = {p: h["id"] for h, p in zip(handlers, order)}
+    t["dispatchHandlers"] = handlers
+    put("landDispatch", 0x81, 0x8136, [ids[p] for p in land_ptrs], 1)
+    put("hitDispatch", 0x81, 0x8451, [ids[p] for p in hit_ptrs], 1)
+
+    # --- The outline-wall line test ($82:9019), as data:
+    # outlineLineTouch[tile * 4 + dir]: does the tile's line reach the edge
+    #   the ball exits through (dir 0..3 = the $0C movement code -y,-x,+x,+y);
+    # outlineContinuation[dir * 4 + i]: the three prev-tile values ($28 base)
+    #   whose line continues across that edge;
+    # outlineConnect[sidePair * 36 + prevTile * 6 + curTile]: how two lines
+    #   join across a cell boundary (0 = not connected, 1/2 = crossed),
+    #   sidePair = prevSide * 2 + curSide, sides from the line test.
+    line_touch = rom_bytes(d, 0x82, 0x9202, 24)
+    continuation = rom_bytes(d, 0x82, 0x921A, 24)
+    connect = []
+    for side, addr in enumerate((0x922A, 0x924E, 0x9272, 0x9296)):
+        block = rom_bytes(d, 0x82, addr, 36)
+        assert all(0 <= v <= 3 for v in block), "outlineConnect block out of range"
+        connect.extend(block)
+    put("outlineLineTouch", 0x82, 0x9202, line_touch, 1)
+    put("outlineContinuation", 0x82, 0x921A, continuation, 1)
+    # $81:92D0: the wall direction byte, indexed prevShape * 4 + edge
+    put("wallDirTable", 0x81, 0x92D0, rom_bytes(d, 0x81, 0x92D0, 16), 1)
+    put("outlineConnect", 0x82, 0x922A, connect, 1)
+
+    # per-mode tables of the rough ($05/$1C/$1D) and friction-tile ($04)
+    # handlers: 22 words each, indexed by ball mode.
+    put("hazard05Mode", 0x80, 0xDDB7, rom_words(d, 0x80, 0xDDB7, 22, True), 2)
+    put("hazard05ModeHit", 0x80, 0xDD8B, rom_words(d, 0x80, 0xDD8B, 22, True), 2)
+    put("frictionAltMode", 0x80, 0xDDF5, rom_words(d, 0x80, 0xDDF5, 22, True), 2)
+    put("frictionAltIndex", 0x80, 0xDE21, rom_words(d, 0x80, 0xDE21, 22), 2)
+    # $82:8F4e indexes these three with the frictionAltIndex value (0 or 2)
+    assert all(v <= 2 for v in rom_words(d, 0x80, 0xDE21, 22)), "frictionAltIndex out of range"
+    put("roughFriction", 0x80, 0xDD71, rom_words(d, 0x80, 0xDD71, 4, True), 2)
+    put("roughDampXY", 0x80, 0xDD75, rom_words(d, 0x80, 0xDD75, 4, True), 2)
+    put("roughDampZ", 0x80, 0xDD79, rom_words(d, 0x80, 0xDD79, 4, True), 2)
+
+    # The play-area outline pulse (OUTLINE_* above): 15 CGRAM colours the
+    # game steps one entry of BG2 palette 7 through. The walk is emulated,
+    # not ROM data; keep it inside the table so a bad edit fails at export.
+    assert all(0 <= i < 15 for i in OUTLINE_WALK), "outline walk outside the table"
+    put("outlineColours", OUTLINE_TABLE[0], OUTLINE_TABLE[1],
+        rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15), 2)
+    t["outlineWalk"] = {"about": "ping-pong order into outlineColours, one "
+                                 "step every 3 frames; emulated (object "
+                                 "$84:81A3), not ROM data",
+                        "values": list(OUTLINE_WALK)}
 
     def scalar(key, bank, addr, signed=False):
         t.setdefault("consts", {})[key] = {
@@ -154,6 +366,41 @@ def build_tables(d):
     scalar("bounceDampZ", 0x80, 0xDD11)
     scalar("stepDamp", 0x80, 0xDD13)
     scalar("stepDampZ", 0x80, 0xDD15)
+    # --- special-tile handler constants ---
+    # friction tile $20-$24 ($82:8FA4) and the rough tile $04 ($82:8EFB)
+    scalar("frictionTileMu", 0x80, 0xDD7D)
+    scalar("frictionTileDampXY", 0x80, 0xDD7F)
+    scalar("frictionTileDampZ", 0x80, 0xDD81)
+    scalar("roughDampXY2", 0x80, 0xDD83)
+    scalar("roughDampZ", 0x80, 0xDD85)
+    scalar("roughDampZ6", 0x80, 0xDD87)
+    # boost panels ($82:9DB3+ land, $82:9CBF+ hit): impulses and gates
+    scalar("boostResetMu", 0x82, 0x9CAB, True)
+    scalar("boostResetDampXY", 0x82, 0x9CAD, True)
+    scalar("boostResetDampZ", 0x82, 0x9CAF, True)
+    scalar("boostSmall", 0x82, 0x9CB1, True)       # $0040: the hit-path nudge
+    scalar("boostSmallNeg", 0x82, 0x9CB3, True)    # $FFC0
+    scalar("boostE", 0x82, 0x9CB5, True)           # $0200: +512 along +x/+y
+    scalar("boostW", 0x82, 0x9CB7, True)           # $FE00: -512
+    scalar("boostBig", 0x82, 0x9CB9, True)         # $0400: the hit-path launch clamp
+    scalar("boostBigNeg", 0x82, 0x9CBB, True)      # $FC00
+    scalar("boostStraight", 0x82, 0x9CBD, True)    # $0080: |v| below this = straight hit
+    # kicker ($82:A7DD): the landing-vz clamp pair, two entries (normal, mode 6)
+    put("kickerMin", 0x80, 0xDDE3, rom_words(d, 0x80, 0xDDE3, 2), 2)
+    put("kickerMax", 0x80, 0xDDE5, rom_words(d, 0x80, 0xDDE5, 2), 2)
+    scalar("kickerDamp", 0x80, 0xDDEB)
+    # kicker per-mode gates ($82:A7DD/$82:A88C), 22 words each
+    put("kickerMode", 0x80, 0xDEA5, rom_words(d, 0x80, 0xDEA5, 22), 2)
+    put("kickerModeHit", 0x80, 0xDED1, rom_words(d, 0x80, 0xDED1, 22), 2)
+    # arrow panel per-mode gates ($82:A6C7/$82:A70B land, $82:A74F/$82:A783 hit), 22 words each
+    put("arrowMode", 0x80, 0xDE4D, rom_words(d, 0x80, 0xDE4D, 22), 2)
+    put("arrowModeHit", 0x80, 0xDE79, rom_words(d, 0x80, 0xDE79, 22), 2)
+    # toggled impulse ($70-$7B): the two magnitudes (tiles.md)
+    scalar("toggleImpulseBig", 0x80, 0xDDED)
+    scalar("toggleImpulseSmall", 0x80, 0xDDEF)
+    # rough/hazard-05 recovery launch ($82:93DA)
+    scalar("hazard05Div", 0x80, 0xDD89)
+
     return t
 
 
@@ -209,16 +456,6 @@ def build_course(d, defaults, index):
 # layers
 # --------------------------------------------------------------------------
 
-# The play-area outline is BG2 palette 7, colour 15, and the game animates
-# that one CGRAM entry (an object at $84:81A3 steps it through a table every
-# 3 frames; measured with snesstep --watch-write '$7E:04FE-$7E:04FF'). So
-# those pixels are written to a separate white mask that the browser tints.
-OUTLINE_PAL, OUTLINE_COLOUR = 7, 15
-OUTLINE_TABLE = (0x98, 0xD3E6)      # 15 colours; the cycle walks it ping-pong
-OUTLINE_WALK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 14, 13,
-                12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]   # emulated, 3 frames each
-
-
 def blit_rgba(img, pal, tiles, word, y, x, outline=None):
     """Draw one tilemap cell into an (H, W, 4) array; colour 0 is transparent.
 
@@ -255,8 +492,10 @@ def build_layers(d, index, outdir):
 
     _, fields, name, _ = header(d, index)
     map_w, map_h, g1, g2, _rows = unpack(d, index, fields)
-    tiles = decode_tiles(course_page(d), 4)
-    pal = course_palette(d)
+    # A water hole's own tiles and its first ripple set (coursemap.hole_page).
+    tiles = decode_tiles(hole_page(d, index), 4)
+    pal = hole_palette(d, index)
+    ripple = water_ripple(d, index)
     W, H = map_w * 8, map_h * 8
 
     def compose(want, pal=pal):
@@ -272,10 +511,24 @@ def build_layers(d, index, outdir):
         return img, ol
 
     (back, ol_back), (front, ol_front) = compose(0), compose(1)
+    out = [("layer_back.png", back), ("layer_front.png", front),
+           ("layer_outline_back.png", ol_back),
+           ("layer_outline_front.png", ol_front)]
+    # The water's ripple: the layers carry set 0; set k >= 1 is an overlay of
+    # the pixels whose colour differs from set 0 in the composed layer, so a
+    # BG1 tile over BG2 water stays on top. The view shows the overlay of
+    # `order[phase]` (none for set 0).
+    n_sets = len(ripple["sets"]) if ripple else 1
+    for k in range(1, 4):
+        for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+            over = np.zeros((H, W, 4), dtype=np.uint8)
+            if k < n_sets:
+                arr, _ = compose(want, hole_palette(d, index, k))
+                diff = (arr != base).any(axis=2)
+                over[diff] = arr[diff]
+            out.append(("{}_ripple{}.png".format(stem, k), over))
     wrote = {}
-    for name_, arr in (("layer_back.png", back), ("layer_front.png", front),
-                       ("layer_outline_back.png", ol_back),
-                       ("layer_outline_front.png", ol_front)):
+    for name_, arr in out:
         path = os.path.join(outdir, name_)
         if arr[:, :, 3].any():
             Image.fromarray(arr, "RGBA").save(path)
@@ -325,8 +578,11 @@ def build_layers(d, index, outdir):
     # The backdrop colour behind everything is the course palette's colour 0.
     from tiles import snes_color
     table = [snes_color(w) for w in rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15)]
+    rip = None
+    if ripple:
+        rip = {k: ripple[k] for k in ("source", "colours", "stepFrames", "order")}
     return {"files": wrote, "backColour": list(cols[0]), "name": name,
-            "nightBackColour": night_back,
+            "nightBackColour": night_back, "ripple": rip,
             "outline": {"source": src(*OUTLINE_TABLE), "stepFrames": 3,
                         "cycle": [list(table[i]) for i in OUTLINE_WALK]}}
 
@@ -399,9 +655,14 @@ def build_hud(outdir):
     fill((197, 199, 219, 208), strip)
     panel.save(os.path.join(outdir, "hud_panel.png"))
     tom.save(os.path.join(outdir, "hud_tomato.png"))
-    return {"panel": [224, 32], "at": [16, 176], "tomato": list(tom.size),
+    info = {"panel": [224, 32], "at": [16, 176], "tomato": list(tom.size),
             "slots": {"hole": [111, 194], "shot": [136, 193], "tomato": [164, 183],
-                      "tomatoStep": 16, "stars": [200, 200]}}
+                      "tomatoStep": 16, "stars": [200, 200], "portrait": [24, 184, 48, 208]}}
+    # the slots as data, for the engine's HUD (engine/src/game/features/hud)
+    write_json(os.path.join(outdir, "hud.json"), dict(info, about=(
+        "screen pixels of the 256x224 frame; slots are the top-left of what the "
+        "panel blanked (tools/export_web.py build_hud)")), compact=False)
+    return info
 
 
 # --------------------------------------------------------------------------
@@ -534,6 +795,9 @@ def main():
     if "sprites" in steps:
         import export_web_sprites
         print("sprites: {}".format(export_web_sprites.build(args.out)))
+    if "objects" in steps:
+        import export_web_sprites
+        print("objects: {}".format(export_web_sprites.build_objects(args.out)))
     if "ui" in steps:
         import export_web_ui
         print("ui: {}".format(export_web_ui.build(args.out)))

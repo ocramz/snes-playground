@@ -1,0 +1,32 @@
+# Hole 1 played out in two shots: web_flow's first shot (it takes (8,3) and
+# (8,5); (6,5) becomes the cup), then a grounder at the cup that holes out.
+# For tools/snesstep/trace_flow.py / trace_ball.py (engine phase 6: the sink,
+# the hole-out, the card, the counters). The second shot was found with the
+# engine (aim 180 - 4 = 176, meter about 22; 3-5 presses and meter 21-23 hole
+# as well), then recorded: the game decides.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start hole 1
+2300 LEFT 380   # aim sweep: phi grows ~1 degree a frame, wraps past 359
+2800 A 2        # shot panel (A = panel, B = cancel)
+2840 A 2
+2900 A 2        # spin / power
+2960 A 2
+3020 A 2        # Kirby is hit and rolls; camera follows (3050-3400)
+3110 A 2        # a hop while rolling
+# the second shot: the set-up aims at the cup (180, game 3507)
+3530 RIGHT 2    # 179
+3538 RIGHT 2    # 178
+3546 RIGHT 2    # 177
+3554 RIGHT 2    # 176
+3640 A 2        # confirm the aim
+3740 A 2        # end the spin stage
+3767 A 2        # latch the meter (about 22)
+4500 A 2        # the RESULT card

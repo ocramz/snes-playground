@@ -517,8 +517,8 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 12 | ball squashed on a bounce | play | `$7E:6A6E` (11) | 11 script | `$81:8CA2` for 4 frames, back to 14 by `$81:8CD2` (d02 2931, d07 2176); switch on `$7E:6A6E` |
 | 13 | hop (A pressed mid-roll) | play | `$7E:D8A6` (2) | 2 script | `$82:DAAE` on each A press while rolling (hole1long 3920, 3980, ... every 60 frames, as pressed); its script returns to 14 after 17 frames; call switch on `$7E:D8A6` |
 | 14 | ball rolling | play | - | 1 script | `$82:C84E` at the start of the roll (hole 1 frame 2984) when max(/`$6B54`-6/, /`$6B58`-6/) < 3; restored by many routines |
-| 15 | ball rolling, strong spin | play | - | 1 script | `$82:C84E` when max(/`$6B54`-6/, /`$6B58`-6/) >= 4 (d06 2088 with `$6B58` = 0; d09 3487 with `$6B54` = 0); `$6B54`/`$6B58` are 0-12 shot settings centred on 6, taken to be the spin (unconfirmed) |
-| 16 | ball rolling, medium spin | forced | - | 1 script | `$82:C843` when that maximum is exactly 3; not reached in play; forced: ball with spin streaks |
+| 15 | ball rolling, strong spin | play | - | 1 script | `$82:C84E` when max(/`$6B54`-6/, /`$6B58`-6/) >= 4 (d06 2088 with `$6B58` = 0; d09 3487 with `$6B54` = 0; web_fly_spin, web_ui); `$6B54`/`$6B58` are the side and top/back selectors latched at the shot (below, "Kirby's poses in play") |
+| 16 | ball rolling, medium spin | play | - | 1 script | `$82:C843` when that maximum is exactly 3; web_fly latches top/back 3 and rolls in 16 (the engine's flow test); also forced: ball with spin streaks |
 | 17 | ball rolling, fast (1-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; script: blocks `$87:ABD8-$ABF3`, 1 frame each |
 | 18 | ball rolling (2-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; same blocks as 17, 2 frames each |
 | 19 | ball sinking | forced | - | 1 script | `$82:D87A` (on the $60-$6F surface overlay: `$69DA`, `$69D8` set, `$69CA` clear), `$82:D936`, `$82:E1B0`, each counting `$D76C`; not reached in play; forced in a roll: a dark disc rises over the ball in 4 steps of 4 frames, then 14 |
@@ -542,7 +542,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 37 | UFO | play | `$7E:D75A` (8) | 8 script | `$82:CD07` (d19 2125) |
 | 38 | UFO: end (empty script) | script | - | - | `$82:D8D3` on the UFO path; the script is a bare halt |
 | 39 | UFO: wearing off | play | - | 1 script | `$82:D8EA`/`$82:D31A`/`$82:D34D` (d19 3000, after 37): the UFO's eyes flash, frames 41/42 every 6 frames, until `$82:D90C` sets 14 (d19 3087) |
-| 40 | hit: burning / electrocuted | forced | `$7E:D78C` (5) | 5 script | `$82:DC11` from the hit dispatch `$82:DBDE` (code `$D85A` - 12 in `$7E:D78C`: 0 = Fireball, 3 = Spark); codes come from the other player's ability via `$80:DF29`/`$80:DF55` (`$82:DB79`, ball contact); not reached in play; forced: Kirby in flames (arm 3: sparks) |
+| 40 | hit: burning / electrocuted | play | `$7E:D78C` (5) | 5 script | `$82:DC11` from the hit dispatch `$82:DBDE` (code `$D85A` - 12 in `$7E:D78C`: 0 = Fireball, 3 = Spark); codes come from the other player's ability via `$80:DF29`/`$80:DF55` (`$82:DB79`, ball contact). In 1P a volcano's base while it spews asks for code `$0F` (15): state 40 at web_hazad 2477 ([tiles.md](tiles.md) "Hazards"); its arm would be 3 by the code - 12 rule (inferred, `$D78C` not watched); forced: Kirby in flames (arm 3: sparks) |
 | 41 | spinning, eyes shut | forced | - | 1 script | `$82:DE8F`, the shooter's side of a Fireball/Spark hit (codes 12/15 in `$D9C6`) once `$DA4E` is set; 40 frames, then 14; not reached in play |
 | 42 | hit: spun round (Tornado) | forced | - | 1 script | `$82:DC31`, hit code 13 (Tornado); not reached in play; forced: Kirby turns through 16 facings |
 | 43 | hit: run over (Wheel) | forced | setter index (4) | 4 script | `$82:DC66`, hit code 14 (Wheel); index 19-22 from `$82:DCA1` by the wheel's direction; not reached in play; forced: flattened, star-eyed |
@@ -551,7 +551,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 46 | hit: squashed (Stone from above) | forced | - | 1 script | `$82:DD0B`, hit code 17 (Stone in the air); index 20; not reached in play; forced: flattened, star-eyed |
 | 47 | red-faced | forced | - | 1 script | `$82:E03F`, the Stone user's side after hit code 17 (`$82:E00D`), after a 90-frame pause; the other ball is thrown up; palette `$98:C7BE`; not reached in play |
 | 48 | recover from red | forced | - | 1 live | `$82:E0BA` after 47; palette fades back (`$98:C7CA-$C7FA`), then the native call `$87:9E62` (forced run: 9 follows); not reached in play |
-| 49 | dizzy (bumped) | play | - | 1 script | `$82:DD73` (code 19) and `$82:DDA1` (code 20, ball-to-ball bump); d08 2372: black/white flash, then spinning eyes, then 14 |
+| 49 | dizzy (bumped) | play | - | 1 script | `$82:DD73` (code 19) and `$82:DDA1` (code 20, ball-to-ball bump); d08 2372: black/white flash, then spinning eyes, then 14. In 1P the hazard bumpers ask for code `$14` (20) after their bounce (web_haz98; tiles.md "Hazards") |
 | 50 | plain ball | forced | - | 1 script | `$82:DDE7`, hit code 21 (from `$82:A4DB`); shows index 0 with block `$87:AB7E`; not reached in play |
 
 Notes on what the table rests on:
@@ -567,10 +567,10 @@ Notes on what the table rests on:
   every press, 60 frames apart, and its script returns to 14 after 17
   frames.
 * **14 / 16 / 15** are chosen at the start of the roll by
-  `$82:C815`-`$C84E` from two shot settings `$6B54`/`$6B58` (0-12, 6
-  centred): the larger distance from 6 below 3, exactly 3, or 4 and
-  more. They are probably the spin; 15 occurred with one of them at 0
-  (d06, d09). 17 and 18 have no writer in the ROM.
+  `$82:C815`-`$C84E` from the spin selectors latched at the shot,
+  `$6B54`/`$6B58` (0-12, 6 centred): the larger distance from 6 below 3,
+  exactly 3, or 4 and more. A grounder always rolls in 14 (`$82:C808`:
+  `$6AD8` set). 17 and 18 have no writer in the ROM.
 * **Hit reactions 40-50** are dispatched by `$82:DB9A`: a code in
   `$D85A` of 12-21 indexes `$82:DBDE` (code - 12 also goes to
   `$7E:D78C`). Codes 12-17 come from the *other* player's copy ability
@@ -586,6 +586,29 @@ Notes on what the table rests on:
   slot's `$0B7E` each frame while the ball is in play. 50 stores and 10
   store-switches do this. A `store $7E:D7D4, n` is a state change, taken
   on the next frame (19, 35, 13 and 49 hand over to 14; 8 and 20 to 2).
+
+### Kirby's poses in play
+
+Where a 1-player turn sets `$7E:D7D4`, in order. It is from the
+disassembly read for the engine port, which writes the pose at the same
+sites; the engine's flow tests compare it with web_flow, web_ui, web_fly,
+web_fly_spin, web_hole and web_tomatoes within ±2 frames
+([flow.md](flow.md) has the frames):
+
+| state | set by | when |
+|---|---|---|
+| 0 | `$80:C4CE` | the hole's start; the intro draws Kirby as objects 104/105 |
+| 4 / 5 | `$81:A7E6`-`$81:A804` | each aim iteration; 4 also on the aim's A (`$81:A780`). `$80:C60A`'s store of 4 at the set-up goes through a stale X and shows no change |
+| 6 | `$81:BEF1` | the frame after a pan to the shot view finds the camera there (`$6AB0`); held through the spin and power stages |
+| 14 / 15 / 16 | `$82:C808`-`$82:C84E` | the roll's start (the latch + 22): a grounder 14; a fly shot by the latched spin, as above |
+| 12 | `$81:8CA2` | a hit-stop (4 frames on a landing, 2 on a step hit; physics.md); the variant `$6A6E` is the request's A. Back to 14 at `$81:8CD2` unless it was 13 |
+| 13 | `$82:DAAE` | an A press while rolling, when on the ground or in the air with no spin pending (physics.md "Buttons while the ball moves"); its script returns to 14 after 17 frames |
+| 14 | `$82:CE07` | an airborne bounce, unless hopping (`$82:CE24`) |
+| 49 / 40 | `$82:DB9A` | a hazard's reaction after the step: the bumpers (code `$14`), a volcano's base (`$0F`) |
+| 1 | `$82:AEDB` | the sink's end (holed 2; physics.md "Enemies and the cup") |
+| 11 | `$80:C7AE` | the turn top with 1 or 2 tomatoes, after the pan toward Kirby (`$80:C79A`; flow.md "The set-up") |
+| 3 | `$82:E221` | out of tomatoes, 15 frames into `$82:E1EE`; object `$BE` then draws Kirby falling asleep until it is done (flow.md) |
+| 4 | `$81:A804` | the next aim; no unroll (7) and no wait pose (9) in a 1P shot |
 
 ## Kirby animation clips
 
@@ -673,9 +696,9 @@ first switch), `live_state_NN.png` (the frames seen in play),
 `live_state_NN_facing.png` (those frames, one row per facing value) and
 `states.tsv` / `states.json` / `live.json`.
 
-**Unknown.** What `$6B54`/`$6B58` are (spin is a guess); what the 11
+**Unknown.** What the 11
 squash variants of `$7E:D8D2`/`$6A6E` mean; the degrees of the
 copy-ability directions `$7E:D75E`; where states 17, 18 and 23 are set
 (no writer found); what situation 19 (ball sinking, on the `$60`-`$6F`
-surface overlay) and 31 (parasol) are in play; 10, 16, 19, 31, 35 and
-40-48, 50 were only seen forced.
+surface overlay) and 31 (parasol) are in play; 10, 19, 31, 35, 41-48
+and 50 were only seen forced.

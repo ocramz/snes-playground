@@ -1,0 +1,30 @@
+# Hole 1, four weak shots from the tee that take nothing: the tomatoes run
+# 4 -> 3 -> 2 -> 1 -> 0. For tools/snesstep/trace_flow.py / trace_ball.py
+# (engine phase 6): the tired pose at the turn top with 2 and 1 tomatoes
+# ($80:C79A), the out-of-tomatoes path ($82:E1EE: Kirby falls asleep),
+# the life it costs and the refill ($80:F85C), then the fifth set-up.
+# Each shot: A to confirm the aim, A to end the spin stage, A two frames
+# into the power stage (meter 2). The press frames were chosen with the
+# engine (its phases), then recorded: the game decides.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start hole 1
+2355 A 2        # shot 1: aim
+2428 A 2        #   spin
+2435 A 2        #   power (meter 2)
+2620 A 2        # shot 2
+2693 A 2
+2700 A 2
+2974 A 2        # shot 3 (after the tired pose at 2 tomatoes)
+3047 A 2
+3054 A 2
+3364 A 2        # shot 4 (after the tired pose at 1 tomato)
+3437 A 2
+3444 A 2
