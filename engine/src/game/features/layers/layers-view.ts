@@ -17,9 +17,14 @@
  * `layer_outline_{back,front}` are white masks of palette 7 colour 15, which
  * object $84:81A3 cycles through the 15 colours of $98:D3E6 in a ping-pong
  * walk of 30 steps, 3 frames each (tables.json outlineColours/outlineWalk;
- * the walk's phase at the hole's start is not known). HOLE IN ONE swaps the
- * BG colours to the night set (hole 1 only: the swap was recorded on course
- * 1's CGRAM; plans risk 10): the `_night` bitmaps and backdrop.
+ * the walk's phase at the hole's start is not known). A water hole's ripple is
+ * not baked in either: object 113's hook $84:8533 cycles palette 4 colours
+ * 1-7 through three sets from $98:E030, A B A C, 8 frames each (layers.json
+ * `ripple`). The layers carry set A, and `layer_{back,front}_ripple<k>` are
+ * the pixels that differ under set k, shown over their layer during its
+ * phases (the phase at the hole's start is not known either). HOLE IN ONE
+ * swaps the BG colours to the night set (hole 1 only: the swap was recorded
+ * on course 1's CGRAM; plans risk 10): the `_night` bitmaps and backdrop.
  *
  * An authored course has no bitmaps: procedural.ts draws it.
  */
@@ -33,8 +38,10 @@ import { drawTerrain } from './procedural';
 export const DEPTH = {
   bg3: 0,
   back: 10,
+  rippleBack: 10.5,
   outlineBack: 11,
   front: 12,
+  rippleFront: 12.5,
   outlineFront: 13,
 } as const;
 
@@ -55,9 +62,15 @@ interface Layer {
   image: Phaser.GameObjects.Image;
 }
 
+interface Ripple {
+  set: number;
+  image: Phaser.GameObjects.Image;
+}
+
 export class LayersView {
   private readonly layers: Layer[] = [];
   private readonly outlines: Phaser.GameObjects.Image[] = [];
+  private readonly ripples: Ripple[] = [];
   private terrain: Phaser.GameObjects.Graphics | null = null;
   private readonly walk: number[];
   private readonly colours: Int32Array;
@@ -80,6 +93,8 @@ export class LayersView {
       this.add('layer_front.png', DEPTH.front, false);
       this.addOutline('layer_outline_back.png', DEPTH.outlineBack);
       this.addOutline('layer_outline_front.png', DEPTH.outlineFront);
+      this.addRipples('layer_back', DEPTH.rippleBack);
+      this.addRipples('layer_front', DEPTH.rippleFront);
     }
     scene.cameras.main.setBackgroundColor(rgb(info?.backColour ?? DEFAULT_BACK));
     if (!bitmaps || debugTerrain) {
@@ -106,12 +121,32 @@ export class LayersView {
     this.outlines.push(this.scene.add.image(0, 0, holeTexKey(this.hole!, file)).setOrigin(0, 0).setDepth(depth));
   }
 
-  /** Per frame: the outline's colour from the walk ($84:81A3, 3 frames a step). */
+  /** The ripple overlays of one layer, `<stem>_ripple<k>.png` for the sets k ≥ 1 the order names; hidden. */
+  private addRipples(stem: string, depth: number): void {
+    const order = this.info?.ripple?.order ?? [];
+    for (const set of new Set(order)) {
+      const file = `${stem}_ripple${set}.png`;
+      if (set === 0 || !this.has(file)) continue;
+      const image = this.scene.add.image(0, 0, holeTexKey(this.hole!, file)).setOrigin(0, 0).setDepth(depth).setVisible(false);
+      this.ripples.push({ set, image });
+    }
+  }
+
+  /**
+   * Per frame: the outline's colour from the walk ($84:81A3, 3 frames a step),
+   * and the water's ripple set ($84:8533, `stepFrames` a phase).
+   */
   update(ticks: number): void {
-    if (this.outlines.length === 0 || this.walk.length === 0) return;
-    const k = this.walk[Math.floor(ticks / 3) % this.walk.length];
-    const colour = bgr555(this.colours[k] ?? 0x7fff);
-    for (const o of this.outlines) o.setTint(colour);
+    if (this.outlines.length > 0 && this.walk.length > 0) {
+      const k = this.walk[Math.floor(ticks / 3) % this.walk.length];
+      const colour = bgr555(this.colours[k] ?? 0x7fff);
+      for (const o of this.outlines) o.setTint(colour);
+    }
+    const ripple = this.info?.ripple;
+    if (this.ripples.length > 0 && ripple && ripple.order.length > 0) {
+      const set = ripple.order[Math.floor(ticks / ripple.stepFrames) % ripple.order.length];
+      for (const r of this.ripples) r.image.setVisible(r.set === set);
+    }
   }
 
   /** The procedural terrain over the bitmaps (?debug, key D). */
@@ -148,6 +183,7 @@ export class LayersView {
   destroy(): void {
     for (const l of this.layers) l.image.destroy();
     for (const o of this.outlines) o.destroy();
+    for (const r of this.ripples) r.image.destroy();
     this.terrain?.destroy();
   }
 }

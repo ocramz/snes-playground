@@ -144,6 +144,22 @@ describe.skipIf(!haveAssets)('build/engine/assets', () => {
         }
       }
     });
+
+    it('holes 7 and 8, the water holes, have the ripple of $84:8533 and its overlays; no other hole does', () => {
+      for (let hole = 0; hole < 8; hole++) {
+        const layers = loadHoleLayers(hole);
+        const ripples = Object.keys(layers.files).filter((f) => f.includes('_ripple')).sort();
+        if (hole === 6 || hole === 7) {
+          expect(layers.ripple, `hole ${hole + 1}`).toEqual({
+            source: '$84:8533', colours: '$98:E030', stepFrames: 8, order: [0, 1, 0, 2],
+          });
+          expect(ripples, `hole ${hole + 1}`).toEqual(['layer_front_ripple1.png', 'layer_front_ripple2.png']);
+        } else {
+          expect(layers.ripple ?? null, `hole ${hole + 1}`).toBeNull();
+          expect(ripples, `hole ${hole + 1}`).toEqual([]);
+        }
+      }
+    });
   });
 });
 

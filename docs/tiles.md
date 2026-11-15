@@ -79,7 +79,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$40-$52`, `$57` | `$82:8967` | **spawns an actor** |
 | `$02` | `$82:94D3` | solid object standing 3 height steps tall |
 | `$28-$2D` | `$82:8FF1` | **the play-area outline**, a wall: see below |
-| `$60-$6F` | `$82:80F6` | surface overlay, with enter/leave tracking |
+| `$60-$6F` | `$82:80F6` | **water**, a surface overlay with enter/leave tracking: see "Not established" |
 | `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
 | `$B0-$B9` | `$82:A980`, `$82:A9DB` | **warp panels**, in pairs: the ball goes to the other one and leaves it along its arrow |
 | `$1C`, `$1D`, `$58-$5D` | various | not established |
@@ -464,9 +464,14 @@ Some layer-2 values are locked to a layer-1 shape:
 
 ## Not established
 
-- What the `$60-$6F` overlay *is*. Its handler `$82:80F6` tracks entering and
-  leaving via `$69CA`/`$69D2`-`$69DA`, and it appears in 45 holes with 1,807
-  cells — the second largest group. Mechanics traced, identity not.
+- What the `$60-$6F` overlay *does* to the ball. It is water: a hole that
+  has it loads the water's tiles and spawns object 113, which ripples
+  palette 4 and plays a splash while the ball sinks (`$69DA`)
+  ([courses.md](courses.md) "Per-hole surface graphics"). Kirby's state 19,
+  the ball sinking, is entered on it ([animation.md](animation.md)). Its
+  handler `$82:80F6` tracks entering and leaving via `$69CA`/`$69D2`-`$69DA`,
+  and it appears in 45 holes with 1,807 cells, the second largest group. The
+  mechanics are traced, but what the water does to a ball is not established.
 - `$1C`, `$1D`, `$58-$5D`: handlers located, not read. (`$14-$17` are
   settled: the arrow panels, above; so are `$B0-$B9`, the warp panels.)
 - The `$70-$7B` family's purpose. Twelve values in four groups of three,

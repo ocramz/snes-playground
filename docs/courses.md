@@ -171,6 +171,57 @@ then uploads 27,136 bytes to VRAM word `$0000` through the record at
 `$8B:DAB1`, 848 in all, and the highest index any hole uses is `$2DC`. The
 palette is the 512-byte CGRAM image at `$98:C000`, moved by `$80:D369`.
 
+### Per-hole surface graphics: the water
+
+That page and palette are the course scene's. A hole with water changes
+both at its load, so drawing a water hole from them alone shows tiles
+`$180-$1AB` as noise in the boost panels' red and black.
+
+`sub_hole_surface_gfx $82:BCD7` (dis.) reads `$7E:B3B8`, the count of
+cells per layer-2 value (on course 1 hole 7 its `$60-$6F` entries equal the
+grid's, snapshot `build/emu/prog/f012000`):
+- any boost panel `$30-$3B`: `$B6FA` = 1, spawn object 112. Nothing else;
+- otherwise any `$60-$6F` (the water, [tiles.md](tiles.md)): `$B6FA` = 2,
+  spawn object 113, then graphics set A entry 2 (`$80:CCDF`). Its record
+  `$80:CCEF` copies 1408 bytes, uncompressed, from `$91:ED29` to VRAM word
+  `$1800`: tiles `$180-$1AB`. While `$7E:69CA` is set it queues `$80:CCF8`
+  instead, a zero fill. Entry 1 (`$80:CCC0`) reloads them when `$B6FA` = 2.
+
+So a hole with both would get no water graphics, but no hole has both: 45
+hole slots have water and 20 boost panels (`tools/coursemap.py`'s
+`surface_kind`).
+
+The colours are animated by the two objects, through `sub_cgram_partial`
+into palette 4:
+- **Object 112** (`$84:876C`), the boost panels: colours 1-4 from `$98:C200`,
+  `$C208`, `$C210`, `$C218` in turn, 3 frames each. `$98:C000` holds the
+  first, which is why the static image draws the panels right.
+- **Object 113** (`$84:8293`), the water. Its per-frame hook `$84:8533`
+  steps a phase (phase + 1) & 3 every `$84:8576`[phase] = 8 frames and
+  writes colours 1-7 (CGRAM `$41`) from base + `$84:857E`[phase] = +0,
+  +`$0E`, +0, +`$1C`: three sets, in the order A B A C. The base is
+  `$84:84AF`[`$7E:6A5C`], and `$6A5C` is 2 × course in every recorded
+  snapshot of courses 0-15. Course 1's base is `$98:E030`.
+  - Not modelled by the exporter: `$84:84F1`, the table taken while
+    `$7E:6A2E` is set; `$7E:ED5B`'s `$98:EA50`/`$EA7A`; the hook's freeze
+    while `$69CA` is set; and the splash it plays instead while the ball
+    sinks (`$69DA`: `$98:C22E`-`$C282`, then the same back).
+
+*Emulated* on course 1 hole 7 (`play_hole1` with `$6A5A` = 0 and `$6A5E` = 6
+poked at 2050, a snapshot every frame 2280-2344, read 2026-11-15):
+- the whole VRAM page equals `hole_page` on every frame;
+- CGRAM 65-71 is always one of the three sets, in runs of 8 frames: B
+  2287-2294, A 2295-2302, C 2303-2310, A 2311-2318, B 2319-2326, then A
+  2327-2336 (10), C 2337-2344. One step lasted 10 frames. That fits the scheduler dropping
+  ticks on lag frames ([emulation.md](emulation.md)), but its cause was not traced;
+- hole 7's front layer composed from each snapshot's own VRAM and palette 4
+  is pixel-identical to the exported `layer_front.png` (set A) and to it
+  with `layer_front_ripple1/2.png` over it (sets B and C).
+
+`tools/coursemap.py`'s `hole_page`, `hole_palette` and `water_ripple` apply
+all of this; `tools/export_web.py` bakes set A into the layers and writes
+the B and C overlays.
+
 ## Header format
 
 28 bytes: eight little-endian words, then a 12-byte space-padded ASCII name.

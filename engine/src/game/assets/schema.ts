@@ -143,6 +143,13 @@ export interface LayersJson {
   nightBackColour: [number, number, number] | null;
   name: string;
   outline: { source: string; stepFrames: number; cycle: Array<[number, number, number]> };
+  /**
+   * A water hole's ripple ($84:8533): palette 4 colours 1-7 cycle through
+   * colour sets from `colours`, set `order[phase]` for `stepFrames` each.
+   * The layers carry set 0; `layer_{back,front}_ripple<k>.png` are the pixels
+   * that differ under set k. Absent from older exports; null on other holes.
+   */
+  ripple?: { source: string; colours: string; stepFrames: number; order: number[] } | null;
 }
 
 export interface HudJson {

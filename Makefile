@@ -92,7 +92,7 @@ build/web-test/cutscene_hole0.json: $(CUTSCENE_REPLAY)/pokes.txt tools/snesstep/
 
 # export_web.py writes manifest.json last
 $(ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) tools/web_audio_map.json \
-           tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py | $(SNESSTEP)
+           tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py | $(SNESSTEP)
 ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
@@ -139,7 +139,7 @@ $(ENGINE_ROMTEST): tools/export_web.py
 	@touch $@
 
 $(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) $(ENGINE_OBJ) tools/web_audio_map.json \
-                  tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py | $(SNESSTEP)
+                  tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py | $(SNESSTEP)
 ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"

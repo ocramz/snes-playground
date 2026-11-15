@@ -24,7 +24,7 @@ emulator or other build/ output):
     tables    every ROM constant the TypeScript physics needs, each with its
               $bank:addr so a number in the browser can be traced to the ROM
     layers    the isometric course bitmap as RGBA, split by tile priority,
-              and the BG3 scenery
+              the water's ripple overlays on a water hole, and the BG3 scenery
     golden    terrain.py's surface_z sampled over every cell (a test fixture)
 
 Facts used here, and where they come from:
@@ -50,7 +50,7 @@ sys.path.insert(0, HERE)
 
 from courses import ENTRIES, default_entries, header  # noqa: E402
 from coursemap import (  # noqa: E402
-    EMPTY, backdrop, course_page, course_palette, unpack, BG3_MAP_TILES)
+    EMPTY, backdrop, hole_page, hole_palette, unpack, water_ripple, BG3_MAP_TILES)
 from lorom import snes_to_file  # noqa: E402
 from romcheck import EXPECTED_SHA1, RomError, load_rom  # noqa: E402
 from terrain import Tables, Z_UNIT, load_hole, tile_table  # noqa: E402
@@ -492,8 +492,10 @@ def build_layers(d, index, outdir):
 
     _, fields, name, _ = header(d, index)
     map_w, map_h, g1, g2, _rows = unpack(d, index, fields)
-    tiles = decode_tiles(course_page(d), 4)
-    pal = course_palette(d)
+    # A water hole's own tiles and its first ripple set (coursemap.hole_page).
+    tiles = decode_tiles(hole_page(d, index), 4)
+    pal = hole_palette(d, index)
+    ripple = water_ripple(d, index)
     W, H = map_w * 8, map_h * 8
 
     def compose(want, pal=pal):
@@ -509,10 +511,24 @@ def build_layers(d, index, outdir):
         return img, ol
 
     (back, ol_back), (front, ol_front) = compose(0), compose(1)
+    out = [("layer_back.png", back), ("layer_front.png", front),
+           ("layer_outline_back.png", ol_back),
+           ("layer_outline_front.png", ol_front)]
+    # The water's ripple: the layers carry set 0; set k >= 1 is an overlay of
+    # the pixels whose colour differs from set 0 in the composed layer, so a
+    # BG1 tile over BG2 water stays on top. The view shows the overlay of
+    # `order[phase]` (none for set 0).
+    n_sets = len(ripple["sets"]) if ripple else 1
+    for k in range(1, 4):
+        for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+            over = np.zeros((H, W, 4), dtype=np.uint8)
+            if k < n_sets:
+                arr, _ = compose(want, hole_palette(d, index, k))
+                diff = (arr != base).any(axis=2)
+                over[diff] = arr[diff]
+            out.append(("{}_ripple{}.png".format(stem, k), over))
     wrote = {}
-    for name_, arr in (("layer_back.png", back), ("layer_front.png", front),
-                       ("layer_outline_back.png", ol_back),
-                       ("layer_outline_front.png", ol_front)):
+    for name_, arr in out:
         path = os.path.join(outdir, name_)
         if arr[:, :, 3].any():
             Image.fromarray(arr, "RGBA").save(path)
@@ -562,8 +578,11 @@ def build_layers(d, index, outdir):
     # The backdrop colour behind everything is the course palette's colour 0.
     from tiles import snes_color
     table = [snes_color(w) for w in rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15)]
+    rip = None
+    if ripple:
+        rip = {k: ripple[k] for k in ("source", "colours", "stepFrames", "order")}
     return {"files": wrote, "backColour": list(cols[0]), "name": name,
-            "nightBackColour": night_back,
+            "nightBackColour": night_back, "ripple": rip,
             "outline": {"source": src(*OUTLINE_TABLE), "stepFrames": 3,
                         "cycle": [list(table[i]) for i in OUTLINE_WALK]}}
 

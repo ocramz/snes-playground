@@ -241,7 +241,7 @@ Course data comes from two places (`core/course-data.ts`):
 | sync-transforms | each view placed: the ball at `BallScreen`, the actors at their cell corner and `actorGround` (`bridge/placement.ts`, the core's `project`) |
 | sync-depth | the depth bands: BG3 0, back 10, front 12, decals 20, guide 25, actors 100 + y × 10⁻⁵, cutscene sprites 900, panel 1100, fade 2000. Every sprite of play is OAM priority 3, over both course layers |
 | sync-camera | the scroll from `Camera` (`scrollOf`), or the replay's camera during a cutscene |
-| sync-layers | the outline's colour walk (`$98:D3E6` from `tables.json`), the night swap |
+| sync-layers | the outline's colour walk (`$98:D3E6` from `tables.json`), the water's ripple on holes 7 and 8 (`layers.json` `ripple`: `$84:8533`, sets A B A C of `$98:E030`, 8 frames each), the night swap |
 | sync-guide | the guide's dots and cone, in the Aim phase only |
 | sync-pose | Kirby's clip from `Pose` |
 | sync-cup-mask | the cup's near rim over Kirby while object 75 is up: Kirby cut off below it, the ring raised over him (`features/enemies/cup-mask.ts`) |
@@ -260,7 +260,7 @@ Course data comes from two places (`core/course-data.ts`):
 | tee | `TeeView` | `tee` (the pad, object 108) |
 | pillar | `PillarView` | `tree` |
 | hazard | `HazardView` | the `objects` atlas by actor type, direction and frame; a marker if a sheet is missing |
-| (course) | `LayersView` | the exported bitmaps; the procedural terrain for test holes and `?debug` |
+| (course) | `LayersView` | the exported bitmaps, with the water's ripple overlays shown by phase; the procedural terrain for test holes and `?debug` |
 | (guide, panel, cutscene) | `GuideView`, `PanelView`, `CutsceneView` | `ui.json`'s pictures; `cutscenes.json`'s |
 | (warp) | `WarpView` | the `objects` atlas: object 63 where Kirby went in, 64 where he comes out, frame by frame as web_warp recorded them (`features/warp/warp-frames.ts`) |
 
@@ -331,7 +331,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | the hazard actors 76, 77, 81-83; the warp's 63 and 64 | `build/sprites/emu/obj_NNN`, emulated sheets ([graphics.md](graphics.md) "From live state") | `objects` | `objects.png/json`: frames `oNNN_K_II` and their tables | `HazardView`, `WarpView` |
 | the cup's rim, object 75 | its sheet from the c1n replay (`build/web-sprites/obj_075`) | `sprites` | the atlas frame `cupmask` (only its shape is used) | `sync-cup-mask` |
 | the intro and the hole-outs | an every-frame trace of c1n (`tools/snesstep/trace_cutscene.py`) | `sprites` (`build_cutscenes`) | `cutscenes.json` + atlas frames `cs_*` | `features/cutscene` |
-| course bitmaps | bank `$88` course tables + BG3 scenery | `layers` (`--hole N`) | `holes/NN/layer_*.png`, the outline masks, the night set, `layers.json`, `course.json` | `LayersView`, `fromRomCourse` |
+| course bitmaps | bank `$88` course tables + BG3 scenery; on a water hole the tiles `$91:ED29` and the ripple's colours `$98:E030` ([courses.md](courses.md) "Per-hole surface graphics") | `layers` (`--hole N`) | `holes/NN/layer_*.png`, the outline masks, the night set, the ripple overlays `layer_{back,front}_ripple{1,2}.png`, `layers.json`, `course.json` | `LayersView`, `fromRomCourse` |
 | the shot panel | the game's OAM while the panel is up (`tools/export_web_ui.py`) | `ui` | `ui.png/json`, with the measured timing | `PanelView` |
 | the score panel | stepper screen snapshots | `hud` | `hud_panel.png`, `hud_tomato.png`, `hud.json` (the slots) | the Hud scene |
 | the font | `gfx_course_font $90:FBBC` ([text.md](text.md)) | `font` | `font.png` | `features/text` (a RetroFont) |
@@ -393,7 +393,7 @@ The bridge:
 | `trace-warp` | two poked scenarios on course 1 hole 4 (`web_warp`, `web_warp_fly`): the warp `$B4` → `$B5` rolled onto and landed on; ball states and sounds, the stall's frames, Kirby's sprite and the camera's pan every frame from the warp's start |
 | `trace-terrain` | three poked scenarios on course 1 holes 2 and 3 (`web_arrow`, `web_ramps`, `web_step`): the arrow panel's turn, the in-cell crest, flush ramp edges along ±y, a step hit by the N edge and its hit-stop; ball states and sounds (`test/scenarios.ts`, shared with `trace-hazards`) |
 | `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
-| `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists (the rim's `cupmask`, the warp's objects); every sound id has a file; nothing is emitted outside the event table |
+| `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists (the rim's `cupmask`, the warp's objects); the water holes' ripple (holes 7 and 8 only); every sound id has a file; nothing is emitted outside the event table |
 | `cup-mask-warp` | the rim mask's first frame and cut; objects 63 and 64's pictures and lives |
 | `determinism` | host frames of 1, 2, 3 and mixed core frames give the same world and the same events (web_hole on hole 1; a pad policy on t1) |
 | `frame-clock`, `cutscene`, `director`, `panel-state` | the 60.0988 Hz clock; the replay against the recording, sprite by sprite, and the anchors; the director's timing against core on web_hole; the panel's ages, closings, blink and meter lags on web_ui |
@@ -439,6 +439,7 @@ The presentation:
   - the score panel's toggles and the portrait's face, the tee changing colour during the curl, the fly shot's shrinking dot tiles.
 - The guide's dots march in four steps of 5 frames toward the next point; the game's order of the march is not traced.
 - The outline pulse starts at the hole's first frame; its phase in the game is not known.
+- The water's ripple starts at phase A on the hole's first frame. Object 113 starts it at the load, so the phase is not known either, and the game's lag frames, which stretch a step (10 frames once in a recording), are not modelled. The ripple's other variants are not ported: the splash while the ball sinks, the freeze while `$69CA` is set, and the `$6A2E`/`$ED5B` tables ([courses.md](courses.md)).
 - The procedural terrain is a picture of the data the physics runs on (quadrant planes, slope shading, tile groups by colour, walls and outline as lines), not the game's art.
 
 ## Deferred
