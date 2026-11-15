@@ -142,6 +142,11 @@ export function requestGuide(world: World, ctx: Ctx, lag: number, tick = -1): vo
   live.boostFlash = r.boostFlash; // $6A28: a global the guide's boost hits write
   live.guideTile = r.tile; // $DA0A until the next step reloads the block
   live.guideLeft = 1;
+  if (r.rollMu !== null) {
+    // $DA3A/$6A72: the guide's last rolling step's ($81:B24C); the coefficients are work-only here
+    live.rollMu = r.rollMu;
+    live.classIndex = r.classIndex;
+  }
   const g = world.get(Guide)!;
   g.points = r.points;
   g.ends = r.ends;

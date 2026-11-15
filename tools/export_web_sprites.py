@@ -270,15 +270,19 @@ def build(outdir):
 
 
 # --------------------------------------------------------------------------
-# The hazard actors' pictures, for the engine (tools/export_web.py --only objects)
+# The thread objects' pictures, for the engine (tools/export_web.py --only objects)
 
 OBJECT_SHEETS = os.path.join(ROOT, "build", "sprites", "emu")
 # The bumpers 76 (rides its track) and 77 (bobs), the volcanoes 81-83
 # (docs/tiles.md; engine/src/core/sim/actors.ts). actors.tsv rates all five
 # actor ids a "match" for these types. 63 and 64 are the warp's: Kirby curls
 # up and bursts into stars at the warp he went into, stars and a flash where
-# he comes out ($82:AAE5, $82:AB6E; engine/src/core/systems/warp.ts).
-OBJECT_TYPES = (63, 64, 76, 77, 81, 82, 83)
+# he comes out ($82:AAE5, $82:AB6E; engine/src/core/systems/warp.ts). 62 is
+# the star the snap panels trail behind the ball, four at a time (object 61's
+# bursts, $85:CF4E; engine/src/core/sim/snap-stars.ts): table $89:9485,
+# indices 0-4. (obj_061.json is no picture of 61's: it never draws, and the
+# sheet caught a stale $5E1C in its slot.)
+OBJECT_TYPES = (62, 63, 64, 76, 77, 81, 82, 83)
 
 
 def build_objects(outdir):

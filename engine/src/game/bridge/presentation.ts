@@ -15,6 +15,7 @@ import type { CutsceneDirector } from '../features/cutscene/director';
 import type { AudioPlayer } from '../features/audio/audio-player';
 import type { CupMaskClock } from '../features/enemies/cup-mask';
 import type { WarpView } from '../features/warp/warp-view';
+import type { SnapStarsView } from '../features/env/snap-stars-view';
 
 export interface Presentation {
   ctx: ViewCtx;
@@ -24,6 +25,8 @@ export interface Presentation {
   panel: PanelView;
   cutscene: CutsceneView;
   warp: WarpView;
+  /** The snap panels' stars, object 62 (sync-snap-stars). */
+  snapStars: SnapStarsView;
   director: CutsceneDirector;
   audio: AudioPlayer | null;
   camera: Phaser.Cameras.Scene2D.Camera;

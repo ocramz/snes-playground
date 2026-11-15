@@ -57,6 +57,17 @@ export interface GuideResult {
   /** $6A28 and $DA0A as the guide left them (written back for the boost hum, systems/boost-hum.ts). */
   boostFlash: number;
   tile: number;
+  /**
+   * $DA3A and $6A72 as the guide's last rolling step left them, or null when
+   * it never rolled. The guide's own rolling step sets them with its own
+   * rule ($81:B23A-$81:B24C: class 0 on surface code 0, else class 1, mode
+   * ignored), not the real step's ($81:80C5); the real step recomputes them
+   * on every rolling frame, so they matter only to a ball that rolls on the
+   * frame it lands: a snap panel's landing (sim/dispatch.ts snapLand, the
+   * friction of web_snap_land's landing frame, $07B0).
+   */
+  rollMu: number | null;
+  classIndex: number;
 }
 
 /** $81:AA3E: the step limit by shot kind. */
@@ -89,7 +100,7 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
   w.z = w.ground; // $81:BB3D
   copyPrev(w); // $81:8751
 
-  const out: GuideResult = { points: [], ends: [], steps: 0, wallCode: 0, boostFlash: 0, tile: 0 };
+  const out: GuideResult = { points: [], ends: [], steps: 0, wallCode: 0, boostFlash: 0, tile: 0, rollMu: null, classIndex: 0 };
   let max = MAX_STEPS[Math.min(2, Math.max(0, shot.kind))];
   let dotIn = 1; // $6AD4
   let gapPending: GuideEnd | null = null; // $6AD0 and the slot $81:AC3D saved
@@ -107,7 +118,13 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
 
   for (;;) {
     out.steps += 1; // $B744
+    const rolling0 = w.air === 0;
     runKernelStep(gctx, w);
+    if (rolling0) {
+      // $81:B23A: X = 0 on surface code 0, else 2; $DA3A = $80:DC49,X
+      out.classIndex = w.code !== 0 ? 2 : 0; // STX $6A72
+      out.rollMu = ctx.rules.table('rollFriction')[out.classIndex >> 1];
+    }
     const airChanged = w.air !== w.pAir;
     if (rolling) {
       // $81:AA46-$81:AAEE

@@ -27,10 +27,12 @@
  *   (vy -$40, the coefficients reset) on its first frame, then, the panel's
  *   friction having brought |vx| under $80, the straight launch, and the hum
  *   at 2505 and 2539 to the sound 0 at 2564.
+ * - the snap panels' five scenarios: test/snap-scenarios.ts.
  */
 import { describe, it } from 'vitest';
 import { haveRules, haveRomTest, loadTrace, loadRomHole } from './fixtures';
 import { checkScenario, type Scenario } from './scenarios';
+import { SNAP_SCENARIOS } from './snap-scenarios';
 
 export const TERRAIN_SCENARIOS: Scenario[] = [
   { name: 'web_arrow', hole: 1, offset: 2332, from: 2463, to: 3000, what: 'the arrow $16 turns the ball south; the enemy, the $11 crest, the $05 ramp' },
@@ -41,7 +43,7 @@ export const TERRAIN_SCENARIOS: Scenario[] = [
 ];
 
 describe.skipIf(!haveRules || !haveRomTest)('the terrain and the arrows vs the recorded game', () => {
-  for (const s of TERRAIN_SCENARIOS) {
+  for (const s of [...TERRAIN_SCENARIOS, ...SNAP_SCENARIOS]) {
     it.skipIf(!loadTrace(s.name) || !loadRomHole(s.hole))(`${s.name}: ${s.what}`, () => checkScenario(s));
   }
 });

@@ -70,7 +70,7 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$10-$13` | `$82:A7DD` | **kicker**: landing speed becomes a directional impulse |
 | `$14-$17` | `$82:A6C7`, `$82:A70B` | **arrow panel**: turns the ball to the arrow's direction, N/E/S/W, at the same speed |
 | `$70-$7B` | `$82:9FD1`+ | toggled directional impulse, two magnitudes |
-| `$18-$1B` | `$82:A5B1` | snaps Z to the surface and zeroes vz |
+| `$18-$1B` | `$82:A5B1` | **snap panel**: pushes the ball `$300` a frame along its arrow, to `$2000`; landed on, it is first set on the surface. A star trail (objects 61/62) |
 | `$80-$8F`, `$98-$A1` | `$82:98F8` | **hazard**: the bumper track's shape, then a cube test against the riding bumpers (object 76) |
 | `$90-$97` | `$82:9653` | hazard: the bobbing bumper's box (object 77) |
 | `$05` | `$82:A55E` | hazard: at or under the surface, every frame; the ball is thrown along its heading |
@@ -204,6 +204,84 @@ course 1 hole 2's `$16`, the ball leaves at (0, 2914). The speed is kept
 iteration (2480).
 
 The shot guide's table `$81:B455` treats the arrows as plain ground.
+
+### Snap panels — `$18-$1B`
+
+Accelerators with an arrow, `$18` N, `$19` E, `$1A` S, `$1B` W: every frame
+the ball is inside the panel's window it is pushed `$300` along the arrow, up
+to `$2000`, and stars trail behind it. 14 of the 64 1P holes have one or more
+(29, 32, 37, 39, 41, 45, 49, 50, 52, 54, 55, 57, 62, 63). The engine's name,
+"snap", is the landing half's. Read with `tools/dis65816.py '$82:A5B1'
+--length 0x116 --m16 --x16` (2026-11-15):
+
+| handler | gate | then |
+|---|---|---|
+| `$82:A5B1` (land) | mode ≠ `$0A`; at or under the surface (`$DA08:$DA06` ≥ `$D9FA:$D9F8`, the compare of `$82:9E76`); `$82:A692` | `$D9EC` = 0, z = ground, vz = 0, the push. A failed gate: `JML $81:8905` |
+| `$82:A5E6` (hit) | mode ≠ `$0A`; `$82:A692` | the push. A failed gate: `JML $81:8A56` |
+
+**The gate `$82:A692`** passes when both fractions `$D9F0`, `$D9F4` are in
+[`$2800`, `$DFFF`) and the mode is neither 1 nor 4. A failure clears the latch
+`$6A68,X` (the one the enemies, the pillar and the arrows share), so leaving
+the window re-arms the next pass. It answers through DEY's flags: Y = 0 to
+pass, `$FFFF` to fail (`BEQ`/`BMI` at the callers).
+
+**The push `$82:A5F7`**:
+
+1. `STZ $699A`, which keeps object 61 alive (below).
+2. Once a pass (the latch: `INC $6A68`), `$6A6C` = `$11`, the sound the
+   step's tail plays, and object 61 is spawned (`$80:DFBA`, A = `$3D`;
+   `$551C`,Y = `$180B`, the player).
+3. `JMP ($A629,X)` by tile − `$18`:
+
+   | tile | entry | push | limit |
+   |---|---|---|---|
+   | `$18` | `$A631` | vy + `$FD00` | a negative sum below `$E000` (unsigned) becomes `$E000` |
+   | `$19` | `$A65A` | vx + `$0300` | a positive sum ≥ `$2000`: A = `$2000`, but `BRA $A681` at `$A66B` skips the `STA $D9D4`, so **vx is left as it was** |
+   | `$1A` | `$A644` | vy + `$0300` | a positive sum ≥ `$2000` becomes `$2000` |
+   | `$1B` | `$A66D` | vx + `$FD00` | a negative sum below `$E000` becomes `$E000` |
+
+   The limits test the 16-bit sum with `BMI`/`BPL`, so a sum that wraps the
+   sign is stored as it is. `$19`'s skipped store is a bug: an E panel never
+   brings vx to `$2000`. A vx of `$1D00` or more is left as it is, so it
+   keeps only the speed it came with, and friction then slows it.
+4. `$81:8E60` (the heading), `STZ $D9CC`/`$D9CE`/`$D9D0` (the spin), and
+   `JML $81:8A56`: the rolling default, from the landing path too. So a
+   landing on a panel rolls on the same frame, with the friction of
+   whatever `$DA3A` last held: the airborne path does not set it, and after
+   the aim it is the guide's ($81:B24C, its own rule: code 0 → `$0C00`,
+   else `$07B0`).
+
+**The stars.** Object 61 (`$85:CF2D`) loops: `$699A` = `$FFFF`, a burst,
+`yield 7` (8 ticks), and it exits when no push has cleared `$699A` since.
+The burst (`$85:CF4E`) wants the work copy's tile `$DA0A` in `$18-$1B` and
+the block's velocity along the arrow (`$18` vy < 0, `$19` vx ≥ 0, `$1A`
+vy ≥ 0, `$1B` vx < 0; 0 counts as positive). It spawns four object 62s,
+the stars, at the ball's projected point. Their motion and pictures are in
+[animation.md](animation.md) "Objects 61 and 62". The panels' colours cycle
+through object 115 ([courses.md](courses.md) "The palette cycles in play").
+
+*Emulated* (`tools/snesstep/inputs/web_snap*`, poked as `web_boost`;
+`engine/test/trace-terrain.test.ts`, `snap-stars.test.ts`;
+notes/port-v2-phase3-snaps.md):
+
+- **web_snap**, course 7 hole 7: north onto the N panel (5,22) at vy −647.
+  It is pushed by −755 a frame (−`$300`, friction +13) from 2498, floored at
+  −`$2000` (−8179 after the friction) at 2507, and leaves the window. `$11`
+  and object 61 come once, at 2497. The cleared latch lets it take the enemy
+  at (5,21) at 2511.
+- **web_snap_land**: falling onto the same panel. On the landing frame vz
+  is 0, air 0 and vy −466 → −1223. That is the push, plus the friction of
+  `$DA3A` = `$07B0`, the guide's.
+- **web_snap_back**, course 4 hole 6: north into the S panel (6,10). It
+  turns in two pushes (−1146, −365, 391, 1147). Object 61's one burst (2514)
+  waits for vy ≥ 0.
+- **web_snap_fast**: south onto the same panel at 7620. The sum caps at
+  `$2000` (8180 after the friction) on every frame in the window.
+- **web_snap_east**, course 8 hole 7: east onto the E panel (3,4) at 7120.
+  One push takes it to 7876. From then on vx + `$300` ≥ `$2000` and the store
+  is skipped: only the friction acts (7864, 7852, …).
+
+The shot guide's table `$81:B455` treats the snap panels as plain ground.
 
 ### Warp panels — `$B0-$B9`
 

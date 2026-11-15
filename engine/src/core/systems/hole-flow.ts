@@ -38,7 +38,7 @@ import { Shot, METER_TOP } from '../traits/shot';
 import { Camera } from '../traits/camera';
 import { Pose, PoseState, BallScreen, BallSprite, PRIO_OVER } from '../traits/pose';
 import {
-  BallPos, BallVel, BallAir, BallHoled, StillCount, Modifier, BallWork,
+  BallPos, BallVel, BallAir, BallHoled, StillCount, Modifier, BallWork, emptyWork, type BallWorkFields,
 } from '../traits/ball';
 import { Strokes, Career, STROKES_MAX, TomatoQueue } from '../traits/counters';
 import { Session } from '../traits/session';
@@ -316,6 +316,7 @@ export function setupShot(world: World, ctx: Ctx): void {
     const st = e.get(Strokes)!;
     if (st.n + 1 <= STROKES_MAX) e.set(Strokes, { n: st.n + 1 });
     const w = e.get(BallWork)!;
+    setupCoefficients(w); // $80:C50E JSR $C688
     w.lost &= ~1; // $80:C519 TRB #$8001
     w.lost &= ~0x8000;
     e.set(BallSprite, { prio: PRIO_OVER }); // $80:C52F-$80:C535: $D96A = 3
@@ -443,4 +444,28 @@ function resetToOrigin(world: World, ctx: Ctx): void {
 /** The phase in which the ball step runs: the roll loop (the sink after holing included). */
 export function ballStepRuns(world: World): boolean {
   return phaseNow(world).phase === 'Rolling';
+}
+
+/**
+ * `$80:C688`, from every shot's set-up: the coefficients back to their
+ * resting values ($80:DD0D-$80:DD15, $80:DCFF, $80:DD01, $80:DB6D), the
+ * work copy's and both players' block copies. A tile handler's override
+ * (friction, rough, the boost's reset, the kicker's mode 6) does not outlive
+ * the shot, and `$DA3A` is `$0C00` until the aim's guide rolls (sim/guide.ts)
+ * — what a snap panel's landing rolls with.
+ */
+function setupCoefficients(w: BallWorkFields): void {
+  const rest = emptyWork(); // its coefficients are $80:C688's
+  w.rollMu = rest.rollMu; // $DA3A = $80:DD0D
+  w.bounceSrcX = rest.bounceSrcX; // $DA30 = $80:DD0F
+  w.dampXY = rest.dampXY; // $DA3C
+  w.bounceSrcZ = rest.bounceSrcZ; // $DA32 = $80:DD11
+  w.dampZ = rest.dampZ; // $DA3E
+  w.stepSrcX = rest.stepSrcX; // $DA34 = $80:DD13
+  w.stepDamp = rest.stepDamp; // $DA40
+  w.stepSrcZ = rest.stepSrcZ; // $DA36 = $80:DD15
+  w.stepDampZ = rest.stepDampZ; // $DA42
+  w.pad44 = rest.pad44; // $DA44 = $80:DCFF
+  w.restSpeed = rest.restSpeed; // $DA46 = $80:DD01
+  w.gravity = rest.gravity; // $DA38 = $80:DB6D
 }

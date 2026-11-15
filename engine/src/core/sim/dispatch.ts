@@ -173,7 +173,7 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
  * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
  * - unk58/unk5a/unk5c (+hits): handlers located, not read
  *   (docs/tiles.md "Not established"). (The warps $B0-$B9 are ported:
- *   warp.ts.)
+ *   warp.ts; the snap panels $18-$1B in port_v2 phase 3, below.)
  * Each returns its group's default routing so an unported tile behaves
  * like plain ground.
  */
@@ -460,45 +460,92 @@ function arrowTurn(ctx: Ctx, w: Work): void {
   w.tailSfx = 0x000c;
 }
 
-// --- snap ($18-$1B) ---
+// --- the snap panels ($18-$1B: land $82:A5B1, hit $82:A5E6) ---
 
+/**
+ * $82:A5B1, landed on: at or under the surface ($82:A5B9, the compare of
+ * $82:9E76) and through the gate, the ball is put on the surface at rest
+ * vertically ($D9EC = 0, z = ground, vz = 0) and pushed; every other path is
+ * the default landing ($81:8905).
+ */
 function snapLand(ctx: Ctx, w: Work): DispatchOutcome {
-  // $82:A5B1
-  if (w.mode === 0x0a) return LANDING;
-  if (!grounded(w)) return LANDING;
-  if (snapGate(ctx, w) < 0) return LANDING;
-  w.air = 0;
-  w.z = w.ground;
-  w.vz = 0;
-  return snapApply(ctx, w, LANDING);
+  if (w.mode === 0x0a) return LANDING; // $82:A5B7
+  if (!grounded(w)) return LANDING; // $82:A5C7 BCC
+  if (!snapGate(w)) return LANDING; // $82:A5CC BMI
+  w.air = 0; // $82:A5CE
+  w.z = w.ground; // $82:A5D1-$82:A5DA
+  w.vz = 0; // $82:A5DD
+  return snapPush(ctx, w);
 }
 
+/** $82:A5E6, rolled onto: the gate, then the push; else the default roll ($81:8A56). */
 function snapHit(ctx: Ctx, w: Work): DispatchOutcome {
-  if (w.mode === 0x0a) return ROLLING;
-  if (snapGate(ctx, w) !== 0) return ROLLING;
-  return snapApply(ctx, w, ROLLING);
+  if (w.mode === 0x0a) return ROLLING; // $82:A5EC
+  if (!snapGate(w)) return ROLLING; // $82:A5F1 BEQ not taken
+  return snapPush(ctx, w);
 }
 
-/** $82:A692: the snap's extra gate. Unread; returns "pass" (flagged). */
-function snapGate(_ctx: Ctx, _w: Work): number {
-  return 0;
+/**
+ * $82:A692: both fractions in [$2800, $DFFF) and the mode neither 1 nor 4.
+ * A failure clears the latch $6A68 (shared with the enemies, the pillar and
+ * the arrows), so a pass that leaves the window re-arms the next one. The
+ * ROM returns through DEY's flags: Y = 0 pass, $FFFF fail.
+ */
+function snapGate(w: Work): boolean {
+  const inside = (f: number): boolean => f >= 0x2800 && f < 0xdfff;
+  if (inside(w.xf) && inside(w.yf) && w.mode !== 1 && w.mode !== 4) return true;
+  w.enemyLatch = 0; // $82:A6C2
+  return false;
 }
 
-function snapApply(_ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome {
-  // $82:A5F7+: the four per-tile impulses (clamped directional deltas;
-  // the jump table at $82:A629, byte-exact values pending a trace)
-  const imp = (v: number, delta: number, floor: number): number => {
-    const r = wrap16(v + delta);
-    return s16(r) < s16(floor) ? floor : r;
-  };
-  switch (w.tile - 0x18) {
-    case 0: w.vy = imp(w.vy, -0x0300, 0xe000); break;
-    case 1: w.vx = imp(w.vx, 0x0300, 0xe000); break;
-    case 2: w.vy = imp(w.vy, 0x0300, 0xe000); break;
-    case 3: w.vx = imp(w.vx, -0x0300, 0xe000); break;
+/**
+ * $82:A5F7: one push per frame in the window. `STZ $699A` keeps object 61
+ * (the star trail, systems/snap-trail.ts) alive; once per pass (the latch
+ * $6A68) the tail plays $11 and object 61 is spawned ($80:DFBA, A = $3D).
+ * Then the jump table $82:A629 by tile - $18 adds $300 along the panel:
+ *
+ *   $18 $A631  vy + $FD00; a negative sum below $E000 (u16) -> $E000
+ *   $19 $A65A  vx + $0300; a positive sum >= $2000 -> A = $2000, but
+ *              `BRA $A681` at $A66B skips the store: vx is left unchanged
+ *   $1A $A644  vy + $0300; a positive sum >= $2000 -> $2000
+ *   $1B $A66D  vx + $FD00; a negative sum below $E000 -> $E000
+ *
+ * The tests are BPL/BMI on the 16-bit sum, so a sum that wraps the sign is
+ * stored as it is. Then the heading ($81:8E60), the spin cleared, and the
+ * rolling default ($81:8A56) — from the landing path too.
+ */
+function snapPush(ctx: Ctx, w: Work): DispatchOutcome {
+  w.snapKeep = 1; // $82:A5F7 STZ $699A
+  if (w.enemyLatch === 0) {
+    w.enemyLatch += 1; // $82:A602
+    w.tailSfx = 0x0011; // $82:A608
+    w.snapSpawn += 1; // $82:A60E: object 61
   }
-  w.tailSfx = 0x0011; // $82:A608 (the latch and sfx $3D are phase 5/6)
-  return out;
+  switch (w.tile - 0x18) {
+    case 0: w.vy = snapDown(w.vy); break;
+    case 1: {
+      const r = wrap16(w.vx + 0x0300); // $82:A65E
+      if ((r & 0x8000) !== 0 || r < 0x2000) w.vx = r; // $82:A661 BMI / $82:A666 BCC -> STA
+      break; // else $82:A66B BRA $A681: no store
+    }
+    case 2: {
+      const r = wrap16(w.vy + 0x0300); // $82:A648
+      w.vy = (r & 0x8000) !== 0 || r < 0x2000 ? r : 0x2000; // $82:A64B-$82:A655
+      break;
+    }
+    case 3: w.vx = snapDown(w.vx); break;
+  }
+  updateHeading(ctx.rules, w); // $82:A681 JSL $81:8E60
+  w.spinX = 0; // $82:A685
+  w.spinY = 0;
+  w.spinPending = 0;
+  return ROLLING; // $82:A68E JML $81:8A56
+}
+
+/** $82:A631 / $82:A66D: + $FD00, a negative sum floored at $E000. */
+function snapDown(v: number): number {
+  const r = wrap16(v + 0xfd00);
+  return (r & 0x8000) === 0 || r >= 0xe000 ? r : 0xe000;
 }
 
 // --- outline wall ($28-$2D) ---

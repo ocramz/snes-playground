@@ -347,20 +347,58 @@ slot, 86 are tables and 8 are lists; the bytes tell them apart, see
 ### The helpers in RAM
 
 `$80:E67F` copies twelve small routines from `$80:E732`-`$80:E96B` to WRAM
-`$1018`-`$120D` at boot. Low addresses are mirrored in every bank, so code
+`$1018`-`$120E` at boot, one `MVN` each (`$80:E74A`-`$E78C` stays in ROM: it
+is the body `$1018` calls). Low addresses are mirrored in every bank, so code
 anywhere can reach them with a near `JSR`. They take their operands
-**inline**, after the call, and fix up their own return address:
+**inline**, after the call, read through `PHK` from the caller's bank, and
+fix up their own return address. Y is the slot:
 
-| call | inline bytes | effect |
+| call (ROM) | inline bytes | effect |
 |---|---|---|
-| `JSR $1030` | idx8, frames8 | set the frame index (`$FF` = hide) and yield for `frames`. **924 call sites** -- this is the animation primitive |
-| `JSR $1018` | variant8 | spawn another object of the caller's type, `variant` in `$589C` |
-| `JSR $105E` | x16, y16 | set the position |
-| `JSR $1084`, `$10A3`, `$10C2` | 3 | motion parameters |
-| `JSR $10E7` | 4 | motion parameters |
-| `JSR $1104` | 9 | all three groups at once |
-| `JSR $1151` | 0 | clear them |
-| `JSR $116A`, `$119D`, `$11D6` | 6 | pairs of groups |
+| `JSR $1030` (`$E78D`) | idx8, frames8 | set the frame index (`$FF` = hide), the resume address and the wait, and return to the scheduler (`RTL`): it must be called at the thread's top level. **924 call sites** -- this is the animation primitive |
+| `JSR $1018` (`$E732`) | variant8 | spawn another object of the caller's type (`$80:E74A`): `variant` in `$589C`, the parent's position, `$581C` = the parent's slot, `$611C`-`$629C` zeroed, `$5D9C` = `$FFFF` |
+| `JSR $105E` (`$E7BB`) | x16, y16 | set the position `$5F1C`, `$5F9C`; the fractions `$601C`, `$609C` = 0 |
+| `JSR $1084` (`$E7E1`) | a8, rate16 | angle 1: `$5A1C` = a << 8, its turn per tick `$5A9C` |
+| `JSR $10A3` (`$E800`) | s8, rate16 | speed 1: `$5B1C` = s << 8 (8.8 px a tick), its change per tick `$5B9C` |
+| `JSR $10C2` (`$E81F`) | a8, acc16 | angle 2: `$5C1C` = a << 8, the acceleration along it `$5D1C`; its speed `$5C9C` = 0 |
+| `JSR $10E7` (`$E844`) | vx16, vy16 | a constant velocity `$591C`, `$599C` |
+| `JSR $1104` (`$E861`) | 9 | `$1084`, `$10A3` and `$10C2` at once |
+| `JSR $1151` (`$E8AE`) | 0 | clear the three groups (not `$591C`/`$599C`) |
+| `JSR $116A`, `$119D`, `$11D6` | 6 | pairs: `$1084`+`$10A3`, `$1084`+`$10C2`, `$10A3`+`$10C2` |
+
+The bytes land in the high byte (`AND #$FF / XBA`), unsigned; the words are
+signed 8.8. `$80:E710` (`JSL`) clears all of them and `$639C`. Nothing in
+the slot's per-frame handler moves the object: the draw routines
+`$80:E96C` (world) and `$80:E974` (screen) do, through `$80:E97C`, before
+`$80:E55A`/`$80:E5A2` integrate and draw:
+
+```
+v = 0
+if $5B1C: v = polar($5B1C, $5A1C >> 8)
+if $5A1C | $5B1C: $5A1C += $5A9C; $5B1C += $5B9C        ; after the use
+if $591C | $599C: v += ($591C, $599C)
+if $5D1C: v += polar($5C9C, $5C1C >> 8); $5C9C += $5D1C
+$80:E5E2: {$5F9C:$609C} += sext(v.y), then {$5F1C:$601C} += sext(v.x)   ; 16.16, carry through
+
+polar(r, a) ($80:EA26): r6 = r >> 6 (arithmetic);
+  dx = (low 16 bits of r6 * T[a]) >> 2, dy = (... * T[a + 64]) >> 2 (arithmetic)
+  T = $80:EABA, 320 signed words (cos by angle 0-255, 256 = 1); $80:EA76 builds
+  the 16-bit product from three 8x8 products of $4202/$4203
+```
+
+Angle 0 is right, `$40` up (y grows down the screen). T is a table, not a
+formula: T[63] = 2 and T[319] = 0. The motion runs every tick the slot draws,
+hidden or not; the exit tick (`$80:E060` frees the slot before the draw pass)
+does neither. `$80:E55A` draws at the position minus the scroll (`$86`,
+`$88`) and skips it outside [-48, 296) × [-32, 280) or with `$5D9C` < 0.
+
+**The scheduler's timing** (`$80:E0C0`, once per main-loop iteration): for
+each list, the threads whose wait `$529C` underflows (`DEC`/`BPL`) resume,
+then every slot's per-frame handler and draw routine run. A list that grew
+during the tick gets both passes again for the new slots only. So a yield
+of n (`$80:E445` stores n) resumes n + 1 ticks later, `JSR $1030 idx,n`
+shows idx for n + 1 ticks, and a slot spawned before or during the tick
+(`$80:DFBA` sets its wait to 0) runs its thread and its draw in that tick.
 
 A disassembler that does not know these runs straight into the operand
 bytes; that, not interleaved data, is why linear disassembly of banks
@@ -402,6 +440,60 @@ pairs its frame index with its tile uploads during play. Two sites in bank
 `$87` do it with parallel tables (`$87:9E7A`: `LDA $87:9EA5,X / STA $0B7E`
 then `LDA $87:9EC5,X / JSL $80:8696`), which is the pattern to look for;
 the rest is in the `$08` hook code that has not been read.
+
+### Objects 61 and 62: the snap panels' stars
+
+Read 2026-11-15 (notes/port-v2-phase3-snaps.md); ported as
+`engine/src/core/sim/snap-stars.ts`, checked against the slots recorded
+with `tools/snesstep/trace_actors.py --types 61,62` (`snap-stars.test.ts`).
+Both are on list 3 (`$80:EE2E`).
+
+**Object 61** (`$85:CF2D`), spawned by the snap push once a pass
+([tiles.md](tiles.md) "Snap panels"), never draws (`$519C` stays 0):
+
+```
+loop: $699A = $FFFF; $6998 = $551C,Y (the player x 2)
+      JSR $CF4E                        ; the burst
+      yield 7                          ; 8 ticks
+      if $699A == 0: loop              ; a push cleared it meanwhile
+      exit
+```
+
+`$CF4E`: the work copy's tile `$DA0A` in `$18-$1B` and the block's
+velocity along the panel's arrow (`$18` `$D87E` < 0, `$19` `$D87A` ≥ 0,
+`$1A` `$D87E` ≥ 0, `$1B` `$D87A` < 0, by `$6998`), else nothing. Then four
+object 62s through `$80:E4F2`, `$531C` = 3, 2, 1, 0, each given:
+- `$589C` = `$D9DE`, the heading in 16ths;
+- `$5F1C`/`$5F9C` = `$091E,X`/`$093E,X`, Kirby's projected point (`$81:A21E`:
+  `$DA58`, `$8B9A` - `$DA5C`, course-bitmap pixels);
+- the OAM queue `$5E9C` = Kirby's `$0B1E,X`, + 1 when the heading is < 3 or
+  ≥ 11;
+- the draw routine `$80:E96C`.
+
+The stars do not follow the ball after that. If the latch re-arms while an
+object 61 lives, a second one shares `$6998`/`$6996`/`$699A` with it.
+
+**Object 62** (`$85:CFE1`): `$80:E710`, then `JMP ($CFF2,X)` by `$589C` and
+a 13-byte dispatcher on `$531C` (`LDA $531C,Y / CMP #4 / BCS self / ASL /
+TAX / JMP (tbl,X)`) into one of 64 scripts packed at `$85:D027`-`$E08D`, no
+two alike. Each sets table `$89:9485`, then uses only `JSR $1104` (turn
+rate and speed change always 0: a launch at speed s along angle 1, plus an
+acceleration along angle 2) and `JSR $1030`, and exits through `$80:E060`.
+Some start hidden for 2-12 ticks; a star is drawn for 18-26 ticks, then freed. The engine
+reads them from the ROM (tables.json `snapStars`, `tools/export_web.py`'s
+`snap_star_scripts`, which fails on any other form).
+
+Pictures: table `$89:9485` indices 0-4, one 8×8 part each, tiles `$005`,
+`$004`, `$003` (palette 2) and `$001`, `$002` (palette 3). Lists 0-2 open
+with `$7E $DA74`, Kirby's priority, so those frames go behind the course
+with him; 3 and 4 stay at priority 3. The emulated sheet is
+`build/sprites/emu/obj_062.json`. `obj_061.json` is not object 61's: it
+never draws, and emusheets caught a stale `$5E1C` in its slot (it does not
+skip a draw routine of 0).
+
+*Emulated* (web_snap, the first burst at 2498, dir 12): variants 1 and 0
+rise from (907, 179) at once, 3 and 2 wait hidden, all four are freed 20
+ticks on (2518), and the next burst comes 8 ticks after the first (2506).
 
 ## Finding more scripts
 

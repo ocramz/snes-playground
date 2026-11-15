@@ -202,6 +202,12 @@ export interface BallWorkFields {
   hurt: number;
   tomatoLoss: number;
   hazardHit: number;
+
+  // --- the snap panels (sim/dispatch.ts, systems/snap-trail.ts) ---
+  /** A fact: a snap push ran this step, its `STZ $699A` (object 61's keep-alive). */
+  snapKeep: number;
+  /** A fact: a snap push found the latch clear and spawned object 61 ($82:A60E). */
+  snapSpawn: number;
 }
 
 export const emptyWork = (): BallWorkFields => ({
@@ -217,7 +223,7 @@ export const emptyWork = (): BallWorkFields => ({
   lost: 0, lodgeTimer: 0, wallCode: 0, wallVariant: 0, wallTileRef: 0,
   request: null,
   bounceSrcX: 0x7d6f, bounceSrcZ: 0x5332,
-  stepSrcX: 0x3fff, stepSrcZ: 0x6665,
+  stepSrcX: 0x5332, stepSrcZ: 0x6665, // $80:DD13, $80:DD15 ($80:C688)
   gravity: 0xffc0, rollMu: 0x0c00, dampXY: 0x7d6f, dampZ: 0x5332,
   stepDamp: 0x5332, stepDampZ: 0x6665,
   pad44: 0x00a0, restSpeed: 1,
@@ -231,6 +237,7 @@ export const emptyWork = (): BallWorkFields => ({
   enemyLatch: 0, enemyHitMark: 0, enemyHit: 0, holedIn: 0, sunk: 0, sfxNow: 0xffff,
   warpLatch: 0, warpPending: 0, warpSquash: 0,
   hazLatch: 0, hazAxes: 0, volLatch: 0, hurt: 0, tomatoLoss: 0, hazardHit: 0,
+  snapKeep: 0, snapSpawn: 0,
   hopRequest: 0,
   bouncePose: 0,
   fellOut: 0,

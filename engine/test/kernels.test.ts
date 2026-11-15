@@ -413,6 +413,110 @@ describe.skipIf(!haveRules)('the arrow panels $14-$17 ($82:A6C7, $82:A70B, $82:A
   });
 });
 
+describe.skipIf(!haveRules)('the snap panels $18-$1B ($82:A5B1, $82:A5E6, $82:A692, $82:A5F7)', () => {
+  const rules = new RomRules(loadTables());
+  // a row of four flat cells: $18 (N), $19 (E), $1A (S), $1B (W)
+  const c = gridCtx(rules, 4, 1, [1, 1, 1, 1], { tile: [0x18, 0x19, 0x1a, 0x1b] });
+  const mod = { kind: -1, timer: 0 };
+  const on = (x: number, vx: number, vy: number, xf = 0x8000, yf = 0x8000): Work => {
+    const w = at(c, x, 0, xf, yf);
+    w.z = w.ground;
+    w.vx = wrap16(vx); w.vy = wrap16(vy);
+    w.spinX = 300; w.spinY = -20; w.spinPending = 1;
+    updateHeading(rules, w);
+    return w;
+  };
+  const push = (x: number, vx: number, vy: number): [number, number] => {
+    const w = on(x, vx, vy);
+    expect(hitDispatch(c, w, mod)).toEqual({ next: 'rolling' });
+    return [s16(w.vx), s16(w.vy)];
+  };
+
+  it('each panel pushes $300 a frame along its arrow, capped at $2000', () => {
+    expect(push(0, 0, -100)).toEqual([0, -868]); // $18: vy - $300
+    expect(push(0, 0, -0x1e00)).toEqual([0, -0x2000]); // floored ($82:A63F)
+    expect(push(1, 100, 0)).toEqual([868, 0]); // $19: vx + $300
+    expect(push(2, 0, 100)).toEqual([0, 868]); // $1A: vy + $300
+    expect(push(2, 0, 0x1e00)).toEqual([0, 0x2000]); // capped ($82:A652)
+    expect(push(3, -100, 0)).toEqual([-868, 0]); // $1B: vx - $300
+    expect(push(3, -0x1e00, 0)).toEqual([-0x2000, 0]); // floored ($82:A67B)
+    // against the arrow: the push slows, then turns the ball
+    expect(push(2, 0, -500)).toEqual([0, 268]);
+  });
+
+  it('$19 at the cap leaves vx unchanged: `BRA $A681` skips the store ($82:A66B)', () => {
+    expect(push(1, 0x1c00, 0)).toEqual([0x1f00, 0]); // under the cap: stored
+    expect(push(1, 0x1e00, 0)).toEqual([0x1e00, 0]); // $2100 >= $2000: kept as it was
+    expect(push(1, 0x1d00, 0)).toEqual([0x1d00, 0]); // $2000 exactly: kept too
+  });
+
+  it('a sum that wraps the sign is stored as it is (BMI/BPL test the sum)', () => {
+    expect(push(2, 0, 0x7f00)).toEqual([0, s16(0x8200)]);
+    expect(push(0, 0, -0x7f00)).toEqual([0, s16(0x7e00)]);
+  });
+
+  it('the heading follows the push and the spin is cleared ($81:8E60, $82:A685)', () => {
+    const w = on(2, 0, -500);
+    expect(w.deg).toBe(270);
+    hitDispatch(c, w, mod);
+    expect(w.deg).toBe(90);
+    expect([w.spinX, w.spinY, w.spinPending]).toEqual([0, 0, 0]);
+  });
+
+  it('the latch: sound $11 and object 61 once a pass, the push every frame', () => {
+    const w = on(0, 0, -100);
+    hitDispatch(c, w, mod);
+    expect([w.tailSfx, w.enemyLatch, w.snapSpawn, w.snapKeep]).toEqual([0x11, 1, 1, 1]);
+    w.tailSfx = 0xffff; w.snapSpawn = 0; w.snapKeep = 0;
+    hitDispatch(c, w, mod);
+    expect([w.tailSfx, w.enemyLatch, w.snapSpawn, w.snapKeep]).toEqual([0xffff, 1, 0, 1]);
+    expect(s16(w.vy)).toBe(-868 - 768);
+  });
+
+  it('the gate: both fractions in [$2800, $DFFF); outside, no push and the latch clears ($82:A692)', () => {
+    for (const [xf, yf] of [[0x27ff, 0x8000], [0x8000, 0xdfff], [0xdfff, 0x8000], [0x8000, 0x27ff]]) {
+      const w = on(0, 0, -100, xf, yf);
+      w.enemyLatch = 1;
+      hitDispatch(c, w, mod);
+      expect([s16(w.vy), w.enemyLatch, w.snapKeep]).toEqual([-100, 0, 0]);
+    }
+    const w = on(0, 0, -100, 0x2800, 0xdffe);
+    hitDispatch(c, w, mod);
+    expect(s16(w.vy)).toBe(-868);
+  });
+
+  it('modes 1 and 4 fail the gate; mode $0A skips the handler and keeps the latch', () => {
+    for (const mode of [1, 4]) {
+      const w = on(0, 0, -100);
+      w.mode = mode; w.enemyLatch = 1;
+      hitDispatch(c, w, mod);
+      expect([s16(w.vy), w.enemyLatch]).toEqual([-100, 0]);
+    }
+    const w = on(0, 0, -100);
+    w.mode = 0x0a; w.enemyLatch = 1;
+    hitDispatch(c, w, mod);
+    expect([s16(w.vy), w.enemyLatch]).toEqual([-100, 1]);
+  });
+
+  it('landing: at or under the surface the ball is set on it and rolls; above it, the default landing', () => {
+    const w = on(0, 0, -100);
+    w.air = 1;
+    w.z = w.ground + 0x100;
+    w.vz = wrap16(-600);
+    expect(landDispatch(c, w, mod)).toEqual({ next: 'landing', entry: 'full' });
+    expect([s16(w.vy), w.air, s16(w.vz)]).toEqual([-100, 1, -600]);
+    w.z = w.ground - 0x100;
+    expect(landDispatch(c, w, mod)).toEqual({ next: 'rolling' });
+    expect([s16(w.vy), w.air, w.vz, w.z]).toEqual([-868, 0, 0, w.ground]);
+  });
+
+  it('the shot guide does not see the snap panels ($81:B455)', () => {
+    const w = on(0, 0, -100);
+    hitDispatch({ ...c, presentation: false }, w, mod);
+    expect(s16(w.vy)).toBe(-100);
+  });
+});
+
 /** mulQ15s with the velocity as A ($81:9793's call order). */
 function mulQ15sRef(v: number, factor: number): number {
   const floorQ15 = (a: number, x: number): number =>

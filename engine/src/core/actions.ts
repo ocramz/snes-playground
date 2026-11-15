@@ -46,6 +46,7 @@ import { setupHazards } from './systems/actors';
 import { spawnPlayer } from './world';
 import { IsPlayer, activePlayer } from './traits/player';
 import { BoostHum } from './traits/boost';
+import { SnapTrail } from './traits/snap';
 
 export interface BallPlacement {
   xc: number; xf: number; yc: number; yf: number; z: number;
@@ -189,6 +190,9 @@ export function startHole(world: World, i: number): Ctx {
   // $82:BCD7: a boost panel anywhere spawns object 112, whose hook hums
   // (systems/boost-hum.ts); its $6A28 starts at 0 (the fresh work copy)
   world.set(BoostHum, { active: data.tile.some((t) => t >= 0x30 && t < 0x3c) ? 1 : 0, counter: 0 });
+  // objects 61 and 62, the snap panels' stars (systems/snap-trail.ts)
+  const trail = world.get(SnapTrail)!;
+  trail.keep = 0xffff; trail.spawners = []; trail.stars = [];
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;

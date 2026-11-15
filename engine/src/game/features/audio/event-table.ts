@@ -39,6 +39,7 @@ export const EVENT_TABLE: Readonly<Record<string, EventRow>> = {
   pillar: { ids: [0x71], site: '$82:956C/$82:95F8', react: 'sfx' },
   hazard: { ids: [0x6f], site: '$82:9C9D a bumper', react: 'sfx' },
   'hazard-hit': { ids: [], site: '$82:EED8 object $2F (not drawn)', react: 'none' },
+  'snap-trail': { ids: [], site: '$82:A60E object 61, a snap panel passed: the stars (object 62, SnapStarsView)', react: 'none' },
   thrown: { ids: [0x7b], site: '$82:DB9A code $0F, a volcano throws', react: 'sfx' },
   'enemy-taken': { ids: [0x4f, 0x50], site: '$82:8A92 / $82:8A79 (an ability enemy)', react: 'sfx' },
   'cup-reveal': { ids: [0x1c], site: '$82:8D49 the ring stage', react: 'sfx' },

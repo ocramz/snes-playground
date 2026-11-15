@@ -126,9 +126,9 @@ ENGINE_ROMTEST := build/engine/rom-test/.stamp
 ENGINE_ASSETS  := build/engine/assets/manifest.json
 ENGINE_NODE    := engine/node_modules/.package-lock.json
 ENGINE_DIST    := engine/dist/index.html
-# the hazard actors' and the warp's emulated sheets (tools/emusheets.py over every hole); the
-# objects step skips a missing one and the engine draws a marker instead
-ENGINE_OBJ     := $(wildcard $(foreach t,063 064 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
+# the hazard actors', the warp's and the snap stars' emulated sheets (tools/emusheets.py over
+# every hole); the objects step skips a missing one and the engine draws a marker instead
+ENGINE_OBJ     := $(wildcard $(foreach t,062 063 064 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
 ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
                   engine/index.html engine/random.html engine/vite.config.ts engine/tsconfig.json engine/package.json
 # The ROM holes the engine ships, by index (course * 8 + hole): 0-63 are the
@@ -144,7 +144,7 @@ $(ENGINE_RULES): tools/export_web.py
 # one recipe writes course.json (to --out) and terrain_golden.json (to --test-out)
 $(ENGINE_ROMTEST): tools/export_web.py
 	$(PYTHON) tools/export_web.py --only course,golden --out build/engine/rom-test --test-out build/engine/rom-test
-	for h in 0 1 2 3 4 5 6 7 11 17 54; do \
+	for h in 0 1 2 3 4 5 6 7 11 17 29 54 62; do \
 	  $(PYTHON) tools/export_web.py --hole $$h --only course --out build/engine/rom-test/holes/$$h || exit; \
 	done
 	@touch $@

@@ -16,7 +16,7 @@ emulator or other build/ output):
     manifest  ROM hash, exporter version
     font      the 8x8 font as a glyph sheet
     sprites   the atlas (tools/export_web_sprites.py; needs the stepper)
-    objects   the hazard actors' pictures from build/sprites/emu (the engine's
+    objects   the thread objects' pictures from build/sprites/emu (the engine's
               second atlas; tools/export_web_sprites.py build_objects)
     ui        the shot panel sprites (tools/export_web_ui.py; needs the stepper)
     audio     music (cut at its loop end), the hole-out songs and effects via ffmpeg
@@ -121,6 +121,63 @@ SONG_BASE = 0x7E
 # $84:DD34 gives objects 76 and 77 their frame table at spawn: $84:DD55[tile -
 # $80] (24 words, tiles $80-$97; tiles.md), the run's direction from $84:DD85.
 HAZARD_FRAME_TABLES = (0x84, 0xDD55)
+# Object 62, the snap panels' stars (docs/animation.md "Objects 61 and 62"):
+# its jump table by the 16-direction heading, and the polar table its draw
+# routine's motion ($80:E97C -> $80:EA26) reads, cos by angle 0-255 plus the
+# quarter turn the sine reads (T[a + 64]).
+SNAP_STAR_DIRS = (0x85, 0xCFF2)
+POLAR_TRIG = (0x80, 0xEABA)
+
+
+def snap_star_scripts(d):
+    """Object 62's 64 scripts ($85:CFE1), flat: a directory of 64 offsets
+    (dir16 * 4 + variant $531C) into the op list that follows it.
+
+    Each script is `LDA #$9485 / STA $5E1C,Y`, then `JSR $1104` + 9 bytes
+    (angle1, its turn rate (word), speed, its change (word), angle2, the
+    acceleration along it (word); $80:E861) and `JSR $1030` + idx, n (show
+    idx, yield n; $80:E78D), then `LDY $D2 / JML $80:E060`. Ops:
+    [1, a1, a1Rate, speed, speedRate, a2, accel], [2, idx, n], [0].
+    Anything else fails the export.
+    """
+    def b(bank, addr):
+        return d[snes_to_file(bank, addr)]
+
+    def w(bank, addr):
+        return b(bank, addr) | b(bank, addr + 1) << 8
+
+    def expect(bank, addr, want):
+        got = bytes(b(bank, addr + i) for i in range(len(want)))
+        if got != bytes(want):
+            raise SystemExit("snap stars: ${:02X}:{:04X} is {} not {}".format(
+                bank, addr, got.hex(), bytes(want).hex()))
+
+    bank, base = SNAP_STAR_DIRS
+    directory, ops = [], []
+    for k in range(16):
+        sub = w(bank, base + 2 * k)
+        # $85:D012 etc.: LDA $531C,Y / CMP #4 / BCS self / ASL / TAX / JMP (tbl,X)
+        expect(bank, sub, [0xB9, 0x1C, 0x53, 0xC9, 0x04, 0x00, 0xB0, 0xFE, 0x0A, 0xAA, 0x7C])
+        tbl = w(bank, sub + 11)
+        for v in range(4):
+            a = w(bank, tbl + 2 * v)
+            directory.append(len(ops))
+            expect(bank, a, [0xA9, 0x85, 0x94, 0x99, 0x1C, 0x5E])
+            a += 6
+            while True:
+                if bytes(b(bank, a + i) for i in range(3)) == bytes([0x20, 0x04, 0x11]):
+                    o = a + 3
+                    ops += [1, b(bank, o), w(bank, o + 1), b(bank, o + 3), w(bank, o + 4),
+                            b(bank, o + 6), w(bank, o + 7)]
+                    a += 12
+                elif bytes(b(bank, a + i) for i in range(3)) == bytes([0x20, 0x30, 0x10]):
+                    ops += [2, b(bank, a + 3), b(bank, a + 4)]
+                    a += 5
+                else:
+                    expect(bank, a, [0xA4, 0xD2, 0x5C, 0x60, 0xE0, 0x80])
+                    ops.append(0)
+                    break
+    return [len(directory) + o for o in directory] + ops
 
 
 # --------------------------------------------------------------------------
@@ -436,6 +493,10 @@ def build_tables(d):
     scalar("toggleImpulseSmall", 0x80, 0xDDEF)
     # rough/hazard-05 recovery launch ($82:93DA)
     scalar("hazard05Div", 0x80, 0xDD89)
+    # the snap panels' stars, object 62 ($85:CFE1), and its motion's table
+    put("snapStars", SNAP_STAR_DIRS[0], SNAP_STAR_DIRS[1], snap_star_scripts(d), 2)
+    put("polarTrig", POLAR_TRIG[0], POLAR_TRIG[1],
+        rom_words(d, POLAR_TRIG[0], POLAR_TRIG[1], 320, True), 2)
 
     return t
 

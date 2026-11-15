@@ -40,6 +40,14 @@ function lastPerFrame(frames: BallTraceFrame[]): BallTraceFrame[] {
 export function checkScenario(s: Scenario): void {
   const trace = loadTrace(s.name)!;
   const run = runFlowScript(s.name, s.to - s.offset + 20, { hole: s.hole, offset: s.offset, pokes: true, alignActors: s.actors });
+  try {
+    compare(s, trace, run);
+  } finally {
+    run.world.destroy(); // Koota allows 16 worlds at once
+  }
+}
+
+function compare(s: Scenario, trace: NonNullable<ReturnType<typeof loadTrace>>, run: ReturnType<typeof runFlowScript>): void {
   const game = distinctStates(lastPerFrame(trace.frames.filter((r) => r.f > s.from && r.f <= s.to)));
   const engine = distinctStates(run.ball);
   const r = matchBallStates(game, engine);

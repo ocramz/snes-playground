@@ -74,6 +74,7 @@ $7E:6840	-	ram	ram_kanim_statevar	16	Kirby animation threads: address of the WRA
 $7E:6860	-	ram	ram_kanim_table	16	Kirby animation threads: address of the state -> script table
 $7E:6870	-	ram	ram_kanim_pc	16	Kirby animation threads: script PC (bank $87)
 $7E:6880	-	ram	ram_kanim_wait	16	Kirby animation threads: frames left to wait
+$7E:699A	-	ram	ram_snap_keep	2	object 61's keep-alive, shared by every live 61: $FFFF at each of its bursts ($85:CF30), cleared by every snap push ($82:A5F7); a 61 that finds it set after its 8 ticks exits
 $7E:69DE	-	ram	ram_enemy_list	32	the hole's enemies: actor-record offsets (index x 2), ended by a negative word; with ram_actor_slot and ram_thr_owner gives the enemies left
 $7E:69FE	-	ram	ram_cup_slot	2	thread slot of the last enemy, the one that becomes the cup ($82:8AEE); $FFFF until then, reset per hole at $80:C188
 $7E:6A0A	-	ram	ram_cup_actor	2	actor-record offset of the cup (the last enemy); its cell is ram_actor_cell_x/_y at this offset. $FFFF until then
@@ -82,7 +83,7 @@ $7E:6A28	-	ram	ram_boost_hum	2	a straight boost hit's launch speed ($82:9E6B), c
 $7E:6A5A	-	ram	ram_course_number	2	course number; hole index = course*8 + hole
 $7E:6A5C	-	ram	ram_course_slot	2	2 * course, set on the course map (every snapshot of the map-picked runs game/game2/game4/extra, courses 0-15; two_player 16); a poke of $6A5A alone leaves it 0; indexes the water ripple base $84:84AF and the hole song list $80:C99D; notes/port-v2-phase1-courses.md
 $7E:6A5E	-	ram	ram_hole_in_course	2	hole 0-7 within the course
-$7E:6A68	-	ram	ram_enemy_hit_latch	4	per player: set on an enemy hit by $82:8967, cleared by $82:8A21 when the ball is in the enemy cell outside its middle half, so one pass counts once
+$7E:6A68	-	ram	ram_enemy_hit_latch	4	per player: set on an enemy hit by $82:8967, cleared by $82:8A21 when the ball is in the enemy cell outside its middle half, so one pass counts once; shared with the pillar ($82:9566), the arrows (sub_arrow_turn) and the snap panels (sub_snap_push, cleared by sub_snap_gate)
 $7E:6A72	-	ram	ram_ball_mode_index	2	ball mode * 8 + class * 2 (class from tbl_friction_class): index into tbl_ball_gravity and tbl_roll_friction ($81:80E6)
 $7E:6ADC	-	ram	ram_shot_power	2	shot power P, from the power meter by sub_shot_power; launch speed in sub_launch_velocity (emulated: $1104 grounder, $1156 fly shot at the same meter value)
 $7E:6B3A	-	ram	ram_power_meter	2	power meter position during the shot panel, counts up to $6B3C and back; A latches it ($81:BFFE)
@@ -344,8 +345,15 @@ $80:E5A2	0x0065A2	code	sub_obj2_draw_screen	64	default draw in screen coordinate
 $80:E5E2	0x0065E2	code	sub_obj2_move	41	add the velocities at $619C/$611C (and fractions) to the position
 $80:E60B	0x00660B	code	sub_obj2_enqueue	42	JML target; second object system draw: screen-bounds check on X/Y, then JML $80:8B09 into sub_oam_enqueue with $C0 = ram_obj2_frame_ptr. Reached from $87:8C93, $87:932E, $87:98AA
 $80:E67F	0x00667F	code	sub_thread_helpers_install	145	twelve MVNs copying dat_thread_helpers to ram_thread_helpers; called from the thread system reset at $80:DFB5
+$80:E710	0x006710	code	sub_obj2_motion_clear	34	JSL, Y = slot: zeroes the motion fields $591C-$5D1C and $639C
 $80:E732	0x006732	data	dat_thread_helpers	570	ROM image of the RAM helpers: $E732 -> $1018, $E78D -> $1030, $E7BB -> $105E, $E7E1 -> $1084, $E800 -> $10A3, $E81F -> $10C2, $E844 -> $10E7, $E861 -> $1104, $E8AE -> $1151, $E8C7 -> $116A, $E8FA -> $119D, $E933 -> $11D6
 $80:E74A	0x00674A	code	sub_thread_clone	67	spawn another object of the caller's own type with A in $589C and the caller's position; the body of the $1018 helper
+$80:E96C	0x00696C	code	sub_obj2_draw_world_moving	8	draw routine: sub_obj2_motion, then sub_obj2_draw_world (object 62, the snap stars)
+$80:E974	0x006974	code	sub_obj2_draw_screen_moving	8	draw routine: sub_obj2_motion, then sub_obj2_draw_screen
+$80:E97C	0x00697C	code	sub_obj2_motion	170	the velocity from the motion fields: sub_polar(speed $5B1C, angle $5A1C hi) + ($591C,$599C) + sub_polar($5C9C, $5C1C hi), $5C9C += $5D1C; into $611C/$621C, $619C/$629C (docs/animation.md)
+$80:EA26	0x006A26	code	sub_polar	80	JSR; A = r, X = angle 0-255: $00/$02 = ((r >> 6) * tbl_polar_cos[a] and [a + 64], low 16 bits) >> 2, arithmetic
+$80:EA76	0x006A76	code	sub_mul16_lo	68	JSR; Y x A, the product's low 16 bits, from three 8x8 products of $4202/$4203
+$80:EABA	0x006ABA	tbl	tbl_polar_cos	640	320 signed words, cos by angle 0-255 (256 = 1, $40 = up the screen) and the quarter turn sub_polar reads; not exact (T[63] = 2, T[319] = 0)
 $80:ED3A	0x006D3A	ptr	tbl_thread_types	936	234 object types x (entry addr16, bank8, list8). The highest type any spawn call passes is 233
 $80:F0E2	0x0070E2	code	sub_game_flow	-	the game's top-level flow: title, members, map, course intro, holes, results, ending. See docs/emulation.md
 $80:FF0A	0x007F0A	data	tbl_dma_modes	48	16 x (DMAP, B-bus address, VMAIN), indexed by byte 0 of a VRAM record: $00 word copy, $03 fill, $1B copy stepping 32 words
@@ -428,6 +436,10 @@ $82:9DB3	0x011DB3	code	sub_tile_boost_n	36	tiles $30 $35 $38; vy += -512
 $82:9DD7	0x011DD7	code	sub_tile_boost_e	36	tiles $31 $37 $3A; vx += +512
 $82:9DFB	0x011DFB	code	sub_tile_boost_s	36	tiles $32 $34 $39; vy += +512
 $82:9E1F	0x011E1F	code	sub_tile_boost_w	36	tiles $33 $36 $3B; vx += -512
+$82:A5B1	0x0125B1	code	sub_tile_snap	53	tiles $18-$1B on landing: mode != $0A, at or under the surface, sub_snap_gate; $D9EC = 0, z = ground, vz = 0, then sub_snap_push; else JML $81:8905 (emulated: web_snap_land)
+$82:A5E6	0x0125E6	code	sub_tile_snap_hit	17	tiles $18-$1B rolling: mode != $0A, sub_snap_gate, sub_snap_push; else JML $81:8A56 (emulated: web_snap)
+$82:A5F7	0x0125F7	code	sub_snap_push	155	STZ $699A; once a pass ($6A68) sfx $11 and object 61; by tile ($82:A629) +-$300 along the arrow to +-$2000 ($19 skips the store at the cap: BRA $A681 at $A66B); $81:8E60, the spin cleared, JML $81:8A56
+$82:A692	0x012692	code	sub_snap_gate	53	JSR; both fractions in [$2800,$DFFF) and mode not 1 or 4 -> Y = 0, else the latch $6A68 cleared and Y = $FFFF (the callers branch on DEY's flags)
 $82:A6C7	0x0126C7	code	sub_tile_arrow_ns	68	tiles $14, $16 on landing: at or under the surface, x in [$4800,$B7FF) and y in [$2800,$DFFF) -> sub_arrow_turn; outside, the latch $6A68 clears; then JML $81:8905
 $82:A70B	0x01270B	code	sub_tile_arrow_ew	68	tiles $15, $17 on landing: as sub_tile_arrow_ns with the axes swapped
 $82:A74F	0x01274F	code	sub_tile_arrow_ns_hit	52	tiles $14, $16 rolling: x in [$6000,$9FFF), y in [$2800,$DFFF) -> sub_arrow_turn; then JML $81:8A56
@@ -484,6 +496,8 @@ $84:DD34	0x025D34	code	sub_hazard_frame_table	33	objects 76 and 77 at spawn: $5E
 $84:DD55	0x025D55	tbl	tbl_hazard_frame_tables	48	$89 frame tables by tile $80-$97: CCA7 x4, CCAB x4, CCAF x4, CCB3 x4 (76), CC47 CC5F CC77 CC8F twice (77)
 $85:9220	0x029220	tbl	tbl_enemy_first_list	24	type 73 by species: the first frame-list index into $89:C833
 $85:9238	0x029238	tbl	tbl_enemy_frame_code	24	type 73 by species: the per-frame code ($932A $40, $93AD $48, $9426 $49, $949D $4C, $952C the rest)
+$85:CF2D	0x02CF2D	code	sub_obj61_snap_spawner	180	thread object 61, never drawn: every 8 ticks while a snap push clears ram_snap_keep, a burst ($85:CF4E): 4 object 62s at Kirby's point when the tile is a snap and the velocity is along its arrow
+$85:CFE1	0x02CFE1	code	sub_obj62_snap_star	-	thread object 62, a snap star: sub_obj2_motion_clear, then one of 64 scripts by $589C (heading) and $531C (variant), $85:D027-$E08D: JSR $1104, JSR $1030, table $89:9485
 $87:804C	0x03804C	code	sub_kirbyanim_start	57	A = descriptor in bank $87 (object, state variable, table): start a Kirby animation thread
 $87:808E	0x03808E	code	sub_kirbyanim_run	-	the third animation interpreter: per thread, jump to table[state] on a state change, else count down and resume
 $87:80F4	0x0380F4	ptr	tbl_kirbyanim_opcodes	90	45 opcode handlers, opcode = even byte; see tools/kirbyanim.py

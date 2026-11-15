@@ -14,6 +14,7 @@ import { Tomatoes, Strokes, Stars, StockedAbility, Career, TomatoQueue } from '.
 import { Session } from './traits/session';
 import { Visual } from './traits/visual';
 import { BoostHum } from './traits/boost';
+import { SnapTrail } from './traits/snap';
 import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
 import { Warp } from './traits/warp';
@@ -52,6 +53,7 @@ export function createGameWorld(): World {
   world.add(TomatoQueue);
   world.add(Hazards);
   world.add(BoostHum);
+  world.add(SnapTrail);
   return world;
 }
 

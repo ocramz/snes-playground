@@ -10,6 +10,7 @@ import { Visual } from '../src/core/traits/visual';
 import { KIND_ART, CUP_RING_FRAME, SHADOW_FRAME, enemyClip, hazardFrame, HAZARD_TYPES } from '../src/game/features/catalog-data';
 import { CUP_MASK_FRAME } from '../src/game/features/enemies/cup-mask';
 import { OBJ63, OBJ64 } from '../src/game/features/warp/warp-frames';
+import { SNAP_STAR_FRAMES, SNAP_STAR_TABLE, SNAP_STAR_TYPE } from '../src/game/features/env/snap-star-frames';
 import { poseClip, KEEP, ENGINE_POSE_STATES } from '../src/game/features/kirby/pose-clips';
 import { panelFrames } from '../src/game/features/shot-panel/panel-layout';
 import { exportedHoles, haveAssets, loadAtlas, loadCutscenes, loadHoleCourse, loadObjects, loadUi } from './assets';
@@ -53,6 +54,18 @@ describe.skipIf(!haveAssets)('the view catalog vs the atlases', () => {
         expect(name, `${type} ${table}:${index}`).toBeTruthy();
         expect(objects!.frames[name!]).toBeDefined();
       }
+    }
+  });
+
+  it('the snap panels\' stars (object 62) have their five pictures', () => {
+    const objects = loadObjects();
+    expect(objects).not.toBeNull();
+    const sheet = objects!.objects![String(SNAP_STAR_TYPE)];
+    expect(sheet?.tables[SNAP_STAR_TABLE]).toBe('$89:9485');
+    for (const index of SNAP_STAR_FRAMES) {
+      const name = sheet!.frames[SNAP_STAR_TABLE]?.[index];
+      expect(name, `62 ${index}`).toBeTruthy();
+      expect(objects!.frames[name!]).toBeDefined();
     }
   });
 

@@ -116,6 +116,7 @@ python3 tools/export_web.py --golden      # ROM -> build/web/ (+ build/web-test/
 python3 tools/snesstep/trace_ball.py all  # recorded shots -> build/web-test/trace_*.json
 python3 tools/snesstep/trace_flow.py web_flow --frames 4700   # Kirby's state, aim, camera, meter per frame
 python3 tools/snesstep/trace_actors.py web_haz98 --frames 3000  # hazard actors' thread slots per frame -> actors_*.json
+python3 tools/snesstep/trace_actors.py web_snap --types 61,62 --frames 2700   # the snap stars' slots, and each slot's exit
 #   (all three read tools/snesstep/inputs/<name>.pokes when it exists; the
 #   engine's fixtures: `make engine-traces`, into build/engine/rom-test/)
 python3 tools/snesstep/trace_cutscene.py   # hole 1's intro and hole-outs, every frame -> build/web-test/cutscene_hole0.json

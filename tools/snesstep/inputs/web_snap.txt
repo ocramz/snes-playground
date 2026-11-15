@@ -1,0 +1,22 @@
+# Course 7 hole 7 (index 54, MAP66): the snap panel $18 (N) at (5,22), between
+# the tee (5,23) and the Stone enemy $41 at (5,21). The hole is chosen by
+# web_snap.pokes ($6A5A/$6A5E at 2050, and the course slot $6A5C = 12, which the
+# map would have set); a weak shot from the tee, then, at the roll's first
+# frame, a poke sets the ball rolling north from (5,23) at vy -$400. On the
+# panel, inside the gate's window ($82:A692: both fractions in [$2800, $DFFF)),
+# the rolling handler $82:A5E6 pushes vy by -$300 a frame ($82:A631) and, once
+# per pass (the latch $6A68), plays $11 and spawns object 61, the star trail.
+# Leaving the window clears the latch; the enemy beyond shares it.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

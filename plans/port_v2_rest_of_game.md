@@ -18,11 +18,13 @@ The hole index is course×8 + hole (`$82:B0A4`, [courses.md](../docs/courses.md)
 
 | indices | mode | clean | course-1 level | blocked |
 |---|---|---|---|---|
-| 0-63 | 1P courses 1-8 | 15 | 30 | 19 |
-| 64-127 | extra game: the same terrain, a different layer 2 | 5 | 40 | 19 |
-| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 3 | 6 | 23 |
+| 0-63 | 1P courses 1-8 | 17 | 42 | 5 |
+| 64-127 | extra game: the same terrain, a different layer 2 | 5 | 54 | 5 |
+| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 3 | 8 | 21 |
 | 160-179 | **unconfirmed**: the 20 DEMOPLAY holes. Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 8 | 11 | 1 |
-| 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 2 | 3 | 27 |
+| 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 2 | 5 | 25 |
+
+The counts are after step 3 (the snap panels, §8). Before it, with the snaps blocking, they were 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
 | 224-243 | stub layer 2: a lone `$0C` and no enemies, so no cup is possible | — | — | 20 |
 | 184 | **unconfirmed**: Dedede's arena. physics.md puts the extra game's Dedede at 184. The slot holds the "shared filler" entry, whose header `$9F:EB41` is a real 16×16 hole named `MAPF0`. Not exported | | | |
 
@@ -32,7 +34,7 @@ The columns:
   - the water `$60-$6F`, treated as plain ground;
   - ability enemies, whose take is ported but which grant nothing;
   - the `unk5c` handler (`$5C`/`$5D`: course 1 hole 8 has a `$5C`).
-- **Blocked:** the hole has the snap tiles, the toggles, `$58-$5B`, or the roulette `$57`.
+- **Blocked:** the hole has the toggles, `$58-$5B`, or the roulette `$57` (and, until step 3, the snap tiles).
 
 Two things do not affect any hole:
 - the warps' random pick: no ROM hole has a warp list other than 0 or 2 panels;
@@ -44,7 +46,7 @@ Not counted, because they touch every hole: the crest's cross-cell branches (`en
 
 | feature | 1P holes | engine | RE state |
 |---|---|---|---|
-| snap tiles `$18-$1B`: the gate `$82:A692` and the exact clamps | 14, all with no other blocker: 29, 32, 37, 39, 41, 45, 49, 50, 52, 54, 55, 57, 62, 63 | `sim/dispatch.ts:458`: the gate always passes, and the impulses are placeholders until a trace | one routine to read, then a stepper trace |
+| ~~snap tiles `$18-$1B`: the gate `$82:A692` and the exact clamps~~ | 14, all with no other blocker: 29, 32, 37, 39, 41, 45, 49, 50, 52, 54, 55, 57, 62, 63 | **ported in step 3**, with the star trail (objects 61/62); 29 and 37 are now clean, the other 12 course-1 level (water or ability enemies) | traced: web_snap* (docs/tiles.md "Snap panels") |
 | toggles `$70-$7B`, always with `$5A`/`$5B` | 5: 10, 19, 25, 26, 43 | stub: plain ground (`dispatch.ts:166-184`) | the direction map `$88:9190`, `$82:A086`/`$A0D9`/`$A0F9` (unread). **Unconfirmed:** `$5B` is the toggle's switch. It occurs in 30 holes, and all 30 have toggles (35 holes have toggles) |
 | `$58-$5D` | `$5A`/`$5B` in the 5 above; `$5C`/`$5D` in 2 (hole 7, which is course 1 hole 8, and 23) | stub | handlers located, not read ([tiles.md](../docs/tiles.md) "Not established") |
 | **water** `$60-$6F` | 17: 6, 7, 12, 20, 22, 23, 27, 31, 32, 33, 35, 50, 52, 55, 57, 62, 63 | stub: plain ground, **course 1's holes 7 and 8 included**. The `$D9EE` flag is ported | `$82:80F6`, `$69CA`/`$69D2-$69DA`, Kirby's state 19 (the sink). What the water does to a ball is unknown |
@@ -227,6 +229,14 @@ Ordered by holes unlocked per unit of RE:
    - No behaviour changed: all 466 tests pass with every trace still frame-exact, and so do the e2e pages.
    - Left for step 9: `PlayerSlot` and `setActivePlayer`, pad 2, and the tomato queue's per-player entries.
 3. **The snap gate `$82:A692` and its clamps.** One routine and a trace unblock 14 1P holes and 14 extra-game holes.
+   - **Done 2026-11-15** ([notes/port-v2-phase3-snaps.md](../notes/port-v2-phase3-snaps.md); docs/tiles.md "Snap panels", docs/animation.md "Objects 61 and 62", docs/engine.md). The handlers `$82:A5B1`/`$82:A5E6`, the gate, and the push `$82:A5F7` are ported exactly. The push is ±`$300` a frame to ±`$2000`; on `$19` the game skips the store at the cap, a bug the engine keeps. The landing path rolls on the same frame.
+   - Also ported: the star trail. Object 61 spawns bursts of four object 62s, whose motion lives in the draw routine (`$80:E97C`, the polar table `$80:EABA`). The 64 scripts are exported from the ROM (`snapStars`), and object 62's sheet is in the objects atlas (`SnapStarsView`).
+   - Five poked scenarios on holes 54, 29 and 62 match frame for frame. They check the ball states and sounds (`trace-terrain`) and each star's states (`snap-stars`, with `trace_actors.py` now recording the slots' exits). 495 tests pass, and so do the e2e pages.
+   - Found on the way:
+     - the aim's guide leaves its own `$DA3A`/`$6A72` in the work copy (`$81:B24C`), which a landing on a panel rolls with; the engine now writes them back;
+     - every shot's set-up resets the coefficients (`$80:C688`), not just the hole's start; now ported;
+     - course 7 hole 7's reveal delays the HUD's tomato by 4 frames (lag).
+   - After it: 1P 17 clean, 42 at course-1 level, 5 blocked (§1). The random holes' solve rates are unchanged (29, 28, 20 of 30).
 4. **The water `$60-$6F`.** 17 1P holes, and it fixes course 1's own holes 7 and 8.
 5. **The copy abilities**, recorded from demos 10-19. They gate exact play on 38 of the 64 1P holes, course 1 included.
 6. **The toggles and `$58-$5D`**, for the last 5 blocked 1P holes, and `$5C`/`$5D` on 2 more.
@@ -247,7 +257,7 @@ import glob, json, os
 R = 'build/engine/rules/tables.json'; t = json.load(open(R))
 name = {d['id']: d['name'] for d in t['dispatchHandlers']}
 land, abil = t['landDispatch']['values'], t['enemyAbility']['values']
-BLOCK, PARITY = {'toggle', 'unk58', 'unk5a', 'snap', 'roulette'}, {'overlay', 'ability', 'unk5c'}
+BLOCK, PARITY = {'toggle', 'unk58', 'unk5a', 'roulette'}, {'overlay', 'ability', 'unk5c'}  # 'snap' left BLOCK at step 3
 for d in sorted(glob.glob('build/courses/[0-9][0-9][0-9]_MAP*')):
     m = json.load(open(f'{d}/map.json')); n = m['grid_width'] * m['grid_height']
     l2 = open(glob.glob(f'{d}/t02_*.bin')[0], 'rb').read()

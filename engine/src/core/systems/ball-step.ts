@@ -35,6 +35,7 @@ import { emit } from '../events';
 import { Stall } from '../traits/stall';
 import { activePlayer } from '../traits/player';
 import { startWarp } from './warp';
+import { noteSnapPush } from './snap-trail';
 import { Pose, PoseState } from '../traits/pose';
 import { takeEnemy } from './take';
 import { pushTomato } from './counters';
@@ -111,6 +112,8 @@ export const BALL_STEP: StepEntry[] = [
       w.hurt = 0;
       w.tomatoLoss = 0;
       w.hazardHit = 0;
+      w.snapKeep = 0;
+      w.snapSpawn = 0;
       w.deg = 0xffff;
       copyPrev(w);
       s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
@@ -312,6 +315,7 @@ export const BALL_STEP: StepEntry[] = [
       // inline requests: the pillar's $71 ($82:956C / $82:95F8), a bumper's $6F ($82:9CA1)
       if (w.sfxNow !== 0xffff) emit(world, api, w.sfxNow === 0x71 ? 'pillar' : 'hazard', w.sfxNow);
       for (let i = 0; i < w.hazardHit; i++) emit(world, api, 'hazard-hit'); // $82:EED8: object $2F
+      noteSnapPush(world, w); // $82:A5F7: $699A cleared; $82:A60E: object 61
       for (let i = 0; i < w.tomatoLoss; i++) pushTomato(world, -1); // $83:ABC5
       if (w.holedIn !== 0) emit(world, api, 'holed-in'); // $82:AD13: object 75 over the cup
       if (w.sunk !== 0) {
