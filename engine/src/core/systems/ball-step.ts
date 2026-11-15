@@ -85,6 +85,7 @@ export const BALL_STEP: StepEntry[] = [
     kernel: false,
     run: (world, s) => {
       loadBallWork(world, s.w);
+      s.w.guideLeft = 0; // the block's probe is back over the guide's ($82:F030)
       return null;
     },
   },

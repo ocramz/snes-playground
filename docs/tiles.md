@@ -138,6 +138,38 @@ shapes** — `$34` on `$04`, `$36` on `$05`, `$38` on `$06`, `$3A` on `$07` —
 and in every case the boost direction is the *uphill* direction of the ramp
 it sits on. They are the panels that push you up a slope.
 
+Those four are the landing handlers. Rolling onto a panel takes the hit
+dispatch's four (`$81:8451`), read 2026-11-15:
+
+| handler | panel | straight when | launch | otherwise |
+|---|---|---|---|---|
+| `$82:9CBF` | N | \|vx\| < `$82:9CBD` = 128 | vx = 0, vy = −1023 | vy += `$82:9CB3` = −64 |
+| `$82:9CFC` | E | \|vy\| < 128 | vy = 0, vx = +1023 | vx += `$82:9CB1` = +64 |
+| `$82:9D39` | S | \|vx\| < 128 | vx = 0, vy = +1023 | vy += +64 |
+| `$82:9D76` | W | \|vy\| < 128 | vy = 0, vx = −1023 | vx += −64 |
+
+- Gated first by the mode (`$82:9E85`) and the panel's fraction test
+  (`$82:9E9A`). Failing either, `$6A28` = 0 and the roll goes on.
+- A straight hit launches only if the panel's own component is under
+  `$82:9CB9` = 1024 (`$82:9E43` / `$82:9E48`, X = the direction's sign). It
+  then also clears `$D9D0` and sets `$6A28` to the launch speed, and the
+  handler returns (`RTL`): no roll that step, only `$81:8D52` and the tail.
+  `$6A28` is object 112's switch for its hum ([courses.md](courses.md) "The
+  palette cycles").
+- Otherwise (not straight, or too fast) the push goes to the panel's own
+  component with the panel's sign, the coefficients reset (`$82:9EE3`),
+  `$6A28` = 0, and the roll goes on (`$81:8A56`). The landing handlers also
+  clear `$6A28` on every exit.
+- The handler runs every frame the ball rolls on the panel, so a ball
+  entering askew gets the push first and, once the panel's friction has
+  brought the other component under 128, the launch.
+
+*Emulated*: web_boost (straight in) and web_boost_side (askew: the push at
+2499, the launch a few frames later) on course 3 hole 2, the engine's
+trace-terrain scenarios. The engine had ported the hit handlers with S and
+W's axes swapped, the push on the other component and the sign from the
+ball; both scenarios fail on that code.
+
 ### Arrow panels — `$14-$17`
 
 The arrows on the floor. They redirect the ball and do not speed it up.
@@ -325,9 +357,16 @@ and their thread slots recorded every frame with
 - **Object 76** (`$84:DED6`, `$84:DF75`) rides its track at `$0400` (1/64
   cell) a tick. At each cell centre it turns by `$84:E051`[tile][dir]. It
   flips frames 0/1 every 9 ticks, its Z is the ground under it, and on `$A2`
-  it has no mover. Its four frame tables are its directions (mirror pairs in
-  `build/sprites/emu/obj_076.png`; the one heading north draws table 0; the
-  order N E S W is inferred).
+  it has no mover. Its four frame tables are chosen by its spawn tile, not
+  its direction: `$84:DD34` stores `$84:DD55`[tile − `$80`] in `$5E1C` at
+  the spawn (from `$82:BA00` for 76 and `$84:DD9D` for 77), and 76 never
+  rewrites it. For 76 that is table (tile − `$80`) >> 2 (`$89:CCA7`,
+  `CCAB`, `CCAF`, `CCB3`); for 77, tile & 3 (`$89:CC47`, `CC5F`, `CC77`,
+  `CC8F`). The emulated sheets agree: tile `$84` (course 1 hole 5) draws
+  only `CCAB`, `$80` and `$81` only `CCA7`, hole 158's `$8C`/`$8E` only
+  `CCB3`; 77's `$91`/`$95` only `CC5F`, `$96` only `CC77`, and hole 156's
+  `$90-$93` all four. (An earlier reading took 76's tables for its
+  directions.)
 - **Object 77** (`$84:DD9D`, `$84:DDC7`) steps through `$84:DE0F`'s 22
   entries, 9 ticks each; on tiles `$94-$97` it starts at step 10. The box's
   height is `$82:967B`[frame], `$3B00`-`$BA20`. Only frames 0-2 are under
@@ -451,6 +490,25 @@ must carry the subtype — the sweep stores it at `$0C` before the lookup. These
 20 values occur in **all 212 hole slots**, 2 to 11 per hole (most often 3 or
 4), which is the right shape for the per-hole enemies.
 
+The subtype is the species (read 2026-11-15, `$82:B62E`-`$82:B6E3` and type
+73's start `$85:9126`; notes/port-v2-phase1-courses.md):
+- `$82:B646`: the species is the tile − `$40`, with `$50-$52` folded onto
+  `$4D-$4F`, stored in the slot's `$591C` (checked on hole 17's three slots);
+- `$82:B730`, once per species, at most 8 a hole: a VRAM slot in first-seen
+  order, the species' part lists copied to a fixed WRAM block
+  (`$82:B832`[species] → `$82:B802`[species], `$82:B769`) and its tile
+  graphics queued (`$82:B8B6`);
+- `$85:9220`[species]: its first frame list in `$89:C833`; `$85:9238`[species]:
+  its per-frame code (`$932A` for `$40`, `$93AD` `$48`, `$9426` `$49`,
+  `$949D` `$4C`, `$952C` for the rest).
+
+All the enemies of one species draw the same block, so they move in step.
+`tools/snesstep/trace_enemies.py` records each species' idle animation from
+the game (the engine's per-species clips, docs/engine.md):
+- `$40`, `$4A`-`$4E` repeat (`$4C`: 8 pictures of 8 frames);
+- the ability species `$41`-`$49`, `$4F` and `$57` change pose and pulse
+  their colours, and the sequence does not repeat within 400 frames.
+
 ## Correlation with the terrain layer
 
 Some layer-2 values are locked to a layer-1 shape:
@@ -474,12 +532,18 @@ Some layer-2 values are locked to a layer-1 shape:
   mechanics are traced, but what the water does to a ball is not established.
 - `$1C`, `$1D`, `$58-$5D`: handlers located, not read. (`$14-$17` are
   settled: the arrow panels, above; so are `$B0-$B9`, the warp panels.)
+  The engine ports `$1C`/`$1D` from the disassembly as the rough family
+  `$82:9342`/`$82:938E` (`engine/src/core/sim/dispatch.ts`); no trace
+  exercises them. `$58-$5D` also spawn objects 116-118 at the load
+  (`$82:BC59`), whose palette cycles are listed in [courses.md](courses.md).
 - The `$70-$7B` family's purpose. Twelve values in four groups of three,
   gated on a toggle at `$6A2A`, two impulse magnitudes (`$80:DDEF` = 4912 and
   `$80:DDF3` = 2456). Only four are used at all: `$74` (166 cells), `$75`
   (54), `$70` (3) and `$71` (2).
 - ~~The actor ids~~ -- settled: an actor id is the thread object type
-  `$82:B3AF` spawns (see Actors above). Which picture each of the 20
-  `$0049` subtypes selects is decided inside type 73's code from the
-  layer-2 byte saved at `$0C`.
+  `$82:B3AF` spawns (see Actors above). ~~Which picture each of the 20
+  `$0049` subtypes selects~~ -- settled: the species' own frame lists and
+  per-frame code (Actors above). Open: what makes the ability species' run
+  irregular (`$85:952C`), `$40`'s other pictures on hole 36, and `$48`'s
+  other colours on course 3.
 - (Settled: `$28-$2D` are the play-area outline wall, see "The outline wall".)

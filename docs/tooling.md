@@ -44,11 +44,11 @@ The engine ([docs/engine.md](engine.md)) has its own targets, none of them part 
 
 | target | does |
 |---|---|
-| `make engine-assets` | `build/engine/assets` from the same exporters, with the `objects` step added |
+| `make engine-assets` | `build/engine/assets` from the same exporters, with the `objects` step added, the enemy species' clips (`trace_enemies.py`), and the ROM holes `ENGINE_HOLES` (0-63, courses 1-8) under `holes/NNN`, one file rule each: `make -j8 engine-assets` exports them in parallel (61 s on a built tree) |
 | `make engine-test` | the vitest suite (it needs only the rules and `build/engine/rom-test`; ROM-derived tests skip without them) |
 | `make engine-traces` | re-records the trace, flow, sound and actor fixtures into `build/engine/rom-test` (stepper runs) |
 | `make engine` | `npm ci` and `vite build` into `engine/dist` |
-| `make engine-e2e` | the browser smoke tests (index.html, random.html); they need `cd engine && npm run dev` running |
+| `make engine-e2e` | the browser smoke tests (index.html: course 1, every course's first hole; random.html); they need `cd engine && npm run dev` running |
 | `make engine-random` | the dev server, opening `random.html`: a course of random holes (docs/engine.md "Random holes") |
 
 Cleanup comes in three tiers:
@@ -128,7 +128,13 @@ python3 tools/check_web_ui.py --target engine   # the same against engine/'s pan
 # (the hazard actors' pictures from build/sprites/emu: objects.png/json); the `hud`
 # step also writes the score panel's slots as data (hud.json)
 python3 tools/export_web.py --only objects --out build/engine/assets
-#   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?hole=N)
+python3 tools/export_web.py --hole 17 --only course,layers --out build/engine/assets/holes/017
+#   one ROM hole (course * 8 + hole): course.json (its song), the layers drawn with
+#   the CGRAM in play and the palette cycles' overlays (docs/courses.md)
+python3 tools/check_hole_palette.py          # the exporter's BG colours vs the game's CGRAM, one hole a course
+python3 tools/check_hole_palette.py --holes 0-63   # every 1P hole (~45 s)
+python3 tools/snesstep/trace_enemies.py      # every enemy species' idle clip -> build/sprites/enemies (~1 min)
+#   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?course=N, ?hole=N)
 #   make engine-e2e                  # the browser smoke test (needs the dev server)
 #   cd engine && npm test            # = make engine-test; npm run traces = make engine-traces
 #   (the keys, the debug hook and what each test checks: docs/engine.md)
@@ -185,6 +191,7 @@ S=build/snesstep/release/snesstep
 $S --frames 3400 --input tools/snesstep/inputs/play_hole1.txt --snap-at 3100 --out build/emu/x
 $S --frames 3400 --input tools/snesstep/inputs/play_hole1.txt --log-pc '$80:9F18'   # -> pclog.tsv
 $S ... --poke '2050:$7E:6A5A=0002' --poke-at-pc '$80:F37A,$7E:D956=0001'          # steer it
+$S ... --poke '2050:$7E:6A5A=0002' --poke '2050:$7E:6A5C=0004' --poke '2050:$7E:6A5E=0001'   # course 3 hole 2, its own songs and ripple
 $S ... --pokes build/emu/autoplay/game/pokes.txt --save-sram build/x/sram.bin    # replay a run, keep its save
 python3 tools/ppu_render.py build/emu/x/f003100 -o x.png --layers x_layers
 python3 tools/snesstep/oracles.py all        # emulator vs the static facts

@@ -69,7 +69,9 @@ def compose(d, index):
     """The hole's BG1 + BG2 as RGB, SENTINEL where nothing is drawn."""
     map_w, map_h, g1, g2, _ = unpack(d, index)
     tiles = decode_tiles(hole_page(d, index), 4)
-    pal = np.array(hole_palette(d, index), dtype=np.uint8)
+    # Course 1's colours for every hole: the patches are one look, and the
+    # courses' own palettes (coursemap.hole_cgram) would mix theirs into it.
+    pal = np.array(hole_palette(d, index, course=0), dtype=np.uint8)
     img = np.empty((map_h * 8, map_w * 8, 3), dtype=np.uint8)
     img[:, :] = SENTINEL
     for grid, want in ((g2, 0), (g1, 0), (g2, 1), (g1, 1)):

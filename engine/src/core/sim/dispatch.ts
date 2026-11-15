@@ -144,13 +144,13 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
     case 'outlineWallHit':
       return outlineWallHit(ctx, w);
     case 'boostNHit':
-      return boostHit(ctx, w, 'vy');
+      return boostHit(ctx, w, 'vy', -1);
     case 'boostEHit':
-      return boostHit(ctx, w, 'vx');
+      return boostHit(ctx, w, 'vx', 1);
     case 'boostSHit':
-      return boostHit(ctx, w, 'vx');
+      return boostHit(ctx, w, 'vy', 1);
     case 'boostWHit':
-      return boostHit(ctx, w, 'vy');
+      return boostHit(ctx, w, 'vx', -1);
     case 'enemy':
       return enemyDispatch(ctx, w);
     case 'enemyRollAlt':
@@ -298,8 +298,13 @@ function boostGateAxis(w: Work): number {
   return testX ? w.xf : w.yf;
 }
 
+/**
+ * $82:9DB3/$9DD7/$9DFB/$9E1F, landed on: the gates, then the fixed delta,
+ * then the default landing. Every exit clears $6A28 (object 112's hum,
+ * systems/boost-hum.ts).
+ */
 function boostLand(ctx: Ctx, w: Work, dir: 'vx+' | 'vx-' | 'vy+' | 'vy-'): DispatchOutcome {
-  // $82:9DB3+: gates then the fixed delta, then the default landing.
+  w.boostFlash = 0; // $82:9DD0 etc.: STZ $6A28 on every path
   if (!grounded(w)) return LANDING; // $82:9E76 BCC
   if (modeImmune(w)) return LANDING; // $82:9E85
   if (s16(wrap16(boostGateAxis(w) - 0x4000)) < 0) return LANDING; // $82:9E9A BMI
@@ -310,28 +315,47 @@ function boostLand(ctx: Ctx, w: Work, dir: 'vx+' | 'vx-' | 'vy+' | 'vy-'): Dispa
   return LANDING;
 }
 
-function boostHit(ctx: Ctx, w: Work, axis: 'vx' | 'vy'): DispatchOutcome {
-  // $82:9CBF+ (the four variants differ only in the axes)
-  if (modeImmune(w)) return ROLLING;
-  if (s16(wrap16(boostGateAxis(w) - 0x4000)) < 0) return ROLLING;
-  const other: 'vx' | 'vy' = axis === 'vx' ? 'vy' : 'vx';
-  const otherV = w[other];
-  const mag = otherV >= 0 ? otherV : wrap16(-s16(otherV));
-  if (mag < ctx.rules.const_('boostStraight')) {
-    // a straight hit: the other axis stops, this axis launches to
-    // ±(boostBig - 1) in the ball's own sign ($82:9E43/$82:9E48)
-    w[other] = 0;
-    const big = ctx.rules.const_('boostBig');
-    const bigNeg = ctx.rules.const_('boostBigNeg');
-    w[axis] = w[axis] >= 0 ? big - 1 : bigNeg + 1;
-    w.boostFlash = w[axis]; // $6A28 (presentation; phase 5)
-  } else {
-    const delta =
-      w[axis] < 0 ? ctx.rules.const_('boostSmallNeg') : ctx.rules.const_('boostSmall');
-    w[other] = wrap16(w[other] + delta);
-    resetCoeffs(ctx, w);
+/** |v| of a 16-bit pattern, unsigned (EOR #$FFFF / INC A). */
+function abs16(v: number): number {
+  const x = s16(v);
+  return x < 0 ? wrap16(-x) : x;
+}
+
+/**
+ * $82:9CBF (N) / $9CFC (E) / $9D39 (S) / $9D76 (W), rolled onto. `axis` is
+ * the panel's own velocity component and `sign` its direction (the X that
+ * $82:9E43 / $82:9E48 pass): N vy -, E vx +, S vy +, W vx -. Read
+ * 2026-11-15 (notes/port-v2-phase1-courses.md):
+ * - the gates (mode, $82:9E9A) fail: $6A28 = 0, the roll goes on;
+ * - a straight hit (|other| < boostStraight, $82:9CBD): the other component
+ *   stops, and if |axis| < boostBig the ball launches along the panel at
+ *   ±(boostBig - 1), $D9D0 = 0 and $6A28 = that speed (the hum's switch),
+ *   and the handler returns (RTL): no roll this step, only the tail;
+ * - otherwise ($6A28 = 0): the panel's component gets ±boostSmall, the
+ *   coefficients are reset, and the roll goes on ($81:8A56).
+ */
+function boostHit(ctx: Ctx, w: Work, axis: 'vx' | 'vy', sign: 1 | -1): DispatchOutcome {
+  if (modeImmune(w) || s16(wrap16(boostGateAxis(w) - 0x4000)) < 0) {
+    w.boostFlash = 0; // $82:9CF5
+    return ROLLING;
   }
-  return ROLLING;
+  const other: 'vx' | 'vy' = axis === 'vx' ? 'vy' : 'vx';
+  if (abs16(w[other]) < ctx.rules.const_('boostStraight')) {
+    w[other] = 0; // STZ
+    if (abs16(w[axis]) < ctx.rules.const_('boostBig')) {
+      // $82:9E5B-$82:9E6B
+      w.spinPending = 0; // STZ $D9D0
+      const v = wrap16(sign > 0 ? ctx.rules.const_('boostBig') - 1 : ctx.rules.const_('boostBigNeg') + 1);
+      w.boostFlash = v; // STA $6A28
+      w[axis] = v;
+      return DONE; // RTL from the handler: $81:8103 goes on to $81:8D52 and the tail
+    }
+    w.boostFlash = 0; // $82:9E71
+  }
+  w[axis] = wrap16(w[axis] + (sign > 0 ? ctx.rules.const_('boostSmall') : ctx.rules.const_('boostSmallNeg')));
+  resetCoeffs(ctx, w); // JSR $9EE3
+  w.boostFlash = 0; // STZ $6A28
+  return ROLLING; // JML $81:8A56
 }
 
 function modeImmune(w: Work): boolean {

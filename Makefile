@@ -110,13 +110,16 @@ $(DIST): $(NODE) $(ASSETS) $(WEB_SRC)
 #
 # build/engine/rules      tables.json: the ROM physics constants (ROM only)
 # build/engine/rom-test   course.json + terrain_golden.json (test hole), holes/N/
-#                         course.json (course 1, and the hazard holes 11 and 54),
+#                         course.json (course 1, the hazard holes 11 and 54, and
+#                         hole 17, the boost panels),
 #                         and, after `make engine-traces`, the ball, flow, sound
 #                         and hazard-actor fixtures of tools/snesstep/inputs/web_*
 # build/engine/assets     the sprite atlas, ui, hud, font, audio, cutscenes,
-#                         the 8 course-1 holes' course.json + layers, and the
-#                         course art's exemplar patches (terrain_style.*) the
-#                         holes without bitmaps are drawn with
+#                         the ROM holes' course.json + layers under holes/NNN
+#                         (ENGINE_HOLES: courses 1-8 by default; the manifest
+#                         lists them by course), and the course art's exemplar
+#                         patches (terrain_style.*) the holes without bitmaps
+#                         are drawn with
 
 ENGINE_RULES   := build/engine/rules/tables.json
 ENGINE_ROMTEST := build/engine/rom-test/.stamp
@@ -128,6 +131,12 @@ ENGINE_DIST    := engine/dist/index.html
 ENGINE_OBJ     := $(wildcard $(foreach t,063 064 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
 ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
                   engine/index.html engine/random.html engine/vite.config.ts engine/tsconfig.json engine/package.json
+# The ROM holes the engine ships, by index (course * 8 + hole): 0-63 are the
+# 1P courses 1-8; the extra game is 64-127. One file rule each, so `make -j`
+# exports them in parallel; hole 0 also takes the night set from the cutscene trace.
+ENGINE_HOLES   ?= $(shell seq 0 63)
+ENGINE_HOLE_LAYERS := $(shell for h in $(ENGINE_HOLES); do printf 'build/engine/assets/holes/%03d/layers.json ' $$h; done)
+ENGINE_HOLE_DEPS := tools/export_web.py tools/coursemap.py
 
 $(ENGINE_RULES): tools/export_web.py
 	$(PYTHON) tools/export_web.py --only tables --out build/engine/rules
@@ -135,22 +144,30 @@ $(ENGINE_RULES): tools/export_web.py
 # one recipe writes course.json (to --out) and terrain_golden.json (to --test-out)
 $(ENGINE_ROMTEST): tools/export_web.py
 	$(PYTHON) tools/export_web.py --only course,golden --out build/engine/rom-test --test-out build/engine/rom-test
-	for h in 0 1 2 3 4 5 6 7 11 54; do \
+	for h in 0 1 2 3 4 5 6 7 11 17 54; do \
 	  $(PYTHON) tools/export_web.py --hole $$h --only course --out build/engine/rom-test/holes/$$h || exit; \
 	done
 	@touch $@
 
+# every enemy species' idle clip (stepper runs, ~1 min): the sprites step adds them
+ENGINE_SPECIES := build/sprites/enemies/species.json
+$(ENGINE_SPECIES): tools/snesstep/trace_enemies.py | $(SNESSTEP)
+	$(PYTHON) tools/snesstep/trace_enemies.py
+
+# course.json + layers.json and the bitmaps of one hole (writes layers.json last)
+build/engine/assets/holes/%/layers.json: $(ENGINE_HOLE_DEPS)
+	$(PYTHON) tools/export_web.py --hole $* --only course,layers --out $(@D)
+
+build/engine/assets/holes/000/layers.json: $(CUTSCENE) tools/export_web_sprites.py
+
 $(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) $(ENGINE_OBJ) tools/web_audio_map.json \
                   tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py \
-                  tools/terrain_style.py | $(SNESSTEP)
+                  tools/terrain_style.py $(ENGINE_HOLE_LAYERS) $(ENGINE_SPECIES) | $(SNESSTEP)
 ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
 endif
 	$(PYTHON) tools/export_web.py --only font,hud,sprites,ui,audio,objects --out build/engine/assets
-	for h in 0 1 2 3 4 5 6 7; do \
-	  $(PYTHON) tools/export_web.py --hole $$h --only course,layers --out build/engine/assets/holes/0$$h || exit; \
-	done
 	$(PYTHON) tools/terrain_style.py --out build/engine/assets
 	$(PYTHON) tools/export_web.py --only manifest --out build/engine/assets
 

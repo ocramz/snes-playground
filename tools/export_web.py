@@ -25,7 +25,9 @@ emulator or other build/ output):
     tables    every ROM constant the TypeScript physics needs, each with its
               $bank:addr so a number in the browser can be traced to the ROM
     layers    the isometric course bitmap as RGBA, split by tile priority,
-              the water's ripple overlays on a water hole, and the BG3 scenery
+              the palette cycles' overlays (the water's ripple, the boost
+              and warp/snap panels'), the outline's two masks, and the BG3
+              scenery
     golden    terrain.py's surface_z sampled over every cell (a test fixture)
 
 Facts used here, and where they come from:
@@ -53,7 +55,7 @@ sys.path.insert(0, HERE)
 
 from courses import ENTRIES, default_entries, entry, header  # noqa: E402
 from coursemap import (  # noqa: E402
-    EMPTY, backdrop, hole_page, hole_palette, unpack, water_ripple, BG3_MAP_TILES)
+    EMPTY, backdrop, hole_page, hole_palette, palette_cycles, unpack, BG3_MAP_TILES)
 from halcomp import decompress  # noqa: E402
 from lorom import snes_to_file  # noqa: E402
 from romcheck import EXPECTED_SHA1, RomError, load_rom  # noqa: E402
@@ -101,6 +103,24 @@ OUTLINE_PAL, OUTLINE_COLOUR = 7, 15
 OUTLINE_TABLE = (0x98, 0xD3E6)      # 15 colours; the cycle walks it ping-pong
 OUTLINE_WALK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 14, 13,
                 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]   # emulated, 3 frames each
+# The same object (111, the outline walker $84:8160) has a per-frame hook
+# $84:81B7 that steps BG palette 7 colour 1 every 6 frames through 4 colours
+# of $98:D4C8 (written at $84:81E6). Emulated on holes 0 and 17
+# (--watch-write '$7E:04E2-$7E:04E3'): 18D7 253B 295E 253B 18D7 0019 ...,
+# i.e. the walk below; notes/port-v2-phase1-courses.md. Masked like the
+# outline: the "glow" pixels, which every hole may use.
+GLOW_PAL, GLOW_COLOUR = 7, 1
+GLOW_TABLE = (0x98, 0xD4C8)
+GLOW_WALK = [1, 2, 3, 2, 1, 0]
+GLOW_STEP = 6
+# The per-course song lists: $80:C967 plays $80:C99D[$6A5C] -> [$6A5E, the
+# hole] (docs/audio.md). $6A5C is 2 * course whenever the course was picked
+# on the map (measured for courses 0-16), so the list is $80:C99D + 2 * course.
+SONG_LISTS = (0x80, 0xC99D)
+SONG_BASE = 0x7E
+# $84:DD34 gives objects 76 and 77 their frame table at spawn: $84:DD55[tile -
+# $80] (24 words, tiles $80-$97; tiles.md), the run's direction from $84:DD85.
+HAZARD_FRAME_TABLES = (0x84, 0xDD55)
 
 
 # --------------------------------------------------------------------------
@@ -355,6 +375,18 @@ def build_tables(d):
                                  "step every 3 frames; emulated (object "
                                  "$84:81A3), not ROM data",
                         "values": list(OUTLINE_WALK)}
+    # Object 111's second colour, BG palette 7 colour 1 (GLOW_* above).
+    assert all(0 <= i < 4 for i in GLOW_WALK), "glow walk outside the table"
+    put("glowColours", GLOW_TABLE[0], GLOW_TABLE[1],
+        rom_words(d, GLOW_TABLE[0], GLOW_TABLE[1], 4), 2)
+    t["glowWalk"] = {"about": "order into glowColours, one step every {} "
+                              "frames; emulated (object 111's hook $84:81B7, "
+                              "holes 0 and 17), not ROM data".format(GLOW_STEP),
+                     "stepFrames": GLOW_STEP,
+                     "values": list(GLOW_WALK)}
+    # The hazard actors' frame tables by spawn tile ($84:DD34).
+    put("hazardFrameTables", HAZARD_FRAME_TABLES[0], HAZARD_FRAME_TABLES[1],
+        rom_words(d, HAZARD_FRAME_TABLES[0], HAZARD_FRAME_TABLES[1], 24), 2)
 
     def scalar(key, bank, addr, signed=False):
         t.setdefault("consts", {})[key] = {
@@ -471,8 +503,13 @@ def build_course(d, defaults, index):
             edges.append({"x": x, "y": y, "tile": tile})
 
     map_w, map_h = fields[4], fields[5]
+    course, hole = divmod(index, 8)
+    songs = rom_words(d, SONG_LISTS[0], SONG_LISTS[1] + 2 * course, 1)[0]
+    song = rom_bytes(d, SONG_LISTS[0], songs + hole, 1)[0] - SONG_BASE
     return {
         "index": index, "name": name, "header": list(fields),
+        "song": song, "songSource": "{} -> {}".format(
+            src(SONG_LISTS[0], SONG_LISTS[1] + 2 * course), src(SONG_LISTS[0], songs + hole)),
         "w": w, "h": h,
         "bitmap": {"w": map_w * 8, "h": map_h * 8},
         "word7": fields[7],
@@ -489,11 +526,12 @@ def build_course(d, defaults, index):
 # layers
 # --------------------------------------------------------------------------
 
-def blit_rgba(img, pal, tiles, word, y, x, outline=None):
+def blit_rgba(img, pal, tiles, word, y, x, masks=None):
     """Draw one tilemap cell into an (H, W, 4) array; colour 0 is transparent.
 
-    With `outline` (an (H, W, 4) array), the outline colour goes there as
-    white instead of into `img`.
+    `masks` maps (palette, colour) to an (H, W, 4) array: those pixels go
+    there as white instead of into `img` (the outline's colours, which an
+    object cycles and the browser tints).
     """
     import numpy as np
     idx = word & 0x3FF
@@ -509,14 +547,21 @@ def blit_rgba(img, pal, tiles, word, y, x, outline=None):
     if view.shape[0] != 8 or view.shape[1] != 8:
         return
     mask = cell != 0
-    colours = np.array(pal[(word >> 10) & 7], dtype=np.uint8)
-    if outline is not None and ((word >> 10) & 7) == OUTLINE_PAL:
-        ol = cell == OUTLINE_COLOUR
-        oview = outline[y:y + 8, x:x + 8]
-        oview[ol] = 255
-        mask = mask & ~ol
+    p = (word >> 10) & 7
+    colours = np.array(pal[p], dtype=np.uint8)
+    for (mp, mc), arr in (masks or {}).items():
+        if mp != p:
+            continue
+        hit = cell == mc
+        arr[y:y + 8, x:x + 8][hit] = 255
+        mask = mask & ~hit
     view[mask, :3] = colours[cell[mask]]
     view[mask, 3] = 255
+
+
+# The overlay names the layers step may write (`layer_{back,front}_<name><k>.png`).
+CYCLE_NAMES = ("ripple", "boost", "panels")
+CYCLE_MAX_SETS = 4
 
 
 def build_layers(d, index, outdir):
@@ -525,41 +570,48 @@ def build_layers(d, index, outdir):
 
     _, fields, name, _ = header(d, index)
     map_w, map_h, g1, g2, _rows = unpack(d, index, fields)
-    # A water hole's own tiles and its first ripple set (coursemap.hole_page).
+    # A water hole's own tiles (coursemap.hole_page); the BG colours in play
+    # with every cycle at its first set (coursemap.hole_palette).
     tiles = decode_tiles(hole_page(d, index), 4)
     pal = hole_palette(d, index)
-    ripple = water_ripple(d, index)
+    cycles = palette_cycles(d, index)
     W, H = map_w * 8, map_h * 8
 
     def compose(want, pal=pal):
         img = np.zeros((H, W, 4), dtype=np.uint8)
-        ol = np.zeros((H, W, 4), dtype=np.uint8)
+        masks = {(OUTLINE_PAL, OUTLINE_COLOUR): np.zeros((H, W, 4), dtype=np.uint8),
+                 (GLOW_PAL, GLOW_COLOUR): np.zeros((H, W, 4), dtype=np.uint8)}
         # BG2 is behind BG1 at the same priority.
         for grid in (g2, g1):
             for i, wd in enumerate(grid):
                 if wd == EMPTY or ((wd >> 13) & 1) != want:
                     continue
                 y, x = divmod(i, map_w)
-                blit_rgba(img, pal, tiles, wd, y * 8, x * 8, outline=ol)
-        return img, ol
+                blit_rgba(img, pal, tiles, wd, y * 8, x * 8, masks=masks)
+        return img, masks[(OUTLINE_PAL, OUTLINE_COLOUR)], masks[(GLOW_PAL, GLOW_COLOUR)]
 
-    (back, ol_back), (front, ol_front) = compose(0), compose(1)
+    (back, ol_back, gl_back), (front, ol_front, gl_front) = compose(0), compose(1)
     out = [("layer_back.png", back), ("layer_front.png", front),
            ("layer_outline_back.png", ol_back),
-           ("layer_outline_front.png", ol_front)]
-    # The water's ripple: the layers carry set 0; set k >= 1 is an overlay of
-    # the pixels whose colour differs from set 0 in the composed layer, so a
+           ("layer_outline_front.png", ol_front),
+           ("layer_glow_back.png", gl_back),
+           ("layer_glow_front.png", gl_front)]
+    # The palette cycles (the ripple, the boost panels', the warp or snap
+    # panels'): the layers carry each cycle's set 0; set k >= 1 is an overlay
+    # of the pixels whose colour differs from set 0 in the composed layer, so a
     # BG1 tile over BG2 water stays on top. The view shows the overlay of
-    # `order[phase]` (none for set 0).
-    n_sets = len(ripple["sets"]) if ripple else 1
-    for k in range(1, 4):
-        for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
-            over = np.zeros((H, W, 4), dtype=np.uint8)
-            if k < n_sets:
-                arr, _ = compose(want, hole_palette(d, index, k))
-                diff = (arr != base).any(axis=2)
-                over[diff] = arr[diff]
-            out.append(("{}_ripple{}.png".format(stem, k), over))
+    # `order[phase]` (none for set 0). Every other overlay name is written
+    # empty, so a stale file is removed below.
+    have = {(c["name"], k): c for c in cycles for k in range(1, len(c["sets"]))}
+    for cname in CYCLE_NAMES:
+        for k in range(1, CYCLE_MAX_SETS):
+            for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+                over = np.zeros((H, W, 4), dtype=np.uint8)
+                if (cname, k) in have:
+                    arr = compose(want, hole_palette(d, index, {cname: k}))[0]
+                    diff = (arr != base).any(axis=2)
+                    over[diff] = arr[diff]
+                out.append(("{}_{}{}.png".format(stem, cname, k), over))
     wrote = {}
     for name_, arr in out:
         path = os.path.join(outdir, name_)
@@ -602,7 +654,7 @@ def build_layers(d, index, outdir):
                    if day_cg[i] != night_cg[i] and i != OUTLINE_PAL * 16 + OUTLINE_COLOUR}
         pal_n = [[changed.get(p * 16 + c, pal[p][c]) for c in range(16)] for p in range(len(pal))]
         for want, path in ((0, "layer_back_night.png"), (1, "layer_front_night.png")):
-            arr, _ = compose(want, pal_n)
+            arr = compose(want, pal_n)[0]
             if arr[:, :, 3].any():
                 Image.fromarray(arr, "RGBA").save(os.path.join(outdir, path))
                 wrote[path] = [W, H]
@@ -611,11 +663,10 @@ def build_layers(d, index, outdir):
     # The backdrop colour behind everything is the course palette's colour 0.
     from tiles import snes_color
     table = [snes_color(w) for w in rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15)]
-    rip = None
-    if ripple:
-        rip = {k: ripple[k] for k in ("source", "colours", "stepFrames", "order")}
+    keep = ("name", "object", "source", "colours", "stepFrames", "order")
     return {"files": wrote, "backColour": list(cols[0]), "name": name,
-            "nightBackColour": night_back, "ripple": rip,
+            "nightBackColour": night_back,
+            "cycles": [{k: c[k] for k in keep} for c in cycles],
             "outline": {"source": src(*OUTLINE_TABLE), "stepFrames": 3,
                         "cycle": [list(table[i]) for i in OUTLINE_WALK]}}
 
@@ -782,6 +833,23 @@ def write_json(path, obj, compact=True):
             json.dump(obj, f, indent=1)
 
 
+def manifest_courses(out):
+    """The exported ROM holes under <out>/holes/NNN (course.json), grouped by
+    course (index // 8) in index order: [{course, holes: [{index, name, dir}]}]."""
+    root = os.path.join(out, "holes")
+    by = {}
+    for dname in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        path = os.path.join(root, dname, "course.json")
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            c = json.load(f)
+        by.setdefault(c["index"] // 8, []).append(
+            {"index": c["index"], "name": c["name"], "dir": "holes/" + dname})
+    return [{"course": k, "holes": sorted(v, key=lambda h: h["index"])}
+            for k, v in sorted(by.items())]
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -843,7 +911,7 @@ def main():
         files = sorted(f for f in os.listdir(args.out) if f != "manifest.json")
         write_json(os.path.join(args.out, "manifest.json"), {
             "exporter": VERSION, "hole": args.hole, "romSha1": EXPECTED_SHA1,
-            "files": files}, compact=False)
+            "files": files, "courses": manifest_courses(args.out)}, compact=False)
     return 0
 
 

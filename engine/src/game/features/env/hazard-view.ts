@@ -2,8 +2,8 @@
  * A hazard actor (Visual 'hazard': objects 76, 77, 81-83). Its state is the
  * thread's, in the Hazards singleton (core sim/actors.ts ActorRun), found by
  * the entity's spawn cell; the picture is objects.json's for the thread's
- * frame number (catalog-data.ts hazardFrame). A type with no sheet is drawn
- * as a marker.
+ * frame number, in the frame table its spawn tile picks (catalog-data.ts
+ * hazardFrame). A type with no sheet is drawn as a marker.
  */
 import Phaser from 'phaser';
 import type { Entity } from 'koota';
@@ -37,12 +37,27 @@ export class HazardView implements View {
     if (!run) return null;
     const p = actorRunPoint(ctx.course, run);
     if (this.image) {
-      const name = hazardFrame(this.host.assets.objects, e.get(ActorType)!.type, run.dir, run.frame);
+      const actor = e.get(ActorType)!;
+      const name = hazardFrame(this.host.assets.objects, this.frameTables(ctx), actor.type, actor.tile, run.frame);
       if (name) this.image.setFrame(name);
       this.image.setPosition(p.x, p.y).setVisible(name !== null);
     }
     this.marker?.setPosition(p.x, p.y);
     return p.y;
+  }
+
+  private tables: Int32Array | null | undefined;
+
+  /** tables.json hazardFrameTables ($84:DD55), or null in an older export. */
+  private frameTables(ctx: ViewCtx): Int32Array | null {
+    if (this.tables === undefined) {
+      try {
+        this.tables = ctx.rules.table('hazardFrameTables');
+      } catch {
+        this.tables = null;
+      }
+    }
+    return this.tables;
   }
 
   setDepth(depth: number): void {

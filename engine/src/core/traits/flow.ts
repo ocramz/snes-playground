@@ -48,8 +48,7 @@ export const HoleFlow = trait({
   next: 'SettleWait' as FlowPhase,
 });
 
-/** The hole's song: song 11 ($89), course 1 holes 1-4's. The game picks it per hole from
- *  `$80:C967`'s table (course 1: 11, 11, 11, 11, 7, 7, 7, 13; docs/audio.md); the engine plays
- *  11 everywhere for now (docs/engine.md "Deviations from the game, on purpose").
- *  Song events carry the song's number (the request byte - $7E), as phase 5's fall song does. */
+/** Song 11 ($89), course 1 holes 1-4's: the song of the holes the ROM has no list for (the
+ *  authored and generated ones). A ROM hole plays its own (`CourseData.song`, from `$80:C967`'s
+ *  per-course lists; docs/audio.md). Song events carry the song's number (the request byte - $7E). */
 export const HOLE_SONG = 0x89 - 0x7e;

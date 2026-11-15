@@ -45,6 +45,7 @@ import type { RomRules } from './rules';
 import { sweepActors, type HoleActors } from './sweep';
 import { setupHazards } from './systems/actors';
 import { spawnBall } from './world';
+import { BoostHum } from './traits/boost';
 
 export interface BallPlacement {
   xc: number; xf: number; yc: number; yf: number; z: number;
@@ -185,6 +186,9 @@ export function startHole(world: World, i: number): Ctx {
   world.set(Warp, { ...world.get(Warp)!, stage: 'none', t: 0, hidden: 0 });
   const actors = spawnHoleEntities(world, s.rules, data, i);
   setupHazards(world, ctx, actors); // $82:B9C7, $82:BA87 (after the sweep)
+  // $82:BCD7: a boost panel anywhere spawns object 112, whose hook hums
+  // (systems/boost-hum.ts); its $6A28 starts at 0 (the fresh work copy)
+  world.set(BoostHum, { active: data.tile.some((t) => t >= 0x30 && t < 0x3c) ? 1 : 0, counter: 0 });
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;
@@ -199,7 +203,7 @@ function spawnHoleEntities(world: World, rules: RomRules, data: CourseData, inde
     world.spawn(
       IsEnemy,
       Cell({ x: en.x, y: en.y }),
-      EnemyKind({ tile: en.tile, ability: en.ability, listIndex: en.listIndex }),
+      EnemyKind({ tile: en.tile, species: en.species, ability: en.ability, listIndex: en.listIndex }),
       Hover({ steps: en.hover }),
       Visual({ kind: 'enemy' }),
       InHole(root),

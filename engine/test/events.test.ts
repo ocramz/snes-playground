@@ -29,9 +29,12 @@ const RUNS: Array<{ name: string; from: number; to: number }> = [
 ];
 
 /** Presentation objects (banks $84/$85) and Kirby's animation scripts ($87)
- *  request their own sounds (bridge side). */
+ *  request their own sounds (bridge side), except object 112's hum, which
+ *  core runs (systems/boost-hum.ts): $84:87FD sound $15, $84:8818 sound 0
+ *  (the callers are the JSLs' return addresses). */
+const CORE_OBJECT_CALLERS = new Set(['$84:8801', '$84:881C']);
 function fromCore(r: SoundRequest): boolean {
-  return !/^\$8[457]:/.test(r[5]);
+  return !/^\$8[457]:/.test(r[5]) || CORE_OBJECT_CALLERS.has(r[5]);
 }
 
 export function compareSounds(
@@ -42,7 +45,8 @@ export function compareSounds(
 ): string[] {
   const want = game.filter((r) => r[2] >= from && r[2] <= to && fromCore(r))
     .map((r) => ({ f: r[2], kind: r[3], id: r[3] === 'song' ? r[4] - 0x7e : r[4], caller: r[5] }));
-  const got = engine.filter((e) => e.gameFrame >= from && e.gameFrame <= to && e.romSfx >= 0)
+  // only the sound requests ($80:B542 / $80:B4AC): not the music volume's port writes
+  const got = engine.filter((e) => e.gameFrame >= from && e.gameFrame <= to && e.romSfx >= 0 && e.kind !== 'music-volume')
     .map((e) => ({ f: e.gameFrame, kind: e.kind === 'song' ? 'song' : 'sfx', id: e.romSfx, name: e.kind, used: false }));
   const bad: string[] = [];
   for (const w of want) {

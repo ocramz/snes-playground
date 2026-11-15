@@ -2,7 +2,7 @@
  * The cup (Visual 'cup'): the last free enemy, turned into the cup by the
  * reveal ($82:8B5C, core systems/reveal.ts) inside the ball step. The view
  * follows the reveal's stages:
- * - lead, panTo: still the enemy, at its hover height;
+ * - lead, panTo: still the enemy (its species' idle clip), at its hover height;
  * - hover: a hovering enemy drops to the ground in $82:8CE8[h] + 8 frames
  *   (drawn as a straight drop; the drop's curve is unmeasured);
  * - ring (and after): the enemy sheet's pictures 16-20 open into the hole
@@ -18,12 +18,12 @@ import Phaser from 'phaser';
 import type { Entity } from 'koota';
 import { Tex } from '../../assets/keys';
 import { playClip } from '../../assets/atlas';
-import { Cell, Hover } from '../../../core/traits/hole';
+import { Cell, EnemyKind, Hover } from '../../../core/traits/hole';
 import { HOVER_DROP, HOVER_DROP_EXTRA, Reveal } from '../../../core/traits/reveal';
 import { cellCorner } from '../../bridge/placement';
 import type { View, ViewCtx } from '../../bridge/view';
 import type { Host } from '../../host';
-import { CUP_RING_FRAME } from '../catalog-data';
+import { CUP_RING_FRAME, enemyClip } from '../catalog-data';
 
 export class CupView implements View {
   readonly kind = 'cup';
@@ -31,6 +31,7 @@ export class CupView implements View {
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly ring: Phaser.GameObjects.Image;
   private opened = false;
+  private chosen = false;
   private ringOver: number | null = null;
 
   constructor(scene: Phaser.Scene, private readonly host: Host) {
@@ -40,6 +41,11 @@ export class CupView implements View {
   }
 
   place(ctx: ViewCtx, e: Entity): number | null {
+    if (!this.chosen) {
+      this.chosen = true;
+      const clip = enemyClip(this.host.assets.atlas, e.has(EnemyKind) ? e.get(EnemyKind)!.species : 0x0c);
+      if (!this.opened && clip !== 'enemy_idle') playClip(this.sprite, clip);
+    }
     const c = e.get(Cell)!;
     const stage = ctx.world.get(Reveal)!.stage;
     const opening = stage === 'ring' || stage === 'panBack' || stage === 'none';

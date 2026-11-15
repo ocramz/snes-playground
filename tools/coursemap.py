@@ -54,11 +54,18 @@ render uses the first ripple set.
 BG3 carries the scenery behind the course, and all of it is per-course
 rather than per-hole. `sub_load_course_backdrop $80:D6A8` selects tiles and
 tilemap with `course & 7` from the tables at `$80:D748` and `$80:D768`, and
-`$80:D4F7` selects a matching 40-colour palette from `$80:D517` and hands it
-to `sub_cgram_partial`, which writes CGRAM colours 0-39. That palette is
+`$80:D4F7` selects a matching palette from `$80:D517` and hands it to
+`sub_cgram_partial` with A = `$28` bytes: CGRAM colours 0-19. That palette is
 what makes the layer readable: the course CGRAM image at `$98:C000` leaves
 BG3 sub-palettes 1-7 entirely black, so drawing the scenery against it
 produces holes.
+
+The CGRAM in play (`hole_cgram`; measured on snapshots of 18 holes over the
+eight courses, notes/port-v2-phase1-courses.md) is `$98:C000`, then the
+scenery's 20 colours at 0, the HUD's 12 at 20 (`$83:AA24`: `$98:CE48`), then
+the course's list `$80:D869`[course] (`$80:D82B`, run by `$80:90E7`): five
+runs into BG palettes 2, 3, 5, 6 and 7, which is all that tells one course's
+colours from another's.
 
 The BG3 character page is shared three ways -- font at tiles 0-191, window
 furniture at 208-303, and the scenery at 320-511 -- which is why the stored
@@ -124,7 +131,16 @@ TILE_BYTES2 = 16
 # clouds their holes.
 BG3_PALETTE_TABLE = (0x80, 0xD517)
 BG3_PALETTE_ALT = (0x80, 0xD527)      # taken instead when $7E:6A2E is set
-BG3_PALETTE_COLOURS = 40
+BG3_PALETTE_COLOURS = 20              # A = $28 bytes (sub_cgram_partial counts bytes)
+# Then `$83:AA24` loads the score panel's 12 colours over BG3 palettes 5-7.
+HUD_PALETTE = (0x98, 0xCE48)
+HUD_CGRAM, HUD_COLOURS = 20, 12
+# `$82:BC9C` -> `$80:D82B`[`$6A2E`]: entry 0 (`$80:D839`) takes the list
+# `$80:D869`[`$7E:6A5A`] (or `$80:DA0D` while `$ED5B` is set; not modelled),
+# and `$80:90E7` runs it: words (bytes, source in bank $98, CGRAM index)
+# until `$FF`. Entry 1, the `$6A2E` alternate, is not modelled either.
+COURSE_LISTS = (0x80, 0xD869)
+COURSE_LIST_END = 0xFF
 
 # Per-hole surface graphics (docs/courses.md "Per-hole surface graphics").
 # At the hole's load `$82:BCD7` reads the per-value counts of the layer-2 grid
@@ -153,6 +169,26 @@ WATER_PHASE_OFFSET = (0x84, 0x857E)
 WATER_PHASES = 4
 WATER_CGRAM = 0x41
 WATER_COLOURS = 7
+# Object 112 (`$84:876C`, spawned for the boost panels) writes palette 4
+# colours 1-4 from these four sets in turn, `JSL $80:E445` with A = 3 between
+# them (`$84:8781`-`$84:87D1`); a wait of N resumes N + 1 frames on, and the
+# writes are 4 frames apart in play (hole 17, --watch-write $0482-$0489).
+# The operands of the four `LDX #$C2xx` and of the first `LDA #3`:
+BOOST_SETS = ((0x84, 0x8785), (0x84, 0x8799), (0x84, 0x87AD), (0x84, 0x87C1))
+BOOST_WAIT = (0x84, 0x878F)
+BOOST_CGRAM = 0x41
+BOOST_COLOURS = 4
+# Objects 114 (`$84:8258`, the warp panels `$B0-$B9`) and 115 (`$84:8253`,
+# the snap tiles `$18-$1B`, tested first) share one loop: the phase steps
+# (phase + 1) & 3 and writes 5 colours from `$84:828B`[phase] to CGRAM `$6B`
+# (palette 6 colours 11-15), waiting `$539C` = 7 or 3 (spawned by `$82:BD29`).
+# Measured: 8 and 4 frames a set (holes 3 and 29).
+PANEL_TABLE = (0x84, 0x828B)
+PANEL_WAITS = {114: (0x84, 0x8259), 115: (0x84, 0x8254)}   # the LDA #n operands
+PANEL_SNAP_VALUES = range(0x18, 0x1C)
+PANEL_WARP_VALUES = range(0xB0, 0xBA)
+PANEL_CGRAM = 0x6B
+PANEL_COLOURS = 5
 
 W_CELLS, W_WIDTH, W_HEIGHT, W_AREA, W_MAPW, W_MAPH = 0, 1, 2, 3, 4, 5
 EMPTY = 0xFFFF
@@ -219,57 +255,154 @@ def hole_page(d, index):
     return page[:at] + d[src:src + WATER_GFX_BYTES] + page[at + WATER_GFX_BYTES:]
 
 
+def _word(d, bank, addr):
+    o = snes_to_file(bank, addr)
+    return int.from_bytes(d[o:o + 2], "little")
+
+
+def _layer2_values(d, index):
+    _, fields, _, _ = header(d, index)
+    n = fields[W_WIDTH] * fields[W_HEIGHT]
+    try:
+        return set(table(d, index, 2)[:n])
+    except CompressionError:
+        return set()
+
+
+def _cgram_set(d, addr, count):
+    o = snes_to_file(CGRAM_BANK, addr)
+    return [snes_color(w) for w in words(d[o:o + 2 * count])]
+
+
 def water_ripple(d, index):
     """Object 113's ripple for a water hole, or None.
 
     `sets` are the distinct 7-colour sets in first-use order and `order` the
     set of each phase, so course 1 gives order [0, 1, 0, 2]; each phase lasts
     `stepFrames`. The phase starts at 0 when the object spawns, at the load.
+    The base is `$84:84AF`[`$6A5C`], `$6A5C` = 2 * course (measured for
+    courses 0-16), so `index // 8` picks it.
     """
     if surface_kind(d, index) != "water":
         return None
-
-    def word(bank, addr):
-        o = snes_to_file(bank, addr)
-        return int.from_bytes(d[o:o + 2], "little")
-
     course = index // 8
-    base = word(WATER_BASES[0], WATER_BASES[1] + 2 * course)
-    frames = [word(WATER_PHASE_FRAMES[0], WATER_PHASE_FRAMES[1] + 2 * p)
+    base = _word(d, WATER_BASES[0], WATER_BASES[1] + 2 * course)
+    frames = [_word(d, WATER_PHASE_FRAMES[0], WATER_PHASE_FRAMES[1] + 2 * p)
               for p in range(WATER_PHASES)]
     if len(set(frames)) != 1:
         raise ValueError("water phases of unequal length: {}".format(frames))
-    offsets = [word(WATER_PHASE_OFFSET[0], WATER_PHASE_OFFSET[1] + 2 * p)
+    offsets = [_word(d, WATER_PHASE_OFFSET[0], WATER_PHASE_OFFSET[1] + 2 * p)
                for p in range(WATER_PHASES)]
     distinct = list(dict.fromkeys(offsets))
-    sets = []
-    for off in distinct:
-        o = snes_to_file(CGRAM_BANK, base + off)
-        sets.append([snes_color(w) for w in words(d[o:o + 2 * WATER_COLOURS])])
     return {
+        "name": "ripple", "object": 113,
         "source": fmt_snes(0x84, 0x8533),
-        "colours": fmt_snes(CGRAM_BANK, base),
+        "colours": [fmt_snes(CGRAM_BANK, base + off) for off in distinct],
         "stepFrames": frames[0],
         "order": [distinct.index(off) for off in offsets],
-        "sets": sets,
+        "sets": [_cgram_set(d, base + off, WATER_COLOURS) for off in distinct],
+        "cgram": WATER_CGRAM, "count": WATER_COLOURS,
     }
 
 
-def hole_palette(d, index, ripple_set=0):
-    """`course_palette` with a water hole's ripple set in palette 4."""
-    pal = course_palette(d)
-    rip = water_ripple(d, index)
-    if rip is None:
-        return pal
-    sub, first = divmod(WATER_CGRAM, 16)
-    row = list(pal[sub])
-    row[first:first + WATER_COLOURS] = rip["sets"][ripple_set]
-    pal[sub] = row
+def boost_cycle(d, index):
+    """Object 112's colour cycle on a hole with boost panels, or None.
+
+    Its first set is `$98:C000`'s own colours there, so the layers drawn with
+    `hole_cgram` already show set 0.
+    """
+    if surface_kind(d, index) != "boost":
+        return None
+    addrs = [_word(d, *op) for op in BOOST_SETS]
+    wait = _word(d, *BOOST_WAIT)
+    return {
+        "name": "boost", "object": 112,
+        "source": fmt_snes(0x84, 0x876C),
+        "colours": [fmt_snes(CGRAM_BANK, a) for a in addrs],
+        "stepFrames": wait + 1,
+        "order": list(range(len(addrs))),
+        "sets": [_cgram_set(d, a, BOOST_COLOURS) for a in addrs],
+        "cgram": BOOST_CGRAM, "count": BOOST_COLOURS,
+    }
+
+
+def panel_cycle(d, index):
+    """Object 115's (any snap tile) or 114's (any warp panel) colour cycle,
+    or None (`$82:BD29`). The phase is incremented before its first write,
+    so the sets run from `$84:828B`[1]; the layers are drawn with set 0."""
+    values = _layer2_values(d, index)
+    if values & set(PANEL_SNAP_VALUES):
+        obj = 115
+    elif values & set(PANEL_WARP_VALUES):
+        obj = 114
+    else:
+        return None
+    table = [_word(d, PANEL_TABLE[0], PANEL_TABLE[1] + 2 * p) for p in range(4)]
+    addrs = [table[(p + 1) & 3] for p in range(4)]
+    wait = _word(d, *PANEL_WAITS[obj])
+    return {
+        "name": "panels", "object": obj,
+        "source": fmt_snes(0x84, 0x8253 if obj == 115 else 0x8258),
+        "colours": [fmt_snes(CGRAM_BANK, a) for a in addrs],
+        "stepFrames": wait + 1,
+        "order": list(range(len(addrs))),
+        "sets": [_cgram_set(d, a, PANEL_COLOURS) for a in addrs],
+        "cgram": PANEL_CGRAM, "count": PANEL_COLOURS,
+    }
+
+
+def palette_cycles(d, index):
+    """The BG colour cycles an object runs while the hole is in play (the
+    ripple or the boost panels' cycle, and the warp or snap panels'). The
+    outline's two colours, object 111's, are on every hole and are drawn as
+    masks instead (export_web.py). Not modelled: objects 116-118 of the
+    `$58-$5D` tiles, and the scenery's own cycles (`$84:CF31`, `$84:D072`)."""
+    return [c for c in (water_ripple(d, index), boost_cycle(d, index), panel_cycle(d, index)) if c]
+
+
+def hole_cgram(d, index, course=None):
+    """The 256 CGRAM words while the hole is in play, before any cycle runs:
+    `$98:C000`, the scenery's 20 colours at 0, the HUD's 12 at 20 and the
+    course's list (the module docstring). `course` defaults to the hole's
+    (`index // 8`, the `$6A5A` the hole loader uses)."""
+    if course is None:
+        course = index // 8
+    cg = words(d[snes_to_file(*PALETTE):snes_to_file(*PALETTE) + 512])
+    sc = _word(d, BG3_PALETTE_TABLE[0], BG3_PALETTE_TABLE[1] + 2 * (course & 7))
+    o = snes_to_file(CGRAM_BANK, sc)
+    cg[0:BG3_PALETTE_COLOURS] = words(d[o:o + 2 * BG3_PALETTE_COLOURS])
+    o = snes_to_file(*HUD_PALETTE)
+    cg[HUD_CGRAM:HUD_CGRAM + HUD_COLOURS] = words(d[o:o + 2 * HUD_COLOURS])
+    lst = snes_to_file(COURSE_LISTS[0], _word(d, COURSE_LISTS[0], COURSE_LISTS[1] + 2 * course))
+    while True:
+        n = int.from_bytes(d[lst:lst + 2], "little")
+        if n == COURSE_LIST_END:
+            break
+        srca = int.from_bytes(d[lst + 2:lst + 4], "little")
+        dst = int.from_bytes(d[lst + 4:lst + 6], "little")
+        o = snes_to_file(CGRAM_BANK, srca)
+        cg[dst:dst + n // 2] = words(d[o:o + n])
+        lst += 6
+    return cg
+
+
+def hole_palette(d, index, sets=None, course=None):
+    """The hole's 16 sub-palettes of 16 colours in play (`hole_cgram`), with
+    each palette cycle at set 0, or at `sets[name]` for the cycles named
+    there (a water hole's ripple set k: `{"ripple": k}`)."""
+    cg = [snes_color(w) for w in hole_cgram(d, index, course)]
+    pal = [cg[i * 16:(i + 1) * 16] for i in range(16)]
+    for cyc in palette_cycles(d, index):
+        k = (sets or {}).get(cyc["name"], 0)
+        sub, first = divmod(cyc["cgram"], 16)
+        row = list(pal[sub])
+        row[first:first + cyc["count"]] = cyc["sets"][k]
+        pal[sub] = row
     return pal
 
 
 def backdrop(d, index):
-    """The BG3 scenery for a hole: (tile page, 32x32 tilemap words).
+    """The BG3 scenery for a hole: (tile page, 32x32 tilemap words, its 32 colours).
 
     Selected by course rather than hole. The hole index is `course * 8 +
     hole` (`sub_set_hole_index $82:B0A4`), so the backdrop slot is
@@ -298,11 +431,9 @@ def backdrop(d, index):
         place(blob, vram_word, size)
     place(tiles, BG3_BACKDROP_VRAM, len(tiles))
 
-    poff = snes_to_file(*BG3_PALETTE_TABLE) + 2 * slot
-    paddr = int.from_bytes(d[poff:poff + 2], "little")
-    croff = snes_to_file(CGRAM_BANK, paddr)
-    colours = [snes_color(w) for w in
-               words(d[croff:croff + BG3_PALETTE_COLOURS * 2])]
+    # BG3's eight 4-colour palettes are CGRAM 0-31: the scenery's 20 colours
+    # and the HUD's 12 (hole_cgram).
+    colours = [snes_color(w) for w in hole_cgram(d, index)[:32]]
     return bytes(page), words(tmap), colours
 
 

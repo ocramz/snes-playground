@@ -310,6 +310,14 @@ Two options change WRAM so a script can reach states its inputs cannot:
   (`sub_set_hole_index $82:B0A4`) builds the requested one. All 232 hole
   indices load this way; `ram_hole_index3 $7E:ABB6` reads back 3x the
   requested index in every case.
+  The course slot `$7E:6A5C` (2 × course), which the hole's song list and
+  the water ripple's colours are indexed by, is set on the course map and
+  stays 0 under that poke: such a run plays course 1's songs and ripple on
+  every course. Poke it too (`2050:$7E:6A5C=<2 × course>`), as
+  `tools/check_hole_palette.py`, `tools/snesstep/trace_enemies.py` and the
+  web_boost scenarios do (notes/port-v2-phase1-courses.md). The scenery and
+  the course's palette list use `$6A5A`, so they were right in the earlier
+  runs.
 - `--poke-at-pc PC,ADDR=VAL` writes each time the instruction at PC is about
   to run, which forces a branch. `--poke-at-pc '$80:F37A,$7E:D956=0001'`
   takes the holed path of the main flow (`$80:F37A`: `LDA $D956 / BNE`) and

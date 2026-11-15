@@ -40,17 +40,23 @@ export class CutsceneDirector {
   private arrivedAt = 0;
   private anchors: Anchors | null = null;
   private cues: GameEvent[] = [];
+  /** The hole's song, played at the intro's song cues (undefined: the recorded one). */
+  private song: number | undefined = undefined;
 
   constructor(
     private readonly cutscenes: CutscenesJson | null,
     private readonly anchorsOf: () => Anchors | null,
   ) {}
 
-  /** The hole's intro: the star brings Kirby to the tee. False when there is no recording. */
-  startIntro(): boolean {
+  /**
+   * The hole's intro: the star brings Kirby to the tee, and the hole's `song`
+   * starts where the recording's did. False when there is no recording.
+   */
+  startIntro(song?: number): boolean {
     const w = windowOf(this.cutscenes, 'intro');
     const anchors = this.anchorsOf();
     if (!w || !anchors) return false;
+    this.song = song;
     this.begin('intro', w, anchors);
     return true;
   }
@@ -66,7 +72,7 @@ export class CutsceneDirector {
 
   private cue(to: number, frame: number): void {
     if (!this.w || !this.name || to <= this.cued) return;
-    this.cues.push(...cueEvents(this.name, this.w, this.cued + 1, to + 1, frame));
+    this.cues.push(...cueEvents(this.name, this.w, this.cued + 1, to + 1, frame, this.song));
     this.cued = to;
   }
 

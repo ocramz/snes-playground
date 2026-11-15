@@ -138,6 +138,9 @@ export function requestGuide(world: World, ctx: Ctx, lag: number, tick = -1): vo
     originYf: shot.originYf, originYc: shot.originYc, originZ: shot.originZ,
   }, ctx.course);
   live.wallCode = r.wallCode; // the guide ran on the real work copy
+  live.boostFlash = r.boostFlash; // $6A28: a global the guide's boost hits write
+  live.guideTile = r.tile; // $DA0A until the next step reloads the block
+  live.guideLeft = 1;
   const g = world.get(Guide)!;
   g.points = r.points;
   g.ends = r.ends;

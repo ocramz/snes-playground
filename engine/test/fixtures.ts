@@ -47,6 +47,8 @@ export interface CourseJson {
   enemies: Array<{ x: number; y: number; tile: number; actor: number }>;
   objects: Array<{ x: number; y: number; tile: number; actor: number; type: number }>;
   edgeTiles: number[];
+  /** The hole's song ($80:C99D's lists); older exports lack it. */
+  song?: number;
 }
 
 /** tools/terrain.py Tables.surface_z sampled over every cell (golden fixture). */

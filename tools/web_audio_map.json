@@ -16,6 +16,7 @@
     "12": "an arrow panel ($14-$17) turns the ball ($82:A7D6: $6A6C = $0C, played by the step's tail); engine/",
     "16": "ball lost: a tomato is taken ($83:AC18)",
     "17": "a snap tile catches the ball ($82:A608); engine/",
+    "21": "the boost panels' hum: object 112's hook $84:87D4, every 34 frames while the ball is on a panel $30-$3B; engine/ boost-hum",
     "24": "launch ($82:BFFB)",
     "25": "launch at full power, meter 63 ($82:BFF0 -> $82:C00B); engine/",
     "26": "a friction tile the ball rolls onto ($82:8F95); engine/",
@@ -49,6 +50,14 @@
     "124": "the ball touches a volcano's cone (the cone handler in engine/src/core/sim/hazards.ts); engine/"
   },
   "songs": {
+    "6": "a hole song: $80:C99D's lists (course 2's holes 1-7, course 7's 5-7)",
+    "7": "a hole song: course 1's holes 5-7 ($80:C99D's lists, docs/audio.md)",
+    "8": "a hole song: course 5's holes 5-7 ($80:C99D's lists)",
+    "9": "a hole song: course 6's holes 1-7 ($80:C99D's lists)",
+    "10": "a hole song: course 5's holes 1-4, course 7's 1-2 ($80:C99D's lists)",
+    "12": "a hole song: course 8's holes 1-7 ($80:C99D's lists)",
+    "13": "a hole song: every course's hole 8 ($80:C99D's lists)",
+    "14": "a hole song: course 4's holes 1-7 ($80:C99D's lists)",
     "17": "Kirby falls asleep, out of tomatoes (request $8F, the OutOfTomatoes path after $82:E1EE; also the fall in ball mode 10); engine/",
     "18": "the ball falls off the course (request $90, $81:A16C-$81:A190); engine/",
     "24": "the star exit after a hole-out: requested from $83:C748 (A = $96) as the cup's ball rises, in both hole-out paths (tools/snesstep/trace_cutscene.py)",

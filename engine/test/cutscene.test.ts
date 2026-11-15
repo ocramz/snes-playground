@@ -113,6 +113,10 @@ describe.skipIf(!haveAssets)('cutscene timing and cues', () => {
     const cs = loadCutscenes();
     const intro = cueEvents('intro', cs.windows.intro, 0, cs.windows.intro.length, 7);
     expect(intro.filter((e) => e.kind === 'song').map((e) => e.romSfx)).toEqual([11, 11]);
+    // another hole's intro plays its own song at the same cues (course 1 hole 5: song 7)
+    const five = cueEvents('intro', cs.windows.intro, 0, cs.windows.intro.length, 7, loadHoleCourse(4).song);
+    expect(five.filter((e) => e.kind === 'song').map((e) => e.romSfx)).toEqual([7, 7]);
+    expect(five.filter((e) => e.kind === 'cue').map((e) => e.romSfx)).toEqual([100, 98, 47]);
     expect(intro.filter((e) => e.kind === 'cue').map((e) => e.romSfx)).toEqual([100, 98, 47]);
     for (const name of ['outro', 'outroHio'] as WindowName[]) {
       const w = cs.windows[name];

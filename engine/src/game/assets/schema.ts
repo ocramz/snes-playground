@@ -136,6 +136,23 @@ export interface CutscenesJson {
   nightPalette: { day: string; night: string; frame: number };
 }
 
+/**
+ * A BG colour cycle an object runs while the hole is in play
+ * (coursemap.palette_cycles): the ripple (object 113), the boost panels'
+ * (112), the warp or snap panels' (114, 115). `colours` are the sets'
+ * addresses; set `order[phase]` shows for `stepFrames` each. The layers carry
+ * set 0; `layer_{back,front}_<name><k>.png` are the pixels that differ under
+ * set k.
+ */
+export interface PaletteCycle {
+  name: 'ripple' | 'boost' | 'panels';
+  object: number;
+  source: string;
+  colours: string[];
+  stepFrames: number;
+  order: number[];
+}
+
 export interface LayersJson {
   /** file name -> [w, h]; only files with an opaque pixel are written. */
   files: Record<string, [number, number]>;
@@ -143,13 +160,30 @@ export interface LayersJson {
   nightBackColour: [number, number, number] | null;
   name: string;
   outline: { source: string; stepFrames: number; cycle: Array<[number, number, number]> };
-  /**
-   * A water hole's ripple ($84:8533): palette 4 colours 1-7 cycle through
-   * colour sets from `colours`, set `order[phase]` for `stepFrames` each.
-   * The layers carry set 0; `layer_{back,front}_ripple<k>.png` are the pixels
-   * that differ under set k. Absent from older exports; null on other holes.
-   */
-  ripple?: { source: string; colours: string; stepFrames: number; order: number[] } | null;
+  /** The hole's palette cycles (absent from older exports). */
+  cycles?: PaletteCycle[];
+}
+
+/** One exported ROM hole: its index (course * 8 + hole), name and directory under assets/. */
+export interface ManifestHole {
+  index: number;
+  name: string;
+  dir: string;
+}
+
+export interface ManifestCourse {
+  /** 0-based course number (index // 8). */
+  course: number;
+  holes: ManifestHole[];
+}
+
+/** assets/manifest.json (tools/export_web.py --only manifest). */
+export interface ManifestJson {
+  exporter: number;
+  romSha1: string;
+  files: string[];
+  /** The exported ROM holes by course (absent from older exports). */
+  courses?: ManifestCourse[];
 }
 
 export interface HudJson {

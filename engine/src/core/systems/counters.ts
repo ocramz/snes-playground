@@ -20,6 +20,7 @@ import {
 import { BallWork } from '../traits/ball';
 import { emitEvent } from './flow-util';
 import { tickHazards } from './actors';
+import { tickBoostHum } from './boost-hum';
 
 function player(world: World): import('koota').Entity | undefined {
   return world.queryFirst(BallWork);
@@ -50,7 +51,7 @@ export function changeTomatoes(world: World, delta: 1 | -1): void {
 
 /**
  * The thread scheduler's tick at the frame's end: the HUD thread (the
- * tomato queue) and the hazard actors. Not in a frame the cup reveal's
+ * tomato queue), the hazard actors and object 112's hum (boost-hum.ts). Not in a frame the cup reveal's
  * decompression wait holds it.
  */
 export function threadTick(world: World, ctx: import('../sim/context').Ctx): void {
@@ -61,6 +62,7 @@ export function threadTick(world: World, ctx: import('../sim/context').Ctx): voi
   }
   applyTomatoQueue(world);
   tickHazards(world, ctx);
+  tickBoostHum(world);
 }
 
 /** The HUD thread takes the next entry: 20 ticks to its change. */

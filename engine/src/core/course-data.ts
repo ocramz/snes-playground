@@ -16,6 +16,7 @@
 import { isEnemyTile, ENEMY_LIST_MAX, TEE_TILE } from './sweep';
 import { buildOcclusion, fromOcclusionJson, type OcclusionJson, type OcclusionTable } from './occlusion';
 import { sweepWarps } from './sim/warp';
+import { HOLE_SONG } from './traits/flow';
 
 export interface CourseData {
   /** The hole's name (the ROM's MAPnn, or the authored file's). */
@@ -53,6 +54,13 @@ export interface CourseData {
    * authored hole the one `buildOcclusion` makes.
    */
   occlusion: OcclusionTable;
+  /**
+   * The hole's song number (the request byte - $7E), which `$80:C967` plays
+   * at the hole's start, after a lost ball and when Kirby wakes: a ROM hole's
+   * from `$80:C99D`'s per-course list (course.json `song`), the authored and
+   * generated holes course 1's HOLE_SONG.
+   */
+  song: number;
 }
 
 /** Optional course fields; authored courses that omit them get defaults. */
@@ -61,6 +69,8 @@ export interface CourseExtras {
   screenBase?: number;
   /** Table 10; absent: built from the shape layer (buildOcclusion). */
   occlusion?: OcclusionTable;
+  /** The hole's song; absent: HOLE_SONG. */
+  song?: number;
 }
 
 /** The exported ROM hole (tools/export_web.py --only course). */
@@ -82,6 +92,8 @@ export interface CourseJson {
   edgeTiles: number[];
   /** Table 10 (tools/export_web.py `occlusion_table`); older exports lack it. */
   occlusion?: OcclusionJson;
+  /** The hole's song, `$80:C99D`[course] -> [hole] - $7E; older exports lack it. */
+  song?: number;
 }
 
 const N = (v: number): number => {
@@ -123,6 +135,7 @@ export function courseData(
     enemies: enemyCells(tile, w, h),
     name: extras.name ?? '',
     occlusion: extras.occlusion ?? buildOcclusion(w, h, shapes),
+    song: extras.song ?? HOLE_SONG,
   };
 }
 
@@ -143,6 +156,7 @@ export function fromRomCourse(json: CourseJson): CourseData {
     screenBase: (json.header[5] ?? 0) * 8,
     name: json.name,
     occlusion: json.occlusion === undefined ? undefined : fromOcclusionJson(json.occlusion, json.w, json.h),
+    song: json.song,
   });
 }
 

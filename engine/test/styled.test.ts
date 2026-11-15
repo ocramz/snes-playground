@@ -15,10 +15,11 @@ import { RomRules } from '../src/core/rules';
 import { haveRules, loadTables } from './fixtures';
 import { readPng } from './png';
 import { rasterTerrain, type StyledCourse, type TerrainStyle, type TerrainStyleJson } from '../src/game/features/layers/styled';
+import { holeDir } from '../src/game/assets/keys';
 
 const assets = resolve(fileURLToPath(new URL('.', import.meta.url)), '../../build/engine/assets');
 const haveStyle = existsSync(resolve(assets, 'terrain_style.json')) && existsSync(resolve(assets, 'terrain_style.png'));
-const haveHoles = existsSync(resolve(assets, 'holes/07/layer_back.png'));
+const haveHoles = existsSync(resolve(assets, 'holes/007/layer_back.png'));
 
 function loadStyle(): TerrainStyle {
   return {
@@ -80,7 +81,7 @@ describe.skipIf(!haveRules || !haveStyle)('the styled terrain', () => {
     const want = [0.95, 0.95, 0.95, 0.9, 0.93, 0.9, 0.85, 0.85];
     const got: string[] = [];
     for (let hole = 0; hole < 8; hole++) {
-      const dir = resolve(assets, `holes/0${hole}`);
+      const dir = resolve(assets, holeDir(hole));
       const cj = JSON.parse(readFileSync(resolve(dir, 'course.json'), 'utf8')) as {
         w: number; h: number; shape: number[]; elev: number[]; walls: number[]; tile: number[]; word7: number;
       };

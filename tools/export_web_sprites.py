@@ -40,6 +40,9 @@ REPLAY_DIR = next((d for d in (os.path.join(ROOT, "build", "emu", "autoplay", n)
                    if os.path.exists(os.path.join(d, "pokes.txt"))),
                   os.path.join(ROOT, "build", "emu", "autoplay", "course1"))
 SNAP_DIR = os.path.join(ROOT, "build", "emu", "web_hole0")
+# Every enemy species' idle clip, recorded by tools/snesstep/trace_enemies.py
+# (optional: without it only the hole-1 sheet's $4C clip is exported).
+SPECIES_DIR = os.path.join(ROOT, "build", "sprites", "enemies")
 SHEET_DIR = os.path.join(ROOT, "build", "web-sprites")
 KIRBY_CLIPS = os.path.join(ROOT, "build", "sprites", "kirby", "clips")
 
@@ -203,6 +206,22 @@ def build(outdir):
         img, ox, oy = enemy[16 + i]
         seq.append({"f": atlas.add("cuphole_%d" % i, img, ox, oy), "d": d})
     clips["cup_open"] = {"frames": seq, "loop": False, "loopStart": 0, "next": None}
+
+    # ---- every species' idle clip -----------------------------------------
+    # enemy_XX_idle and its frames enemy_XX_i, XX the species' tile ($40-$4F,
+    # $57; $50-$52 draw as $4D-$4F). The star and the cup's opening above are
+    # the same for every species (one picture per list over all 232 holes).
+    species = os.path.join(SPECIES_DIR, "species.json")
+    if os.path.exists(species):
+        with open(species) as f:
+            for tile, e in sorted(json.load(f)["species"].items()):
+                names = []
+                for i, p in enumerate(e["pictures"]):
+                    img = Image.open(os.path.join(SPECIES_DIR, p["png"])).convert("RGBA")
+                    names.append(atlas.add("enemy_{}_{}".format(tile, i), img, p["ox"], p["oy"]))
+                clips["enemy_{}_idle".format(tile)] = {
+                    "frames": [{"f": names[k], "d": d} for k, d in e["frames"]],
+                    "loop": True, "loopStart": 0, "next": None}
 
     ring = sheet_frames(os.path.join(SHEET_DIR, "obj_074"))
     atlas.add("cupring", *ring[0])

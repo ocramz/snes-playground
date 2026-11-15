@@ -140,7 +140,12 @@ export interface BallWorkFields {
   cupDepthScratch: number; // $6B7E: the last depth, $FFFF none
   cupGround: number; // $6B82:$6B80: the recorded ground while sinking
 
-  boostFlash: number; // $6A28: the boost panel's pending impulse (phase 5)
+  boostFlash: number; // $6A28: a straight boost hit's launch speed, 0 otherwise; object 112's hum runs while it is set (systems/boost-hum.ts)
+  /** The $DA0A the aim's guide left in the game's work copy (sim/guide.ts), and
+   *  whether it is still there (until the next step's load, $82:F030). The
+   *  boost hum reads it; the step itself never does. */
+  guideTile: number;
+  guideLeft: number;
   /** $68F0: the fly shot's first-bounce sound offset (object 25, $84:88D2);
    *  the tail plays it + 4 and the object ends there. */
   spinBounceSfx: number;
@@ -231,6 +236,8 @@ export const emptyWork = (): BallWorkFields => ({
   fellOut: 0,
   fallTimer: 0xf0,
   boostFlash: 0,
+  guideTile: 0,
+  guideLeft: 0,
   spinBounceSfx: 0,
   stillGate: 0,
   over: 0, frames: 0,

@@ -78,8 +78,9 @@ $7E:69DE	-	ram	ram_enemy_list	32	the hole's enemies: actor-record offsets (index
 $7E:69FE	-	ram	ram_cup_slot	2	thread slot of the last enemy, the one that becomes the cup ($82:8AEE); $FFFF until then, reset per hole at $80:C188
 $7E:6A0A	-	ram	ram_cup_actor	2	actor-record offset of the cup (the last enemy); its cell is ram_actor_cell_x/_y at this offset. $FFFF until then
 $7E:6A10	-	ram	ram_stars	4	enemies taken by player 1, player 2 ($82:8AA0); moved between them when a 2P hit steals one ($82:8B0F)
+$7E:6A28	-	ram	ram_boost_hum	2	a straight boost hit's launch speed ($82:9E6B), cleared by every other exit of the boost handlers; object 112's hum ($84:87D4) runs while it is set and clears it; docs/tiles.md
 $7E:6A5A	-	ram	ram_course_number	2	course number; hole index = course*8 + hole
-$7E:6A5C	-	ram	ram_course_slot	2	2 * course in every snapshot of courses 0-15 (build/emu, read 2026-11-15); indexes the water ripple's base $84:84AF and the hole song's list $80:C99D
+$7E:6A5C	-	ram	ram_course_slot	2	2 * course, set on the course map (every snapshot of the map-picked runs game/game2/game4/extra, courses 0-15; two_player 16); a poke of $6A5A alone leaves it 0; indexes the water ripple base $84:84AF and the hole song list $80:C99D; notes/port-v2-phase1-courses.md
 $7E:6A5E	-	ram	ram_hole_in_course	2	hole 0-7 within the course
 $7E:6A68	-	ram	ram_enemy_hit_latch	4	per player: set on an enemy hit by $82:8967, cleared by $82:8A21 when the ball is in the enemy cell outside its middle half, so one pass counts once
 $7E:6A72	-	ram	ram_ball_mode_index	2	ball mode * 8 + class * 2 (class from tbl_friction_class): index into tbl_ball_gravity and tbl_roll_friction ($81:80E6)
@@ -179,7 +180,8 @@ $80:8DAC	0x000DAC	code	loc_oam_frame_follow_ptr	6	control record $80: LDA $0001,
 $80:8E39	0x000E39	code	sub_oam_emit_frame_alt	118	sub_oam_emit_frame with the $3F priority override applied ($80:8E67 ORA $3F); entered from loc_oam_frame_priority. Same record format
 $80:903A	0x00103A	code	sub_apply_screen_params_entry	6	prologue that falls into sub_apply_screen_params; A = bank, Y = block address
 $80:9040	0x001040	code	sub_apply_screen_params	-	apply a screen setup block: byte 0 -> $2105 BGMODE, byte 1 -> $2101 OBSEL, then word pairs to sub_obsel_set. A=bank Y=block. No direct callers; dispatched
-$80:90C8	0x0010C8	code	sub_cgram_partial	20	A = colours, X = source address, Y = first CGRAM colour index. The MVN at $80:90D4 hardwires the source bank to $98
+$80:90C8	0x0010C8	code	sub_cgram_partial	20	A = byte count, X = source address, Y = first CGRAM colour index. The MVN at $80:90D4 hardwires the source bank to $98
+$80:90E7	0x0010E7	code	sub_cgram_list	50	runs a list of (bytes, source, CGRAM index) words until $FF through sub_cgram_partial; the list's bank is the caller's; notes/port-v2-phase1-courses.md
 $80:93DD	0x0013DD	code	sub_obj_spawn	-	JSL; allocate an object and start its script. A = object type (index into tbl_obj_type_scripts), X = world X, Y = world Y. Returns $FFFF if no slot
 $80:94C7	0x0014C7	code	sub_obj_tick_all	-	JSL; walk the ram_obj_list_head chain, running each object's physics, update and draw vectors. Sets $D0 = $0000 for the script long pointer
 $80:9564	0x001564	code	sub_anim_script_run	82	the animation script interpreter; one thread per call. See docs/animation.md
@@ -282,6 +284,8 @@ $80:BE65	0x003E65	code	loc_course_col_upload_bg1	-	queue the BG1 row buffer to V
 $80:BE9A	0x003E9A	code	loc_course_col_upload_bg2	-	as above for BG2, VRAM $5800
 $80:C307	0x004307	code	sub_course_enter	58	course entry: load graphics sets and tilesets, then JSL sub_course_load_bg
 $80:C75A	0x00475A	code	sub_shot_end_state	-	after a shot (X = $1803): Kirby's animation state 11 (tired, health 1-2, $80:C7AE) or 10 (asleep, health 0, $80:C7E6). State 9 (wait for the next turn) is set by the routine just before it, at $80:C756
+$80:C967	0x004967	code	sub_play_hole_song	54	the hole's song: 27 if $ED5B, stop if $00C2 or $ED07, else $80:C99D[$6A5C] -> [$6A5E]; JML $80:B4AC; docs/audio.md
+$80:C99D	0x00499D	tbl	tbl_hole_songs	56	28 word pointers to 8-byte lists of song requests ($7E + n), by $6A5C = 2 * course; docs/audio.md
 $80:CA9F	0x004A9F	code	sub_load_asset	10	decompress a stream to $7F:0000 (bank pushed as $7E7F); A=bank X=addr Y=dest
 $80:CAA9	0x004AA9	code	sub_load_asset_vram	19	as sub_load_asset to $7F:0000, then pass the Y parameter block to sub_vram_queue
 $80:CABC	0x004ABC	code	sub_scene_screen_setup	-	A = scene number; index tbl_scene_screen_blocks and apply the block via $80:903A
@@ -305,6 +309,8 @@ $80:D788	0x005788	data	dat_vram_records_backdrop_tiles	9	one record: 3072 bytes 
 $80:D791	0x005791	data	dat_vram_records_backdrop_tiles2	9	second copy of the backdrop tile record, used by the course-indexed path
 $80:D7A3	0x0057A3	data	dat_vram_records_backdrop_alt	9	2048 bytes from $7F:0000 to VRAM word $4C00; the $7E:ED5B non-zero variant
 $80:D7AC	0x0057AC	data	dat_vram_records_backdrop_map	9	one record: 2048 bytes from $7E:DADC to VRAM word $3C00, the backdrop tilemap
+$80:D82B	0x00582B	code	sub_course_palette	62	A = $6A2E: entry 0 runs the course's list $80:D869[$6A5A] ($80:DA0D with $ED5B) through sub_cgram_list; entry 1 the alternate (not read); docs/courses.md "The palette in play"
+$80:D869	0x005869	tbl	tbl_course_palette_lists	68	by course number: lists of 5 runs into BG palettes 2, 3, 5, 6, 7 from $98:DF64 + $120 * course; docs/courses.md
 $80:DB6D	0x005B6D	tbl	tbl_ball_gravity	176	22 ball modes x 4 classes (flat, ramp, diagonal, shapes $08-$0B), indexed by $6A72: g for the slope acceleration in $81:8A56; entry 0 = $FFC0 is also the airborne gravity copied to $DA38 ($80:C710)
 $80:DC49	0x005C49	tbl	tbl_roll_friction	176	22 ball modes x 4 classes, rolling friction per mode and surface class (mode 0: $0C00 flat, $07B0 slopes), indexed by $6A72
 $80:DCFD	0x005CFD	data	dat_bounce_min_frames	2	$0010; below this many frames since the last bounce the ball comes to rest
@@ -417,6 +423,7 @@ $82:8FF1	0x010FF1	code	sub_tile_edge	-	tiles $28-$2D; falls through to sub_apply
 $82:94D3	0x0114D3	code	sub_tile_tall_object	-	tile $02; a solid standing 3 height steps above the cell
 $82:98F8	0x0118F8	code	sub_tile_hazard	-	tiles $80-$8F and $98-$A1 (landing; $82:9940 rolling): the track shape, the cube test against object 76, the bounce; the penalty $82:9C8D queues a tomato -1 ($83:ABC5)
 $82:9CB5	0x011CB5	data	tbl_boost_delta	4	+512 / -512, the velocity deltas the $30-$3B boost panels add
+$82:9CBF	0x011CBF	code	sub_boost_hit	184	the boost panels rolled onto: N $9CBF, E $9CFC, S $9D39, W $9D76; a straight hit launches the panel's axis to +-1023 and sets $6A28, else +-64 on the panel's axis; docs/tiles.md
 $82:9DB3	0x011DB3	code	sub_tile_boost_n	36	tiles $30 $35 $38; vy += -512
 $82:9DD7	0x011DD7	code	sub_tile_boost_e	36	tiles $31 $37 $3A; vx += +512
 $82:9DFB	0x011DFB	code	sub_tile_boost_s	36	tiles $32 $34 $39; vy += +512
@@ -444,7 +451,10 @@ $82:B1CA	0x0131CA	code	sub_course_load_header	-	copy the 28-byte uncompressed ho
 $82:B20C	0x01320C	code	sub_course_load_grids	100	decompress course tables 1-4 (w*h grid layers) and table 10
 $82:B320	0x013320	code	sub_spawn_course_actors	-	load-time sweep of layer 2; looks each value up in tbl_tile_actor
 $82:B3AF	0x0133AF	code	sub_spawn_actor	-	A = actor id from tbl_tile_actor: spawns thread object type A via sub_thread_spawn_below at the cell ($6A82/$6A86); $8000 records the cell without spawning. Actor id == object type (emulated: all 232 holes)
+$82:B730	0x013730	code	sub_enemy_species_setup	134	once per enemy species on the hole (at most 8): VRAM slot in first-seen order, the part lists copied to the species' WRAM block ($82:B769), its tiles queued ($82:B8B6); docs/tiles.md "Actors"
+$82:BC59	0x013C59	code	sub_spawn_toggle_objects	126	objects 116-118 for the layer-2 counts of $58/$59, $5A/$5B, $5C/$5D; sets $6A2E, $6A2A, $69CA (the second value without the first); docs/courses.md
 $82:BCD7	0x013CD7	code	sub_hole_surface_gfx	58	at the hole's load: any $30-$3B -> ram_surface_kind 1, spawn object 112; else any $60-$6F -> 2, spawn object 113, gfx set A entry 2 (the water tiles); docs/courses.md
+$82:BD29	0x013D29	code	sub_spawn_panel_cycle	51	object 115 if any snap tile $18-$1B, else object 114 if any warp panel $B0-$B9: the panels' colour cycle; docs/courses.md
 $82:BD5C	0x013D5C	code	sub_sweep_warp	96	sub_spawn_course_actors' handler for a tile with no actor: a warp $B0-$B9 appends its cell to one of four lists, $B6FC/$B70E/$B720/$B732 (x) and +10 (y)
 $82:BDBC	0x013DBC	data	tbl_tile_actor	512	256 words, layer-2 byte -> actor id; $FFFF means no actor
 $82:C84E	0x01484E	code	loc_roll_state_by_spin	-	picks Kirby's rolling animation state 14, 16 or 15 from how far $6B54/$6B58 (0-12, centre 6) are from 6
@@ -462,10 +472,18 @@ $83:B9A5	0x01B9A5	code	sub_sound_room	266	SOUND ROOM handler. Loads song 0 on en
 $83:BAAF	0x01BAAF	data	tbl_sound_room_limits	4	two words compared at $83:BA6A: $007E FGM numbers (0-125), $0021 BGM numbers (0-32)
 $83:F985	0x01F985	code	sub_medal_award	-	after a 1P course result ($80:F528): if the medal flags rose (sub_medal_flags before/after), scene 15 with one of six congratulation texts ($83:FB02-$83:FD4F) and song $83
 $83:FADA	0x01FADA	tbl	tbl_medal_award_text	12	six text pointers for scene 15: a medal / silver or gold / gold for all courses, then the same for the extra courses ($83:FB02-$83:FD4F)
+$84:8160	0x020160	code	sub_obj111_outline	85	thread object 111: the outline walk ($84:81A3, palette 7 colour 15, $98:D3E6, 3 frames) and its hook $84:81B7 (palette 7 colour 1, $98:D4C8, 6 frames); docs/courses.md
+$84:8253	0x020253	code	sub_obj115_snap_panels	5	thread object 115: palette 6 colours 11-15 through $84:828B's sets, waiting 3 (4 frames a set); shares $84:825B with 114
+$84:8258	0x020258	code	sub_obj114_warp_panels	59	thread object 114: palette 6 colours 11-15 through $98:DCDA, DCE4, DCEE, DCD0 ($84:828B from phase 1), waiting 7 (8 frames a set)
 $84:8293	0x020293	code	sub_obj113_water	540	thread object 113, the water: installs the ripple hook $84:8533; while the ball sinks ($69DA) plays $98:C22E-$C282 to CGRAM $41 instead
 $84:84AF	0x0204AF	tbl	tbl_water_colours	66	33 words by ram_course_slot: bank $98 base of the water's three 7-colour sets (course 1: $98:E030); $84:84F1 is the table used while $7E:6A2E is set
 $84:8533	0x020533	code	sub_water_ripple	67	object 113's per-frame hook: every $84:8576[phase] = 8 frames phase = (phase+1)&3, 7 colours from base + $84:857E[phase] (0, $0E, 0, $1C) to CGRAM $41 (palette 4 colours 1-7); frozen while $7E:69CA is set (emulated: A B A C, 8 frames each, on course 1 hole 7)
-$84:876C	0x02076C	code	sub_obj112_boost_panels	185	thread object 112, the boost panels: palette 4 colours 1-4 from $98:C200, $C208, $C210, $C218 in turn, 3 frames each
+$84:876C	0x02076C	code	sub_obj112_boost_panels	104	thread object 112, the boost panels: palette 4 colours 1-4 from $98:C200, $C208, $C210, $C218 in turn, 4 frames each (waits 3); its hook $84:87D4 hums
+$84:87D4	0x0207D4	code	sub_obj112_hum	81	object 112's per-frame hook: while $6A28 and the probe tile $DA0A is a panel (mode != 5), music volume $82 and sound $15 every 34 frames; otherwise volume $FF, sound 0, $6A28 = 0; docs/courses.md
+$84:DD34	0x025D34	code	sub_hazard_frame_table	33	objects 76 and 77 at spawn: $5E1C = $84:DD55[tile - $80], $549C = $84:DD85[tile - $80]; docs/tiles.md
+$84:DD55	0x025D55	tbl	tbl_hazard_frame_tables	48	$89 frame tables by tile $80-$97: CCA7 x4, CCAB x4, CCAF x4, CCB3 x4 (76), CC47 CC5F CC77 CC8F twice (77)
+$85:9220	0x029220	tbl	tbl_enemy_first_list	24	type 73 by species: the first frame-list index into $89:C833
+$85:9238	0x029238	tbl	tbl_enemy_frame_code	24	type 73 by species: the per-frame code ($932A $40, $93AD $48, $9426 $49, $949D $4C, $952C the rest)
 $87:804C	0x03804C	code	sub_kirbyanim_start	57	A = descriptor in bank $87 (object, state variable, table): start a Kirby animation thread
 $87:808E	0x03808E	code	sub_kirbyanim_run	-	the third animation interpreter: per thread, jump to table[state] on a state change, else count down and resume
 $87:80F4	0x0380F4	ptr	tbl_kirbyanim_opcodes	90	45 opcode handlers, opcode = even byte; see tools/kirbyanim.py
@@ -525,4 +543,6 @@ $96:AA08	0x0B2A08	music	dat_spc_sampledir	324	sample directory -> SPC $0400; 80 
 $96:AB4E	0x0B2B4E	music	mus_song_06	3630	song id $84, first song in address order
 $98:9F96	0x0C1F96	music	mus_song_02	7274	song id $80, largest song (7270 bytes to SPC $6502)
 $98:C000	0x0C4000	data	pal_course	512	the course scene CGRAM image; BG sub-palettes 0-7, OBJ 8-15. Moved by sub_cgram_course
+$98:D4C8	0x0C54C8	tbl	tbl_glow_colours	8	object 111's hook $84:81B7: palette 7 colour 1 in the order 1 2 3 2 1 0, 6 frames a step (emulated)
+$98:DF64	0x0C5F64	tbl	tbl_course_palettes	2304	course 1's palette runs (see $80:D869); each course adds $120
 $98:E030	0x0C6030	data	pal_water_course1	42	course 1's water: three sets of 7 colours (A +0, B +$0E, C +$1C) for CGRAM $41

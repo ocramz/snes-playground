@@ -33,7 +33,7 @@
  *                 the RESULT card (see HOLEOUT_*)
  */
 import type { World } from 'koota';
-import { HoleFlow, HOLE_SONG } from '../traits/flow';
+import { HoleFlow } from '../traits/flow';
 import { Shot, METER_TOP } from '../traits/shot';
 import { Camera } from '../traits/camera';
 import { Pose, PoseState, BallScreen, BallSprite, PRIO_OVER } from '../traits/pose';
@@ -170,7 +170,7 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
       }
       return;
     case 'Respawn':
-      if (t === RESPAWN_SONG_AT) emitEvent(world, 'song', HOLE_SONG);
+      if (t === RESPAWN_SONG_AT) emitEvent(world, 'song', holeSong(world)); // $82:B0E8 -> $80:C967
       if (t === RESPAWN_LIFE_AT) loseLife(world);
       if (t >= REFILL_FIRST && t < REFILL_FIRST + REFILL_STEP * REFILL_TRIES && (t - REFILL_FIRST) % REFILL_STEP === 0) {
         changeTomatoes(world, 1);
@@ -199,6 +199,12 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
  * arrives, then pose 11 and the wait; at its end the set-up resumes at its
  * second frame ($80:C4FF). `length` holds the wait, then its end.
  */
+/** The hole's song ($80:C967: `$80:C99D`[course] -> [hole]), from the session's course list. */
+function holeSong(world: World): number {
+  const s = world.get(Session)!;
+  return s.courses[s.holeIndex].song;
+}
+
 function tired(world: World, t: number): void {
   const flow = world.get(HoleFlow)!;
   const e = ball(world);
@@ -235,7 +241,7 @@ function outOfTomatoes(world: World, t: number): void {
     emitEvent(world, 'song', 0x8f - 0x7e); // song $8F + object $BE (Kirby asleep)
   }
   if (t === OOT_SLEEP_END) {
-    emitEvent(world, 'song', HOLE_SONG); // $82:E25F
+    emitEvent(world, 'song', holeSong(world)); // $82:E25B -> $80:C967
     if (world.get(Career)!.lives === 0) {
       enterGameOver(world); // $80:F3B5
       return;

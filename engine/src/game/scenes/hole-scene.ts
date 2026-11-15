@@ -109,7 +109,8 @@ export class HoleScene extends Phaser.Scene {
     this.views = new ViewRegistry(this, host, VIEW_CATALOG);
     primeBindings(world);
     this.director = new CutsceneDirector(host.assets.cutscenes, () => this.anchors(world, course));
-    if (host.flags.nointro || !this.director.startIntro()) host.audio?.playSong(hole?.song ?? 0);
+    const song = hole?.data.song;
+    if (host.flags.nointro || !this.director.startIntro(song)) host.audio?.playSong(song ?? 0);
     this.controls = new Controls(this.input.keyboard);
     this.disposables.add(() => this.controls.dispose());
     this.p = {
@@ -279,6 +280,16 @@ export class HoleScene extends Phaser.Scene {
       panel: this.p.panel,
       director: this.director,
       phase: (): string => world.get(HoleFlow)!.phase,
+      hole: (): { set: string | null; holeIndex: number; rom: number | null; name: string; song: number } => {
+        const h = this.holeAssets(world);
+        return {
+          set: this.host.set?.id ?? null,
+          holeIndex: world.get(Session)!.holeIndex,
+          rom: h?.layersOf ?? null,
+          name: h?.data.name ?? '',
+          song: h?.data.song ?? 0,
+        };
+      },
       frame: (): number => world.get(Time)!.frame,
       scroll: (): { x: number; y: number } => ({ x: this.cameras.main.scrollX, y: this.cameras.main.scrollY }),
       kirby: () => {

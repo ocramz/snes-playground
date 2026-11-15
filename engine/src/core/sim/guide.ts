@@ -54,6 +54,9 @@ export interface GuideResult {
    * first steps — start from this value. The caller writes it back.
    */
   wallCode: number;
+  /** $6A28 and $DA0A as the guide left them (written back for the boost hum, systems/boost-hum.ts). */
+  boostFlash: number;
+  tile: number;
 }
 
 /** $81:AA3E: the step limit by shot kind. */
@@ -86,7 +89,7 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
   w.z = w.ground; // $81:BB3D
   copyPrev(w); // $81:8751
 
-  const out: GuideResult = { points: [], ends: [], steps: 0, wallCode: 0 };
+  const out: GuideResult = { points: [], ends: [], steps: 0, wallCode: 0, boostFlash: 0, tile: 0 };
   let max = MAX_STEPS[Math.min(2, Math.max(0, shot.kind))];
   let dotIn = 1; // $6AD4
   let gapPending: GuideEnd | null = null; // $6AD0 and the slot $81:AC3D saved
@@ -178,6 +181,8 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
     }
   }
   out.wallCode = w.wallCode;
+  out.boostFlash = w.boostFlash;
+  out.tile = w.tile;
   return out;
 }
 

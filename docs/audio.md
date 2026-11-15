@@ -648,13 +648,38 @@ That gives 21 songs at least one fixed caller. Of the other 12 (songs 3,
 
   Course 1 is entry 0: songs 11, 11, 11, 11, 7, 7, 7, 13. Every list but
   the all-27 one ends with 13 (`$8B`), and the lists use exactly songs 6-14
-  and 27. Which `$6A5C` each other course or mode has is not measured.
+  and 27.
 
-  *Emulated* on the course-1 autoplay replay (`--log-pc '$80:C999'`):
-  * `$89` (song 11) at the start of holes 1-4, `$85` (7) at holes 5-7 and
-    `$8B` (13) at hole 8;
-  * each twice: from the hole's start (`$80:C499`) and 13 frames later
-    (`$82:B0E8`).
+  `$6A5C` is the course slot the map sets, 2 × course: every `wram.bin` of
+  the autoplay runs that pick the course on the map (`game`, `game2`,
+  `game4`, `extra`) has it for courses 0-15, and `two_player` for course
+  16. A poke of `$6A5A` alone (`tools/snesstep/holes.py`, most poked runs)
+  leaves it at 0, and those runs play course 1's list on every course
+  (notes/port-v2-phase1-courses.md). So the list of course c is entry c:
+
+  | course | holes 1-8 |
+  |---|---|
+  | 1 | 11 11 11 11 7 7 7 13 |
+  | 2 | 6 ×7, 13 |
+  | 3 | 11 ×7, 13 |
+  | 4 | 14 ×7, 13 |
+  | 5 | 10 10 10 10 8 8 8 13 |
+  | 6 | 9 ×7, 13 |
+  | 7 | 10 10 11 11 6 6 6 13 |
+  | 8 | 12 ×7, 13 |
+
+  *Emulated:*
+  * on the course-1 autoplay replay (`--log-pc '$80:C999'`): `$89` (song
+    11) at the start of holes 1-4, `$85` (7) at holes 5-7 and `$8B` (13)
+    at hole 8, each twice: from the hole's start (`$80:C499`) and 13 frames
+    later (`$82:B0E8`);
+  * on the whole game, `build/emu/autoplay/game` replayed for 186000 frames
+    with the same log: its 64 holes request exactly the table above (the
+    first at frames 2169, 4009 … 108364), with no poke of `$6A5C`;
+  * holes 4, 5 and 8 of courses 2-8 poked with `$6A5C` as well.
+
+  The engine exports each hole's song in course.json (`song`) and plays it
+  (docs/engine.md); `tools/web_audio_map.json` carries songs 6-14.
 
   The same routine restarts the song after a lost ball (`$82:B0E8`) and when
   Kirby wakes after running out of tomatoes (`$82:E25B`;
