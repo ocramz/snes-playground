@@ -34,9 +34,11 @@ const DISCRETE = [
   'tom', 'lives', 'strokes', 'stars', 'holed', 'tqw', 'tqr', 'card0',
   // Kirby's OAM priority $D96A ($82:F4FD): 1 from the fall below z 0 to the reset
   'prio',
+  // port_v2 phase 4: the block's $D872, in the water
+  'wet',
 ];
 
-const RUNS: Array<{ name: string; from: number; to: number; camTo?: number }> = [
+const RUNS: Array<{ name: string; from: number; to: number; camTo?: number; hole?: number }> = [
   { name: 'web_flow', from: 2333, to: 3530 },
   { name: 'web_ui', from: 2333, to: 3300 },
   { name: 'web_fly', from: 2333, to: 3915 },
@@ -50,6 +52,9 @@ const RUNS: Array<{ name: string; from: number; to: number; camTo?: number }> = 
   // four weak shots: the tired pose at 2 and 1 tomatoes, the out-of-tomatoes
   // path, the life, the refill, the fifth set-up (4056)
   { name: 'web_tomatoes', from: 2333, to: 4070 },
+  // course 1 hole 7: a fly shot into the pond, the set-up and the aim in the
+  // water (the guide from it), a fly shot out through the surface
+  { name: 'web_water_shot', from: 2333, to: 3640, hole: 6 },
 ];
 
 /** The game's changes of one field inside the window must be found, in
@@ -108,10 +113,10 @@ function cameraWorst(game: FlowEvent[], engine: FlowEvent[], name: string, from:
 }
 
 describe.skipIf(!haveRules || !haveRomTest)('the flow vs the recorded game', () => {
-  for (const { name, from, to, camTo } of RUNS) {
+  for (const { name, from, to, camTo, hole } of RUNS) {
     const want = loadFlow(name);
     describe.skipIf(!want)(name, () => {
-      const run = want ? runFlowScript(name, to - GAME_OFFSET + 3) : null;
+      const run = want ? runFlowScript(name, to - GAME_OFFSET + 3, { hole }) : null;
 
       for (const field of DISCRETE) {
         it(field, () => {

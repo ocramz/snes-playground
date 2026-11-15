@@ -10,6 +10,8 @@ $70:021A	-	ram	ram_sram_medals	64	save slot (X = slot x 64): medal value (low 2 
 $7E:004F	-	ram	ram_joy_held	2	joypad 1 buttons held, read by $80:82D3 with D=0 (emulated)
 $7E:0057	-	ram	ram_joy_repeat	2	joypad 1 with auto-repeat (emulated)
 $7E:005F	-	ram	ram_joy_pressed	2	joypad 1 newly pressed this frame (emulated)
+$7E:0079	-	ram	ram_rng_a	2	the random state, word ($80:87DD); with ram_rng_b. Power-on 0701 ($80:BF9E)
+$7E:007B	-	ram	ram_rng_b	2	the random state, its low byte feeds back ($80:87DD); power-on 01 ($80:BF98)
 $7E:0400	-	ram	ram_cgram_stage	512	CGRAM staging image; BG palettes at +$000, OBJ (sprite) palettes at +$100. DMA'd by sub_dma_cgram
 $7E:0600	-	ram	ram_oam_buffer	544	OAM buffer (low table $0600, high $0800); DMA'd to OAM by $80:82CA in NMI
 $7E:086C	-	ram	ram_obj_list_head	2	head of the active object linked list; negative = empty. Read by sub_obj_tick_all
@@ -75,6 +77,13 @@ $7E:6860	-	ram	ram_kanim_table	16	Kirby animation threads: address of the state 
 $7E:6870	-	ram	ram_kanim_pc	16	Kirby animation threads: script PC (bank $87)
 $7E:6880	-	ram	ram_kanim_wait	16	Kirby animation threads: frames left to wait
 $7E:699A	-	ram	ram_snap_keep	2	object 61's keep-alive, shared by every live 61: $FFFF at each of its bursts ($85:CF30), cleared by every snap push ($82:A5F7); a 61 that finds it set after its 8 ticks exits
+$7E:69CA	-	ram	ram_water_off	2	the water $60-$6F is plain ground: the load sets it for $5D without $5C ($82:BC59); the handlers, $82:C85F and object 113 test it; docs/tiles.md "Water"
+$7E:69CC	-	ram	ram_water_region	2	$82:83DD's result: 0 dry, 1 shallow, 2 deep
+$7E:69CE	-	ram	ram_water_level	4	the level over the probe cell, 32-bit ($82:83B9); the guide zeroes it every step ($81:AF82)
+$7E:69D2	-	ram	ram_water_ground	6	the ground (32-bit) and surface code the water handlers found ($82:80FF); the ground projection reads them on water ($81:A4B7)
+$7E:69D8	-	ram	ram_water_ride	2	1 while the ball rides the level (modes 6, 9, 10; $82:813F, $82:8053)
+$7E:69DA	-	ram	ram_water_iced	2	Freeze (mode 9) has iced the water ($82:819B); object 113 plays $98:C22E-$C282 while it is set
+$7E:69DC	-	ram	ram_water_skips	2	the skips left, $FFFF none ($82:8228; $82:8256 counts down)
 $7E:69DE	-	ram	ram_enemy_list	32	the hole's enemies: actor-record offsets (index x 2), ended by a negative word; with ram_actor_slot and ram_thr_owner gives the enemies left
 $7E:69FE	-	ram	ram_cup_slot	2	thread slot of the last enemy, the one that becomes the cup ($82:8AEE); $FFFF until then, reset per hole at $80:C188
 $7E:6A0A	-	ram	ram_cup_actor	2	actor-record offset of the cup (the last enemy); its cell is ram_actor_cell_x/_y at this offset. $FFFF until then
@@ -114,6 +123,7 @@ $7E:D7F0	-	ram	ram_kirby_health	2	Kirby's health (the tomatoes): 4 at the start 
 $7E:D7F4	-	ram	ram_lives	2	lives; at 0 after a hole the main flow takes the game-over path ($80:F387): GAME OVER and CONTINUE / GAME END, scene 9
 $7E:D85A	-	ram	ram_copy_ability	2	player 1's copy ability, 0 none, 1-10; Kirby animation state 8 switches on it
 $7E:D866	-	ram	ram_p_spin	12	per player, interleaved by $1803: spin x $D866, spin y $D86A, pending $D86E, saved at $81:C2C4
+$7E:D872	-	ram	ram_ball_wet	2	in the water, per player (X = $1803); the work copy is $D9EE ($82:F020 / $82:F1B0); set by the water handlers, cleared off $60-$6F by $81:87FB
 $7E:D95E	-	ram	ram_kirby_anim_index	2	Kirby's frame index as the animation scripts set it (player 2 $D960); copied to the script object's $0B7E by $82:F0F8 while the ball is in play
 $7E:D9B4	-	ram	ram_shot_aim	2	aim direction, degrees 0-359 (0 = +x, 90 = +y)
 $7E:D9B6	-	ram	ram_shot_elevation	2	launch elevation, degrees: 0 grounder ($81:B6BC), 60 fly shot ($81:B656), 65 Hi-Jump ($82:CC4F); non-zero also selects the fly-shot spin rules (emulated)
@@ -170,6 +180,7 @@ $80:8642	0x000642	code	sub_bg4_set	-	as sub_bg1_set for BG4
 $80:8696	0x000696	code	sub_vram_queue	80	queue 8-byte VRAM transfer records (terminated by $FFFF) into the ring at $7E:0200
 $80:86E6	0x0006E6	code	sub_vram_enqueue_one	130	copy one 8-byte record into the $7E:0200 ring, or DMA it directly when $7D is negative
 $80:875A	0x00075A	code	loc_vram_queue_dma	-	the DMA trigger that drains the $7E:0200 VRAM transfer ring (emulated)
+$80:87DD	0x0007DD	code	sub_random	56	JSL; A = a random byte from $0079/$007B through the multiplier; in a 1P hole only the bubbles ($85:E800, $85:E906) and the opening ($84:B871) call it. Ported: engine sim/rng.ts
 $80:8815	0x000815	data	tbl_edge_bitmask	8	01 02 04 08 10 20 40 80; entries 0-3 mask the layer-4 wall bits for N/E/S/W
 $80:8823	0x000823	code	sub_oam_reset_ptrs	61	set OAM buffer pointers ($2C=$0600 low, $2E/$32=$0800 high) and zero the 10 queue counts
 $80:8B02	0x000B02	code	sub_oam_enqueue	54	dispatch on $7E:2880 to one of 10 OAM priority queues; A=frame list ptr, X=screen X, Y=screen Y
@@ -232,6 +243,7 @@ $80:9F18	0x001F18	code	sub_hal_decompress	286	HAL LZ decompressor. A=src bank, X
 $80:A032	0x002032	code	sub_decompress_queue	-	queue an asset for the resumable decompressor; writes the $7E:531C..$579C arrays
 $80:A206	0x002206	code	sub_hal_decompress_resume	-	resumable variant of sub_hal_decompress; state in DP $AB/$AD/$AF, $B1 bytes per call
 $80:A342	0x002342	code	sub_mul_16x8	-	JSL; A * (signed low byte of X) through $211B/$211C -> $389E (24-bit); $389F = A*X/256
+$80:A367	0x002367	code	sub_mul_hi_unsigned	17	JSL; A >= $8000: the high word of (A unsigned x X signed); A < $8000 returns A. The water skim and bounce
 $80:A378	0x002378	code	sub_mul_16x16	-	JSL; signed A * X -> 32-bit $389E-$38A1; $38A0 = A*X/65536
 $80:A4B3	0x0024B3	code	sub_cos_deg	-	JSL; A = cos(A degrees), Q15, from $80:A656
 $80:A4BA	0x0024BA	code	sub_sin_deg	-	JSL; A = sin(A degrees), Q15, from tbl_sin_deg
@@ -410,6 +422,8 @@ $81:9EB9	0x009EB9	tbl	tbl_reflect_index	32	matrix index -> byte offset (index * 
 $81:9ED9	0x009ED9	tbl	tbl_reflect_matrix	234	13 Q15 3x3 Householder reflections: flat, 4 ramps, 4 diagonals, 4 wall edges (emulated: flat and ramp)
 $81:A804	0x00A804	code	loc_aim_state	-	sets Kirby's animation state 4/5 (aiming, looking around) during the aiming stage
 $81:AF82	0x00AF82	code	sub_guide_step	-	shot guide: a copy of the physics step run while aiming to predict the path; $6AC6 = point kind (unconfirmed)
+$81:B0C4	0x00B0C4	code	loc_guide_land_tile	-	the guide's landing tile test ($81:B455 class): the water's own model ($81:B0D3-$81:B19C): in the water drag or out, dry over the region land on the level with code 0
+$81:B285	0x00B285	code	loc_guide_roll_tile	-	the guide's rolling tile test: the water started in (the block's $D872) drags in the region; dry, the ground becomes the level, code 0
 $81:BA0B	0x00BA0B	code	sub_launch_velocity	-	JSL; vz = P sin e, h = P cos e, vx = h cos(aim), vy = h sin(aim); P = $6ADC (entry $81:BA0E with A = P), e = $D9B6 (emulated)
 $81:C12E	0x00C12E	code	sub_spin_side_input	-	JSR; Left/Right move $6B50 every 8 frames; in a fly shot also steps $6B52 (6->0->12->0)
 $81:C1D5	0x00C1D5	code	sub_shot_spin	273	JSR; $D9CC/$D9CE/$D9D0 from $6B50/$6B52, power and aim: grounder curve or fly-shot impulse (emulated)
@@ -418,7 +432,19 @@ $81:C7AF	0x00C7AF	code	sub_medal_flags	54	ram_medal_flags from every save slot (
 $81:E0C7	0x00E0C7	tbl	tbl_name_entry_zones	-	name entry: cursor hit zones (CLR x 4-$15 y $38-$45, OK x $28-$3B), read by $81:DFD9
 $81:F6B6	0x00F6B6	code	sub_members_ranking	-	members list option RANKING (jump table $81:FC23, $EAB5 = 3): the per-course ranking table; A on an entry -> sub_ranking_result_card
 $81:F92B	0x00F92B	code	sub_ranking_result_card	-	scene 3: the chosen ranking entry's per-hole RESULT card over its course's scenery; A or B returns to the table (scene 2)
-$82:80F6	0x0100F6	code	sub_tile_surface_overlay	-	tiles $60-$6F, the water; tracks entering and leaving in $69CA/$69D2-$69DA
+$82:8000	0x010000	code	sub_tile_water_hit	246	tiles $60-$6F rolled onto: from dry ground the ball drops in (vz 0, air 1); in the water the x/y drag or out of the region; else the entry; docs/tiles.md "Water"
+$82:80F6	0x0100F6	code	sub_tile_water_land	-	tiles $60-$6F landed on: in the water the drag or out at the level; dry in the region under the level a skip, a bounce, a skim, or the entry (/ 2 or / 8, $D9EE, splash, bubbles, $49/$4C, one frozen frame); docs/tiles.md "Water"
+$82:8228	0x010228	code	sub_water_skip_count	46	$69DC from the spin and |$6B58 - 6|: -1, 1 or 2
+$82:8256	0x010256	code	sub_water_skip	206	a skip along the heading ($82:8324-$8336 by count and spin), or at count 0 with A/Y armed the bounce by $82:8340 (vx, vz; vy kept: the routine drops $833C); SEC when it left the water
+$82:8324	0x010324	data	tbl_water_skip	32	skip speed and vz by count: topspin $8324/$832A, backspin $8330/$8336; then the modifier bounce $833C (unused), $8340
+$82:8344	0x010344	code	sub_water_drag_xy	42	v -= v x $80:DD6B / 256, x and y
+$82:836E	0x01036E	code	sub_water_drag	61	v -= v x $80:DD69 / 256, three axes
+$82:83B9	0x0103B9	code	sub_water_level	36	$69CE:$69D0 = $88:8000/$88:80C8[elev, +1 on $61] + $57AD
+$82:83DD	0x0103DD	code	sub_water_region	254	$69CC by tile and fractions: $61 deep; rims deep under $E000; corners shallow in [$E000, $F000); $60/$62/$63 hang
+$82:84DB	0x0104DB	code	sub_water_skim	174	|vz| < $980 and |vx|+|vy| >= $7C0: vx, vy x $E180 (or $82:8589[$DA76]), vz x -$E800, on the level; object 54/53, sound $48
+$82:858D	0x01058D	code	sub_water_entry_slow	80	velocities / 2 (A = 1, shallow) or / 8 toward zero (deep)
+$82:85DD	0x0105DD	code	sub_water_bubbles	39	two object 67s, $539C = 4 and 12
+$82:8604	0x010604	code	sub_water_splash	74	a splash by |vz| (object 57 from $1F0, 56 from $110, else 55) and Kirby palette 0 colours 2-8 from $82:864E/$8652[$D9EE] via sub_cgram_partial
 $82:8967	0x010967	code	sub_tile_actor_land	-	tiles $40-$52 and $57; the per-hole actors. sub_enemy_hit_test, then once per pass (ram_enemy_hit_latch) sub_enemy_hit
 $82:8990	0x010990	code	sub_enemy_hit_test	-	ball in the middle half of the cell (fractions $4000-$BFFF) and, if airborne, between H - $2D41 and H + $5A82 above the ground, H = ram_thr_height_class steps; A = 1 for a hit. Emulated: course 5 hole 6
 $82:8A2E	0x010A2E	code	sub_enemy_hit	-	the enemy in the ball's cell ($ABB8,$D9FC -> record -> slot): untaken -> loc_enemy_taken, else a 2P steal ($82:8B0F)
@@ -487,17 +513,20 @@ $83:FADA	0x01FADA	tbl	tbl_medal_award_text	12	six text pointers for scene 15: a 
 $84:8160	0x020160	code	sub_obj111_outline	85	thread object 111: the outline walk ($84:81A3, palette 7 colour 15, $98:D3E6, 3 frames) and its hook $84:81B7 (palette 7 colour 1, $98:D4C8, 6 frames); docs/courses.md
 $84:8253	0x020253	code	sub_obj115_snap_panels	5	thread object 115: palette 6 colours 11-15 through $84:828B's sets, waiting 3 (4 frames a set); shares $84:825B with 114
 $84:8258	0x020258	code	sub_obj114_warp_panels	59	thread object 114: palette 6 colours 11-15 through $98:DCDA, DCE4, DCEE, DCD0 ($84:828B from phase 1), waiting 7 (8 frames a set)
-$84:8293	0x020293	code	sub_obj113_water	540	thread object 113, the water: installs the ripple hook $84:8533; while the ball sinks ($69DA) plays $98:C22E-$C282 to CGRAM $41 instead
+$84:8293	0x020293	code	sub_obj113_water	540	thread object 113, the water: installs the ripple hook $84:8533; while the water is iced ($69DA, Freeze) plays $98:C22E-$C282 to CGRAM $41 instead
 $84:84AF	0x0204AF	tbl	tbl_water_colours	66	33 words by ram_course_slot: bank $98 base of the water's three 7-colour sets (course 1: $98:E030); $84:84F1 is the table used while $7E:6A2E is set
 $84:8533	0x020533	code	sub_water_ripple	67	object 113's per-frame hook: every $84:8576[phase] = 8 frames phase = (phase+1)&3, 7 colours from base + $84:857E[phase] (0, $0E, 0, $1C) to CGRAM $41 (palette 4 colours 1-7); frozen while $7E:69CA is set (emulated: A B A C, 8 frames each, on course 1 hole 7)
 $84:876C	0x02076C	code	sub_obj112_boost_panels	104	thread object 112, the boost panels: palette 4 colours 1-4 from $98:C200, $C208, $C210, $C218 in turn, 4 frames each (waits 3); its hook $84:87D4 hums
 $84:87D4	0x0207D4	code	sub_obj112_hum	81	object 112's per-frame hook: while $6A28 and the probe tile $DA0A is a panel (mode != 5), music volume $82 and sound $15 every 34 frames; otherwise volume $FF, sound 0, $6A28 = 0; docs/courses.md
+$84:9A38	0x021A38	code	loc_kirby_outline	-	a thread hook's store of Kirby's outline, palette 0 colour 7, every frame: $98:D4A8[$84:9DDB[...]], $0C63 in mode 0 and in the water
 $84:DD34	0x025D34	code	sub_hazard_frame_table	33	objects 76 and 77 at spawn: $5E1C = $84:DD55[tile - $80], $549C = $84:DD85[tile - $80]; docs/tiles.md
 $84:DD55	0x025D55	tbl	tbl_hazard_frame_tables	48	$89 frame tables by tile $80-$97: CCA7 x4, CCAB x4, CCAF x4, CCB3 x4 (76), CC47 CC5F CC77 CC8F twice (77)
+$85:8E5A	0x028E5A	code	sub_obj053_splash	418	objects 53-58 ($8E5A, $8E96, $8EE7, $8F3D, $8F2D, $8F8C): the water splashes, table $89:94DB; docs/animation.md
 $85:9220	0x029220	tbl	tbl_enemy_first_list	24	type 73 by species: the first frame-list index into $89:C833
 $85:9238	0x029238	tbl	tbl_enemy_frame_code	24	type 73 by species: the per-frame code ($932A $40, $93AD $48, $9426 $49, $949D $4C, $952C the rest)
 $85:CF2D	0x02CF2D	code	sub_obj61_snap_spawner	180	thread object 61, never drawn: every 8 ticks while a snap push clears ram_snap_keep, a burst ($85:CF4E): 4 object 62s at Kirby's point when the tile is a snap and the velocity is along its arrow
 $85:CFE1	0x02CFE1	code	sub_obj62_snap_star	-	thread object 62, a snap star: sub_obj2_motion_clear, then one of 64 scripts by $589C (heading) and $531C (variant), $85:D027-$E08D: JSR $1104, JSR $1030, table $89:9485
+$85:E76B	0x02E76B	code	sub_obj067_bubbles	708	object 67, the bubble emitter: random offsets and waits ($80:87DD), from Kirby's head while he stands; exits once $D872 clears
 $87:804C	0x03804C	code	sub_kirbyanim_start	57	A = descriptor in bank $87 (object, state variable, table): start a Kirby animation thread
 $87:808E	0x03808E	code	sub_kirbyanim_run	-	the third animation interpreter: per thread, jump to table[state] on a state change, else count down and resume
 $87:80F4	0x0380F4	ptr	tbl_kirbyanim_opcodes	90	45 opcode handlers, opcode = even byte; see tools/kirbyanim.py
@@ -557,6 +586,7 @@ $96:AA08	0x0B2A08	music	dat_spc_sampledir	324	sample directory -> SPC $0400; 80 
 $96:AB4E	0x0B2B4E	music	mus_song_06	3630	song id $84, first song in address order
 $98:9F96	0x0C1F96	music	mus_song_02	7274	song id $80, largest song (7270 bytes to SPC $6502)
 $98:C000	0x0C4000	data	pal_course	512	the course scene CGRAM image; BG sub-palettes 0-7, OBJ 8-15. Moved by sub_cgram_course
+$98:C77A	0x0C477A	data	pal_kirby_dry_wet	56	Kirby's palette 0 colours 2-8: P1 dry $C77A, P2 dry $C788, P1 wet $C796, P2 wet $C7A4
 $98:D4C8	0x0C54C8	tbl	tbl_glow_colours	8	object 111's hook $84:81B7: palette 7 colour 1 in the order 1 2 3 2 1 0, 6 frames a step (emulated)
 $98:DF64	0x0C5F64	tbl	tbl_course_palettes	2304	course 1's palette runs (see $80:D869); each course adds $120
 $98:E030	0x0C6030	data	pal_water_course1	42	course 1's water: three sets of 7 colours (A +0, B +$0E, C +$1C) for CGRAM $41

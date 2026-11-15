@@ -4,7 +4,7 @@
  * return value routes the step: `landing` / `rolling` continue into the
  * default chain (optionally from its midpoint), `done` ends the dispatch.
  *
- * Five groups are stubbed with the reason in `stubbed`: their ROM helpers
+ * Some groups are stubbed with the reason in `stubbed`: their ROM helpers
  * reach the thread-object system or undocumented tables. They are excluded
  * from the exact trace tests per plans risk 5 and listed in docs/engine.md.
  * Every other group is a port of the disassembly.
@@ -20,6 +20,7 @@ import { enemyDispatch } from './enemy';
 import { bumperLand, bumperHitSide, bobLand, bobHitSide, volcanoLand, volcanoHitSide, hazard05 } from './hazards';
 import { rotateBy, turnToDir } from './turn';
 import { warpLand, warpHit } from './warp';
+import { waterLand, waterHit } from './water';
 import { LANDING, ROLLING, DONE, type DispatchOutcome } from './types';
 export type { DispatchOutcome };
 
@@ -93,6 +94,8 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
       return enemyDispatch(ctx, w);
     case 'warp':
       return warpLand(ctx, w);
+    case 'overlay':
+      return waterLand(ctx, w, _modifier); // $82:80F6
     default:
       return stubbed(ctx.rules.landHandler(w.tile), LANDING);
   }
@@ -159,6 +162,8 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
       return ROLLING;
     case 'warpHit':
       return warpHit(ctx, w);
+    case 'overlayHit':
+      return waterHit(ctx, w); // $82:8000
     default:
       return stubbed(ctx.rules.hitHandler(w.tile), ROLLING);
   }
@@ -168,8 +173,7 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
  * The stubbed groups, with the reason each is out of phase 4's reach:
  * - toggle70-7B (+hits): the gate reads the direction map at $88:9190
  *   ($82:A086) and applies via $82:A0D9/$82:A0F9 — not read.
- * - overlay ($60-$6F, +hits): enter/leave tracking ($82:80F6) — not read;
- *   the $D9EE flag itself IS ported (the $82:C85F probe wrapper).
+ * (The water $60-$6F is ported in port_v2 phase 4: water.ts.)
  * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
  * - unk58/unk5a/unk5c (+hits): handlers located, not read
  *   (docs/tiles.md "Not established"). (The warps $B0-$B9 are ported:

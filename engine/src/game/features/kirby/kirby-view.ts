@@ -13,6 +13,11 @@
  * is cut off below the rim (`setCut`); in a warp his sprite is off while the
  * warp's objects take his place (features/warp).
  *
+ * In the water his OBJ palette 0 is the wet set (core's `KirbyPalette`,
+ * `$82:8604`): every clip frame has a twin `<frame>_w` drawn with it
+ * (tools/kirbyanim.py `wet_palettes`), which replaces the frame the clip
+ * shows, on each of its updates and when the palette changes.
+ *
  * Kirby's OAM priority is the core's `BallSprite.prio` ($D96A, `$82:F4FD`):
  * at 3 he sorts with the other actors (sync-depth); at 1 or 2 he is behind
  * the course, under both of its layers or under the front one only
@@ -27,6 +32,7 @@ import { BallScreen, BallSprite, Pose, PRIO_OVER } from '../../../core/traits/po
 import { Tomatoes } from '../../../core/traits/counters';
 import { HoleFlow } from '../../../core/traits/flow';
 import { Warp } from '../../../core/traits/warp';
+import { KirbyPalette } from '../../../core/traits/water';
 import { kirbyPoint, worldOf } from '../../bridge/placement';
 import type { View, ViewCtx } from '../../bridge/view';
 import { kirbyDepth, shadowShown } from './sprite-rules';
@@ -46,10 +52,22 @@ export class KirbyView implements View {
   private lastTimer = 0;
   /** $D96A as of the last `place`. */
   private prio = PRIO_OVER;
+  /** Kirby's palette as of the last `place`: 1 wet. */
+  private wet = 0;
 
   constructor(scene: Phaser.Scene) {
     this.sprite = scene.add.sprite(0, 0, Tex.atlas).setVisible(false);
     this.shadow = scene.add.image(0, 0, Tex.atlas, SHADOW_FRAME).setVisible(false);
+    this.sprite.on(Phaser.Animations.Events.ANIMATION_START, this.applyPalette, this);
+    this.sprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, this.applyPalette, this);
+  }
+
+  /** The frame shown, as its dry or wet twin. */
+  private applyPalette(): void {
+    const name = String(this.sprite.frame.name);
+    const dry = name.endsWith('_w') ? name.slice(0, -2) : name;
+    const want = this.wet !== 0 ? dry + '_w' : dry;
+    if (want !== name && this.sprite.texture.has(want)) this.sprite.setFrame(want, false, false);
   }
 
   place(ctx: ViewCtx, e: Entity): number | null {
@@ -68,6 +86,11 @@ export class KirbyView implements View {
       this.shadow.setVisible(false);
     }
     this.prio = e.get(BallSprite)!.prio;
+    const wet = e.get(KirbyPalette)?.wet ?? 0;
+    if (wet !== this.wet) {
+      this.wet = wet;
+      this.applyPalette();
+    }
     const shown = this.clip !== null && !hidden;
     this.sprite.setVisible(shown);
     return shown ? p.y : null;
@@ -129,6 +152,7 @@ export class KirbyView implements View {
     if (!this.sprite.scene.anims.exists(clip)) return;
     this.clip = clip;
     playClip(this.sprite, clip);
+    this.applyPalette();
   }
 
   /** The actor band's depth at priority 3; under the course's layers at 1 or 2. */

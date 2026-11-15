@@ -41,6 +41,12 @@ from a per-course list by hole: on course 1, songs 11, 11, 11, 11, 7, 7, 7 and
 - **The target** is the free enemy nearest the ball (`$82:8E41`), by the squared distance of the 8.8 positions; a tie goes to the first in the enemy list. From hole 1's tee, (8,3) and (6,5) tie and (8,3) wins (dis., stepper watch). Once the cup is revealed, the target is the cup's centre (`$82:8B5C`; physics.md "Enemies and the cup").
 - `$80:C5F1` and the head of `$81:A619` follow. The aim loop starts on the set-up's fourth frame.
 - `$80:C60A` stores pose 4 through an X that the calls before it leave. No flow trace shows a state change from it; the first aim iteration sets 4 or 5.
+- **From the water** (web_water_shot, course 1 hole 7: the second set-up at 2942 with the ball on the pond's bed). Nothing in the set-up or the shot changes:
+  - `$80:C670` copies the block's in-the-water flag `$D872` into the work copy's `$D9EE`;
+  - the guide starts from it (`$81:A9D6`) and draws its pictures from the water;
+  - Kirby stands in his wet palette, and the bubbles (object 67) rise from his head by his facing while `$D842` is set, from the set-up to the roll's start ([animation.md](animation.md) "The water's objects").
+
+  The ball leaves through the surface (3176, `$49`) or over the rim ([tiles.md](tiles.md) "Water").
 - **Tired** (`$80:C79A`): at the turn top with 1 or 2 tomatoes left, these come before the set-up's `$80:C4FF`:
   1. the turn's load;
   2. a pan toward Kirby (`$80:C8A8`: a frame, then `$81:BA8A` each frame until it arrives);

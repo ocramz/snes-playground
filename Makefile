@@ -78,7 +78,7 @@ $(AUDIO): build/spc/songs/summary.tsv | $(SPCRENDER)
 $(HUD): | $(SNESSTEP)
 	$(PYTHON) tools/snesstep/screens.py
 
-$(CLIPS): | $(SNESSTEP)
+$(CLIPS): tools/kirbyanim.py | $(SNESSTEP)
 	$(PYTHON) tools/kirbyanim.py --make-base
 	$(PYTHON) tools/kirbyanim.py --clips
 
@@ -160,7 +160,10 @@ build/engine/assets/holes/%/layers.json: $(ENGINE_HOLE_DEPS)
 
 build/engine/assets/holes/000/layers.json: $(CUTSCENE) tools/export_web_sprites.py
 
+# the water's objects and the guide's wet pictures are drawn from snapshots of
+# web_water_shot (export_web_sprites.py, build/emu/water_ref)
 $(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) $(ENGINE_OBJ) tools/web_audio_map.json \
+                  tools/snesstep/inputs/web_water_shot.txt \
                   tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py \
                   tools/terrain_style.py $(ENGINE_HOLE_LAYERS) $(ENGINE_SPECIES) | $(SNESSTEP)
 ifeq ($(CUTSCENE),)

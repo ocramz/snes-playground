@@ -117,6 +117,10 @@ python3 tools/snesstep/trace_ball.py all  # recorded shots -> build/web-test/tra
 python3 tools/snesstep/trace_flow.py web_flow --frames 4700   # Kirby's state, aim, camera, meter per frame
 python3 tools/snesstep/trace_actors.py web_haz98 --frames 3000  # hazard actors' thread slots per frame -> actors_*.json
 python3 tools/snesstep/trace_actors.py web_snap --types 61,62 --frames 2700   # the snap stars' slots, and each slot's exit
+python3 tools/snesstep/trace_actors.py web_water_drop --types 53,54,55,56,57,58,67 --frames 2900   # the water's splashes and bubbles
+#   trace_ball.py also records the block's `wet` ($D872); trace_flow.py `wet`, `pal`
+#   (Kirby's palette, the CGRAM shadow $7E:0504), `skips` ($69DC) and the random
+#   state `rnga`/`rngb` ($0079/$007B), which the engine's water tests seed from
 #   (all three read tools/snesstep/inputs/<name>.pokes when it exists; the
 #   engine's fixtures: `make engine-traces`, into build/engine/rom-test/)
 python3 tools/snesstep/trace_cutscene.py   # hole 1's intro and hole-outs, every frame -> build/web-test/cutscene_hole0.json
@@ -203,6 +207,8 @@ python3 tools/ppu_render.py build/emu/x/f003100 -o x.png --layers x_layers
 python3 tools/snesstep/oracles.py all        # emulator vs the static facts
 python3 tools/snesstep/screens.py            # every reachable screen -> build/screens/
 python3 tools/snesstep/holes.py              # play all 232 holes (~25 min)
+python3 tools/snesstep/holes.py --holes none --script web_water_drop:2478-2520 \
+    --script web_water_shallow:2466-2500   # an input script's frames into the same sheets
 python3 tools/snesstep/demos.py              # the 20 DEMOPLAY SELECT demos
 python3 tools/emusheets.py --cache build/emu/holes/emusheets.pickle \
     --merge build/emu/demos/emusheets.pickle --out build/sprites/emu

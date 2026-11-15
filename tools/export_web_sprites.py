@@ -32,6 +32,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+from lorom import snes_to_file  # noqa: E402
+
 STEPPER = os.path.join(ROOT, "build", "snesstep", "release", "snesstep")
 # `python3 tools/snesstep/autoplay.py --course 0` writes build/emu/autoplay/course1
 # (a replay of course 1 played by the game's own rules); c1n is an older run of it.
@@ -180,6 +182,11 @@ def build(outdir):
             img = Image.open(os.path.join(KIRBY_CLIPS, fr["png"])).convert("RGBA")
             key = "k_" + os.path.splitext(os.path.basename(fr["png"]))[0]
             atlas.add(key, img, -fr["x"], -fr["y"], trim=False)
+            # in the water: OBJ palette 0 colours 2-8 from $98:C796 (kirbyanim.py
+            # `png_wet`); the view picks `<key>_w` while Kirby's palette is wet
+            if fr.get("png_wet"):
+                wet = Image.open(os.path.join(KIRBY_CLIPS, fr["png_wet"])).convert("RGBA")
+                atlas.add(key + "_w", wet, -fr["x"], -fr["y"], trim=False)
             seq.append({"f": key, "d": max(1, int(fr["duration"]))})
         clips[name] = {"frames": seq, "loop": bool(clip["loop"]),
                        "loopStart": clip["loop_start"] or 0,
@@ -285,6 +292,73 @@ OBJECT_SHEETS = os.path.join(ROOT, "build", "sprites", "emu")
 OBJECT_TYPES = (62, 63, 64, 76, 77, 81, 82, 83)
 
 
+# The water (port_v2 phase 4; docs/animation.md "The water's objects"): the
+# splashes 53-58 (frame table $89:94DB) and the bubbles 67 ($89:952B), drawn
+# here from the ROM's frame lists with a snapshot of web_water_shot (course 1
+# hole 7): the first shot in the air before the pond (2740). They use OBJ
+# palette 0, Kirby's, but only its colours 8-15, which the water's swap
+# (2-6 on screen, kirbyanim.py `wet_palettes`) leaves alone: drawn with the
+# wet snapshot (2850) they are the same pixels. The aim's OBJ page holds other
+# tiles where theirs are while the ball rolls (the shot panel's). Every frame
+# drawn is one emusheets saw on screen (build/sprites/emu/obj_053-058, 067).
+# The guide's pictures from the water ($81:ACDB / $81:ACF6 / $81:ADF6 with
+# $D9EE set) do use colours 2-6: export_web_ui.py draws them from the aim in
+# the pond (3000).
+WATER_REF = os.path.join(ROOT, "build", "emu", "water_ref")
+WATER_REF_DRY, WATER_REF_WET, WATER_REF_AIM = 2740, 2850, 3000
+WATER_OBJECTS = {53: (0x94DB, (3, 5)), 54: (0x94DB, (3, 4, 5)), 55: (0x94DB, (0, 1, 3)),
+                 56: (0x94DB, (0, 1, 2, 3)), 57: (0x94DB, (0, 1, 2, 3)),
+                 58: (0x94DB, (6, 7, 8, 9, 10, 11, 12)), 67: (0x952B, (0, 1, 2, 3))}
+
+
+def water_ref_snapshot(frame):
+    """The snapshot of web_water_shot at `frame` (made once, build/emu/water_ref)."""
+    import emusheets
+    path = os.path.join(WATER_REF, "f%06d" % frame)
+    if not os.path.isdir(path):
+        inputs = os.path.join(HERE, "snesstep", "inputs")
+        subprocess.run([STEPPER, "--frames", str(WATER_REF_AIM + 1),
+                        "--input", os.path.join(inputs, "web_water_shot.txt"),
+                        "--pokes", os.path.join(inputs, "web_water_shot.pokes"),
+                        "--snap-at", "{},{},{}".format(WATER_REF_DRY, WATER_REF_WET, WATER_REF_AIM),
+                        "--no-dsp", "--quiet", "--out", WATER_REF], check=True)
+    return emusheets.load_snapshot(path)
+
+
+def draw_list(snap, addr):
+    """One frame list of bank $89 drawn with a snapshot's OBJ page and CGRAM:
+    (image, ox, oy), the origin inside the image as sheet_frames gives it."""
+    import emusheets
+    import objsheets
+    import sprites
+    from romcheck import load_rom
+    rom = load_rom()
+    parts = objsheets.frame_parts(rom, addr)
+    box = sprites.frame_bbox(parts)
+    tiles = emusheets.obj_tiles(snap)
+    img = objsheets.draw(parts, {t: tiles[t] for t in objsheets.tiles_of(parts)},
+                         emusheets.obj_palettes(snap["cgram"]), box)
+    return img, -box[0], -box[1]
+
+
+def water_objects(atlas, objects):
+    """The water's objects into the objects atlas, `oTTT_0_II` as the sheets'."""
+    from romcheck import load_rom
+    rom = load_rom()
+    snap = water_ref_snapshot(WATER_REF_DRY)
+    for t, (table, indices) in WATER_OBJECTS.items():
+        frames = []
+        for i in indices:
+            off = snes_to_file(0x89, table + 2 * i)
+            addr = rom[off] | rom[off + 1] << 8
+            while len(frames) <= i:
+                frames.append(None)
+            img, ox, oy = draw_list(snap, addr)
+            frames[i] = atlas.add("o%03d_0_%02d" % (t, i), img, ox, oy, trim=False)
+        objects[str(t)] = {"tables": ["$89:%04X" % table], "frames": [frames],
+                           "source": "ROM frame lists, build/emu/water_ref"}
+
+
 def build_objects(outdir):
     """objects.png + objects.json: the emulated sheets of OBJECT_TYPES
     (build/sprites/emu/obj_NNN, tools/emusheets.py over every hole), packed like
@@ -316,6 +390,8 @@ def build_objects(outdir):
             row[f["index"]] = atlas.add("o%03d_%d_%02d" % (t, k, f["index"]), img, ox, oy)
         objects[str(t)] = {"tables": tables, "frames": frames,
                            "source": os.path.relpath(stem + ".json", ROOT)}
+    if os.path.exists(STEPPER):
+        water_objects(atlas, objects)
     if not objects:
         return None
     sheet, packed = atlas.pack()

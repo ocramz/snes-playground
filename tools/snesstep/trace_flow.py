@@ -20,6 +20,8 @@ flags) and writes the frames at which each one changes.
     $7E:D7F0  tomatoes   $7E:D7F4  lives   $7E:D82A  strokes + 1   $7E:6A10  stars
     $7E:DA4A  holed      $7E:69FE  the cup's slot   $7E:D80A  the card's hole 1
     $7E:68F6 / $7E:68F8  the tomato queue's read / write index
+    $7E:D872  in the water   $7E:0504  OBJ palette 0 colour 2 (the wet swap)
+    $7E:69DC  the water's skip count   $7E:0079 / $7E:007B  the random state
 
 A script may come with tools/snesstep/inputs/<name>.pokes (one F:ADDR=VAL per
 line, the stepper's --pokes format): it is passed along when it exists.
@@ -65,6 +67,12 @@ WATCH = {
     "card0": 0xD80A,                    # the score card's first hole ($83:D4F6)
     "tqr": 0x68F6,                      # the tomato queue's read index ($83:ABDD)
     "tqw": 0x68F8,                      # ... and its write index ($83:ABC5)
+    # the water (port_v2 phase 4)
+    "wet": 0xD872,                      # in the water: the block's $D9EE ($82:F1B0)
+    "pal": 0x0504,                      # OBJ palette 0 colour 2 in the CGRAM shadow ($80:90C8):
+                                        # $2C9C dry ($98:C77A), $312F wet ($98:C796)
+    "skips": 0x69DC,                    # the water's skip count ($82:8228)
+    "rnga": 0x0079, "rngb": 0x007B,     # the random state ($80:87DD): the engine's tests seed from it
 }
 
 

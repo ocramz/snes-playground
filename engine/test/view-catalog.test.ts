@@ -69,6 +69,51 @@ describe.skipIf(!haveAssets)('the view catalog vs the atlases', () => {
     }
   });
 
+  it.skipIf(!haveRules)('the water\'s objects (53-58, 67) have every frame their scripts show', () => {
+    const objects = loadObjects();
+    expect(objects).not.toBeNull();
+    const ops = new RomRules(loadTables()).table('waterFx');
+    const shown = (from: number, upTo: number): Set<number> => {
+      // the frames a straight-line script shows (tools/export_web.py water_fx_scripts)
+      const out = new Set<number>();
+      let f = -1;
+      for (let pc = from; pc < upTo;) {
+        switch (ops[pc]) {
+          case 1: f = ops[pc + 1]; if (f >= 0) out.add(f); pc += 2; break;
+          case 2: f += 1; out.add(f); pc += 1; break;
+          case 3: pc += 1; break;
+          case 4: pc += 2; break;
+          case 5: pc += 3; break;
+          case 6: pc += 2; break;
+          default: pc = upTo;
+        }
+      }
+      return out;
+    };
+    const types = [53, 54, 55, 56, 57, 58, 67];
+    types.forEach((type, i) => {
+      const from = type === 67 ? ops[6] : ops[i] + 2;
+      const upTo = type === 67 ? ops.length : ops[i + 1];
+      const sheet = objects!.objects![String(type)];
+      expect(sheet?.tables[0], `${type}`).toBe(type === 67 ? '$89:952B' : '$89:94DB');
+      for (const f of shown(from, upTo)) {
+        const name = sheet!.frames[0]?.[f];
+        expect(name, `${type} ${f}`).toBeTruthy();
+        expect(objects!.frames[name!]).toBeDefined();
+      }
+    });
+  });
+
+  it('every Kirby frame has its wet twin; the guide has its pictures from the water', () => {
+    const atlas = loadAtlas();
+    const kirby = Object.keys(atlas.frames).filter((n) => n.startsWith('k_') && !n.endsWith('_w'));
+    expect(kirby.length).toBeGreaterThan(0);
+    expect(kirby.filter((n) => !atlas.frames[n + '_w'])).toEqual([]);
+    const ui = loadUi();
+    expect(ui?.guide.dotWet && ui.frames[ui.guide.dotWet]).toBeTruthy();
+    expect(ui?.guide.coneWet && ui.frames[ui.guide.coneWet]).toBeTruthy();
+  });
+
   it('every clip poseClip names exists, for every state, facing, angle, variant, tomato count and air', () => {
     const { clips } = loadAtlas();
     const missing = new Set<string>();

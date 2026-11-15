@@ -12,6 +12,7 @@ must reproduce the rest.
                       z  $7E:D8BE : $D8BA   (16.16)
                       vx $D87A  vy $D87E  vz $D882   airborne $D8A6
                       spin x $D866, y $D86A, pending $D86E
+                      in the water $D872 (the work copy's $D9EE)
     aim, elevation    $7E:D9B4, $7E:D9B6
 
     python3 tools/snesstep/trace_ball.py web_fly --frames 3700
@@ -44,6 +45,7 @@ FIELDS = {
     "zlo": 0xD8BA, "zhi": 0xD8BE, "vx": 0xD87A, "vy": 0xD87E, "vz": 0xD882,
     "air": 0xD8A6, "spinx": 0xD866, "spiny": 0xD86A, "spinp": 0xD86E,
     "aim": 0xD9B4, "elev": 0xD9B6,
+    "wet": 0xD872,
 }
 
 
@@ -52,7 +54,7 @@ def s16(v):
 
 
 # Scripts that run longer than the default --frames (a second shot, a hole-out).
-FRAMES = {"web_hole": 4700, "web_tomatoes": 5200}
+FRAMES = {"web_hole": 4700, "web_tomatoes": 5200, "web_water_shot": 3800}
 
 
 def trace(args):

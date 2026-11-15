@@ -24,6 +24,23 @@ export interface KernelCourse {
   warps?: import('./warp').WarpLists;
   /** Kirby's occlusion table, table 10 (../occlusion.ts; absent: no records). */
   occlusion?: import('../occlusion').OcclusionTable;
+  /**
+   * $69CA: the water is off, its tiles plain ground (sim/water.ts). The load
+   * sets it when the hole has `$5D` and no `$5C` (`$82:BC59`, the byte counts
+   * of `$7E:B3B8`); the `$5C`/`$5D` tiles toggle it in play (not ported).
+   */
+  waterOff?: boolean;
+}
+
+/** $82:BC59's `$69CA`: `$5D` cells and no `$5C` (the counts are bytes). */
+export function waterOffAtLoad(layer2: Uint8Array): boolean {
+  let c5c = 0;
+  let c5d = 0;
+  for (const t of layer2) {
+    if (t === 0x5c) c5c++;
+    else if (t === 0x5d) c5d++;
+  }
+  return (c5c & 0xff) === 0 && (c5d & 0xff) !== 0;
 }
 
 export function kernelCourse(data: CourseData): KernelCourse {
@@ -38,6 +55,7 @@ export function kernelCourse(data: CourseData): KernelCourse {
     screenBase: data.screenBase,
     warps: sweepWarps(data),
     occlusion: data.occlusion,
+    waterOff: waterOffAtLoad(data.tile),
   };
 }
 

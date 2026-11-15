@@ -495,6 +495,79 @@ skip a draw routine of 0).
 rise from (907, 179) at once, 3 and 2 wait hidden, all four are freed 20
 ticks on (2518), and the next burst comes 8 ticks after the first (2506).
 
+### The water's objects: 53-58 and 67
+
+Read 2026-11-15 (notes/port-v2-phase4-water.md); ported as
+`engine/src/core/sim/water-fx.ts`, checked against the slots recorded with
+`tools/snesstep/trace_actors.py --types 53,54,55,56,57,58,67`
+(`engine/test/water-fx.test.ts`). The water's handlers spawn them
+([tiles.md](tiles.md) "Water") through `$80:E4F2`, `$531C` = the player.
+
+**The splashes** (`$85:8E5A`-`$85:8FFB`, list 6, frame table `$89:94DB`)
+are straight lines. At their first run each takes Kirby's projected point
+(`$091E,X`/`$093E,X`, as the stars do) and his OAM queue `$0B1E,X`, then
+shows frames and yields, and ends. A wait of n shows n + 1 ticks.
+
+| object | spawned by | frames × ticks |
+|---|---|---|
+| 53 | a slow skim, the modifier's bounce | queue + 1: 5 × 6, 3 × 5 |
+| 54 | a skip, a fast skim | 4 × 3, then queue + 1, 4 × 3, 5 × 5, 3 × 5 |
+| 55 | an entry or a way out with \|vz\| < `$110` | 0 × 6, 1 × 5, 3 × 5 |
+| 56 | the same, \|vz\| from `$110` | 0 × 6, 1 × 5, 2 × 5, 3 × 5 |
+| 57 | the same, from `$1F0` | spawns 58 at its point, then 56's code |
+| 58 | 57 | 6 × 3, then 7-12 × 5 each: the drops |
+
+tables.json `waterFx` keeps them as ops (`tools/export_web.py`
+`water_fx_scripts`, which fails on any other form).
+
+**Object 67** (`$85:E76B`) is a bubble emitter. An entry spawns two
+(`$82:85DD`), with `$539C` = 4 and 12, its first wait. After it the emitter
+installs its hook `$85:E836`, which sets `$549C` once the block's `$D872` is
+clear, and loops (`$85:E78D`):
+
+    $549C set: exit
+    the water iced ($69DA & $D872) or no tomatoes: wait 1 tick
+    Kirby standing ($D842, the set-up to the roll's start):
+        a bubble at his point + $85:E845/$E855[facing], queue + $85:E865[facing]
+    the ball airborne: wait 1 tick
+    else: a bubble at the ball (his point)
+
+A bubble (`$85:E8FC`) is the slot itself, offset by a random pair
+(`$80:87DD` & 7, `$85:EA2F`). The point is added as
+`CLC / ADC point / ADC offset`, so the first add's carry counts.
+Then it runs the rise (`$85:E934`):
+- frames 0-3 of `$89:952B`, with velocities that slow the rise to −0.75 px a
+  tick and sway x by ±0.5;
+- hidden;
+- the continuation `$85:E800`: a random wait of `$85:E87D`[`$85:E875`[rng &
+  7] × 2 + 6 × toggle], then the loop.
+
+The index × 2 runs past the six-byte table into the code after it, so the
+waits alternate between {120, 60, 30} and {185, 83, 69} ticks.
+
+Its draw routine is `$80:E55A` (from `$80:E4F2`). It integrates the velocity
+every tick, y then x, and the fractions carry from bubble to bubble.
+
+*Emulated*, every scenario and web_water_shot: each splash's frames and
+point, and each bubble's, with the engine's random state seeded from the
+recording at the set-up. In a 1P hole only the bubbles and the hole's
+opening (`$84:B871`) call `$80:87DD`.
+
+Pictures: all palette 0, the same as Kirby's, but only colours 8-15, so
+the water's palette swap leaves them as they are (notes). They are
+priority 3. In Kirby's queue they cover him: the entry's crown is over his
+lower half (web_water_shot 2763, `tools/ppu_render.py`). One queue back
+they are behind him.
+
+**Kirby in the water.** `$82:8604` writes OBJ palette 0's colours 2-8 from
+`$98:C796` (wet) or `$98:C77A` (dry; player 2's `$98:C7A4`/`$C788` at `$92`)
+whenever `$D9EE` changes in a handler. The thread hook `$84:9A38` rewrites
+colour 7 (the outline) every frame from `$98:D4A8`: `$0C63` in mode 0 and
+whenever the ball is in the water. So only colours 2-6 change on screen.
+The shot guide in the water draws `$89:8F52` (a rolling dot), `$89:8F39`
+(airborne) and `$89:8F6B` (the end) in palette 0, instead of the dry
+lists' palettes 3 and 1 (`$81:ACDB`, `$81:ACF6`, `$81:ADF6`).
+
 ## Finding more scripts
 
 `python3 tools/anim.py --scan` walks every `$1C` whose operand is a table in
@@ -613,7 +686,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 16 | ball rolling, medium spin | play | - | 1 script | `$82:C843` when that maximum is exactly 3; web_fly latches top/back 3 and rolls in 16 (the engine's flow test); also forced: ball with spin streaks |
 | 17 | ball rolling, fast (1-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; script: blocks `$87:ABD8-$ABF3`, 1 frame each |
 | 18 | ball rolling (2-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; same blocks as 17, 2 frames each |
-| 19 | ball sinking | forced | - | 1 script | `$82:D87A` (on the $60-$6F surface overlay: `$69DA`, `$69D8` set, `$69CA` clear), `$82:D936`, `$82:E1B0`, each counting `$D76C`; not reached in play; forced in a roll: a dark disc rises over the ball in 4 steps of 4 frames, then 14 |
+| 19 | ball sinking | forced | - | 1 script | the ball goes into the water with its ability lost, each counting `$D76C`: `$82:D87A`, Freeze's ice under the ball (`$69DA`, `$69D8` set, `$69CA` clear) gives way, `$D9EE` = 1; `$82:D936`/`$82:E1B0`, an ability active (`$D9C6` 1-11) as the ball enters the water (`$82:CDC5`/`$82:DE3B`: `$D9EE` set, `$DA0E` clear), mode and `$D9C6` back to 0 (read 2026-11-15, tiles.md "Water"); never in mode 0; not reached in play; forced in a roll: a dark disc rises over the ball in 4 steps of 4 frames, then 14 |
 | 20 | stone | play | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | `$82:C95B` (ability 1, d10 2065), then 20/2 alternate every frame (`$82:D5D5` and the script's store) |
 | 21 | fireball | play | `$7E:D75E` (16) | 16 script | `$82:CA4D` (d12 2233); switch on `$7E:D75E` |
 | 22 | needle | play | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | `$82:CAF7` (d13 2109) |
@@ -791,6 +864,6 @@ first switch), `live_state_NN.png` (the frames seen in play),
 **Unknown.** What the 11
 squash variants of `$7E:D8D2`/`$6A6E` mean; the degrees of the
 copy-ability directions `$7E:D75E`; where states 17, 18 and 23 are set
-(no writer found); what situation 19 (ball sinking, on the `$60`-`$6F`
-surface overlay) and 31 (parasol) are in play; 10, 19, 31, 35, 41-48
-and 50 were only seen forced.
+(no writer found); what situation 31 (parasol) is in play; 10, 19, 31,
+35, 41-48 and 50 were only seen forced (19 is the water's with an ability,
+above).

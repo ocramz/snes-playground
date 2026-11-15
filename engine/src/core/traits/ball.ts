@@ -20,6 +20,8 @@ export const BallPos = trait({ xc: 0, xf: 0, yc: 0, yf: 0, z: 0 });
 export const BallVel = trait({ vx: 0, vy: 0, vz: 0 });
 /** $D9EC. */
 export const BallAir = trait({ air: 0 });
+/** $D872 (block) / $D9EE (work): the ball is in the water ($82:80F6; sim/water.ts). */
+export const BallWet = trait({ wet: 0 });
 /** $D9CC/$D9CE/$D9D0: fly-shot impulse, grounder curve rate, pending flag. */
 export const BallSpin = trait({ sx: 0, sy: 0, pending: 0 });
 /** $D9C8: 0 normal, 1-21 the copy-ability modes; always 0 for now. */
@@ -53,7 +55,7 @@ export interface BallWorkFields {
   code: number; // $DA04, the quadrant's surface code 0-8
   ground: number; // $DA08:$DA06, 32-bit
   tile: number; // $DA0A
-  onOverlay: number; // $D9EE: set while the tile is in $60-$6F ($82:C85F)
+  onOverlay: number; // $D9EE: in the water (block $D872); the water's handlers set it, the probe clears it off $60-$6F ($81:87FB)
   pAir: number; pOnOverlay: number; // $DA0C / $DA0E
   pXf: number; pXc: number; // $DA10 / $DA12
   pYf: number; pYc: number; // $DA14 / $DA16
@@ -81,6 +83,7 @@ export interface BallWorkFields {
    *  sits in this step. */
   shotAim: number; // $D9B4, degrees
   shotElev: number; // $D9B6: 0 grounder, 60 fly shot
+  rollTB: number; // $6B58: the top/back selector latched at the shot (the water's skips, $82:8228)
   lost: number; // $D9D2 bit 0: fell below -$11_0000
   lodgeTimer: number; // $D9EA: the $1C/$1D... lodge wiggle counter ($81:93A5)
   wallCode: number; // $6A18: the outline wall's last connection code
@@ -208,6 +211,36 @@ export interface BallWorkFields {
   snapKeep: number;
   /** A fact: a snap push found the latch clear and spawned object 61 ($82:A60E). */
   snapSpawn: number;
+
+  // --- the water $60-$6F (sim/water.ts; docs/tiles.md "Water") ---
+  /** The block's `$D872` as the last load found it: the guide starts from it
+   *  ($81:A9D6) and its rolling path tests it ($81:B29D). */
+  blockWet: number;
+  /** $69CC: the region test, 0 dry, 1 shallow, 2 deep ($82:83DD). */
+  waterRegion: number;
+  /** $69D0:$69CE: the level ($82:83B9), 32-bit; the guide zeroes it every step ($81:AF82). */
+  waterLevel: number;
+  /** $69D4:$69D2 and $69D6: the ground and the surface code a handler found
+   *  ($82:80FF); the ground projection reads them on water ($81:A4B7). */
+  waterGround: number;
+  waterCode: number;
+  /** $69D8: the ball rides the level (modes 6, 9 and 10). */
+  waterWalk: number;
+  /** $69DA: Freeze (mode 9) has iced the water. */
+  waterFreeze: number;
+  /** $69DC: the skips left, $FFFF none ($82:8228). */
+  waterSkips: number;
+  /** Facts, for the step's effects: the effect object a handler spawned
+   *  (53-57, 0 none; $82:8604, $82:82A3, $82:8515); the pair of object 67s
+   *  ($82:85DD); Kirby's palette written ($82:8604: -1 not, 0 dry, 1 wet); the
+   *  effects stopped ($80:B542 with 0); the frozen frame (JML $80:8F78); Kirby's
+   *  state 14 ($82:82B9). */
+  waterSplash: number;
+  waterBubbles: number;
+  waterPalette: number;
+  waterSilence: number;
+  waterWait: number;
+  kirbyRoll: number;
 }
 
 export const emptyWork = (): BallWorkFields => ({
@@ -219,7 +252,7 @@ export const emptyWork = (): BallWorkFields => ({
   scratch: 0,
   deg: 0xffff, dir16: 0, dir32: 0, lastDeg: 0,
   spinX: 0, spinY: 0, spinPending: 0,
-  mode: 0, shotAim: 0, shotElev: 0,
+  mode: 0, shotAim: 0, shotElev: 0, rollTB: 6,
   lost: 0, lodgeTimer: 0, wallCode: 0, wallVariant: 0, wallTileRef: 0,
   request: null,
   bounceSrcX: 0x7d6f, bounceSrcZ: 0x5332,
@@ -238,6 +271,9 @@ export const emptyWork = (): BallWorkFields => ({
   warpLatch: 0, warpPending: 0, warpSquash: 0,
   hazLatch: 0, hazAxes: 0, volLatch: 0, hurt: 0, tomatoLoss: 0, hazardHit: 0,
   snapKeep: 0, snapSpawn: 0,
+  blockWet: 0, waterRegion: 0, waterLevel: 0, waterGround: 0, waterCode: 0,
+  waterWalk: 0, waterFreeze: 0, waterSkips: 0,
+  waterSplash: 0, waterBubbles: 0, waterPalette: -1, waterSilence: 0, waterWait: 0, kirbyRoll: 0,
   hopRequest: 0,
   bouncePose: 0,
   fellOut: 0,

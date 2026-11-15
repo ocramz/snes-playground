@@ -48,6 +48,7 @@ import { PanelView } from '../features/shot-panel/panel-view';
 import { CutsceneView } from '../features/cutscene/cutscene-view';
 import { WarpView } from '../features/warp/warp-view';
 import { SnapStarsView } from '../features/env/snap-stars-view';
+import { WaterFxView } from '../features/env/water-fx-view';
 import { CutsceneDirector } from '../features/cutscene/director';
 import type { Anchors } from '../features/cutscene/replay';
 import { hudHidden } from '../features/hud/hud-state';
@@ -123,6 +124,7 @@ export class HoleScene extends Phaser.Scene {
       cutscene: new CutsceneView(this, { ground: DEPTH.decal - 1, sprites: DEPTH.cutsceneSprites, fade: DEPTH.fade }),
       warp: new WarpView(this, DEPTH.actor),
       snapStars: new SnapStarsView(this, DEPTH.actor),
+      waterFx: new WaterFxView(this, DEPTH.actor),
       director: this.director,
       audio: host.audio,
       camera: this.cameras.main,

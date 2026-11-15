@@ -30,6 +30,12 @@ export interface Scenario {
   what: string;
   /** Align the moving actors to the recording at the end of this iteration (the poke's - 1). */
   actors?: number;
+  /**
+   * Sounds the input requests (the A press's `$26`): compared at the game's
+   * iteration, not carried through the ball states, which a hole's lag after
+   * the poke (course 1 hole 7: 5 frames) puts behind the input.
+   */
+  uncarried?: number[];
 }
 
 function lastPerFrame(frames: BallTraceFrame[]): BallTraceFrame[] {
@@ -67,7 +73,9 @@ function compare(s: Scenario, trace: NonNullable<ReturnType<typeof loadTrace>>, 
       return best ? best[1] + (i - best[0]) : i;
     };
     const first = at[0][0];
-    const carried = sounds.filter((q) => q[2] > first).map((q): SoundRequest => [q[0], q[1], toEngine(q[2]), q[3], q[4], q[5]]);
+    const keep = new Set(s.uncarried ?? []);
+    const carried = sounds.filter((q) => q[2] > first)
+      .map((q): SoundRequest => [q[0], q[1], keep.has(q[4]) ? q[2] : toEngine(q[2]), q[3], q[4], q[5]]);
     expect(compareSounds(carried, run.emitted, toEngine(s.from + 4), toEngine(s.to))).toEqual([]);
   }
 }

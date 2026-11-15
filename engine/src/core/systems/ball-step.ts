@@ -16,7 +16,7 @@ import { Pad } from '../traits/pad';
 import { Shot } from '../traits/shot';
 import { emptyWork } from '../traits/ball';
 import {
-  BallPos, BallVel, BallAir, BallSpin, BallMode, BallHoled, BallHeading,
+  BallPos, BallVel, BallAir, BallWet, BallSpin, BallMode, BallHoled, BallHeading,
   StillCount, Modifier, BallWork, type BallWorkFields,
 } from '../traits/ball';
 import type { Ctx } from '../sim/context';
@@ -36,6 +36,8 @@ import { Stall } from '../traits/stall';
 import { activePlayer } from '../traits/player';
 import { startWarp } from './warp';
 import { noteSnapPush } from './snap-trail';
+import { noteWater } from './water-fx';
+import { onWater } from '../sim/water';
 import { Pose, PoseState } from '../traits/pose';
 import { takeEnemy } from './take';
 import { pushTomato } from './counters';
@@ -60,11 +62,13 @@ interface StepState {
   outcome?: LandingOutcome;
   reroute?: 'landing' | 'rolling' | 'done';
   entry?: 'full' | 'grounded' | 'gravityOnly';
+  /** The guide's water: the surface it lands on ($81:B144; sim/water.ts). */
+  surface?: { ground: number; code: number };
 }
 
 /** A stall the step asks for: the runner suspends the list after the entry. */
 interface StallRequest {
-  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp';
+  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp' | 'waterWait';
   frames: number;
   state: number;
 }
@@ -114,12 +118,19 @@ export const BALL_STEP: StepEntry[] = [
       w.hazardHit = 0;
       w.snapKeep = 0;
       w.snapSpawn = 0;
+      w.waterSplash = 0;
+      w.waterBubbles = 0;
+      w.waterPalette = -1;
+      w.waterSilence = 0;
+      w.waterWait = 0;
+      w.kirbyRoll = 0;
       w.deg = 0xffff;
       copyPrev(w);
       s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
       s.outcome = undefined;
       s.reroute = undefined;
       s.entry = undefined;
+      s.surface = undefined;
       return null;
     },
   },
@@ -135,7 +146,7 @@ export const BALL_STEP: StepEntry[] = [
         updateHeading(s.ctx.rules, w);
         w.airFrames += 1;
         probe(s.ctx, w);
-        overlayProbe(w);
+        overlayProbe(s.ctx, w);
         w.dampXY = w.bounceSrcX; // $81:8050
         w.dampZ = w.bounceSrcZ;
         if (w.z < 0) {
@@ -154,7 +165,7 @@ export const BALL_STEP: StepEntry[] = [
       w.z = w.pGround;
       updateHeading(s.ctx.rules, w);
       probe(s.ctx, w);
-      overlayProbe(w);
+      overlayProbe(s.ctx, w);
       classIndex(s.ctx, w);
       crossEdges(s.ctx, w);
       return null;
@@ -268,6 +279,20 @@ export const BALL_STEP: StepEntry[] = [
     run: (world, s) => startWarp(world, s.ctx, s.w),
   },
   {
+    // inside the water's handlers ($82:80F6 / $82:8000): the splash, the
+    // bubbles, Kirby's palette, the effects stopped; then an entry's
+    // JML $80:8F78, one frozen frame before the step returns (RTL).
+    // Not a kernel: the guide has its own water and no effects.
+    name: 'water-effects',
+    kernel: false,
+    run: (world, s) => {
+      noteWater(world, s.ctx, s.w);
+      if (s.w.waterWait === 0) return null;
+      s.w.waterWait = 0;
+      return { kind: 'waterWait', frames: 1, state: 0 };
+    },
+  },
+  {
     // the landing chain's first half, $81:8905 (its hit-stop suspends the
     // list here)
     name: 'dispatch-landing',
@@ -277,7 +302,19 @@ export const BALL_STEP: StepEntry[] = [
       if (s.reroute === 'landing' && s.entry !== 'gravityOnly') {
         // gravityOnly reroutes (the outline wall's hit, the cup's exits)
         // jump straight to the $81:899F tail - no landing chain
-        s.outcome = dispatchLanding(s.ctx, w, s.entry === 'grounded' ? 'grounded' : 'full');
+        if (s.surface) {
+          // the guide's water: land on the level with its code, the probe's
+          // ground and code left as they are ($81:B161-$81:B19C)
+          const ground = w.ground;
+          const code = w.code;
+          w.ground = s.surface.ground;
+          w.code = s.surface.code;
+          s.outcome = dispatchLanding(s.ctx, w, 'full');
+          w.ground = ground;
+          w.code = code;
+        } else {
+          s.outcome = dispatchLanding(s.ctx, w, s.entry === 'grounded' ? 'grounded' : 'full');
+        }
         if (s.outcome.kind === 'hitstop') {
           return { kind: 'hitStop', frames: s.outcome.frames, state: s.outcome.state };
         }
@@ -381,6 +418,7 @@ export const BALL_STEP: StepEntry[] = [
 function applyRoute(s: StepState, out: DispatchOutcome): void {
   s.reroute = out.next;
   if (out.next === 'landing') s.entry = out.entry ?? 'full';
+  s.surface = out.surface;
 }
 
 /** The tail sfx -> event kinds ($81:9BE5). */
@@ -508,6 +546,7 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   const pos = e.get(BallPos)!;
   const vel = e.get(BallVel)!;
   const air = e.get(BallAir)!;
+  const wet = e.get(BallWet)!;
   const spin = e.get(BallSpin)!;
   const mode = e.get(BallMode)!;
   const holed = e.get(BallHoled)!;
@@ -517,6 +556,8 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   w.xc = pos.xc; w.xf = pos.xf; w.yc = pos.yc; w.yf = pos.yf; w.z = pos.z;
   w.vx = vel.vx; w.vy = vel.vy; w.vz = vel.vz;
   w.air = air.air;
+  w.onOverlay = wet.wet; // $82:F020: $D9EE <- $D872,X
+  w.blockWet = wet.wet;
   w.spinX = spin.sx; w.spinY = spin.sy; w.spinPending = spin.pending;
   w.mode = mode.mode;
   w.holed = holed.holed;
@@ -532,6 +573,7 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   const shot = world.get(Shot)!;
   w.shotAim = shot.aim;
   w.shotElev = shot.elev;
+  w.rollTB = shot.rollTB;
   // the coefficients ($DA30-$DA46) are block-backed at $D922-$D94E; in
   // phase 4 they hold the set-up constants and only the tile handlers
   // mutate the copies, so they stay work-only (deviation noted in
@@ -544,6 +586,7 @@ function storeBallWork(world: World, w: BallWorkFields): void {
   e.set(BallPos, { xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z });
   e.set(BallVel, { vx: w.vx, vy: w.vy, vz: w.vz });
   e.set(BallAir, { air: w.air });
+  e.set(BallWet, { wet: w.onOverlay }); // $82:F1B0: $D872,X <- $D9EE
   e.set(BallSpin, { sx: w.spinX, sy: w.spinY, pending: w.spinPending });
   e.set(BallMode, { mode: w.mode });
   e.set(BallHoled, { holed: w.holed });
@@ -569,9 +612,9 @@ function copyPrev(w: BallWorkFields): void {
   w.pTile = w.tile;
 }
 
-/** $81:87FB: $D9EE is cleared unless the tile is in $60-$6F. */
-function overlayProbe(w: BallWorkFields): void {
-  w.onOverlay = w.tile >= 0x60 && w.tile < 0x70 ? 1 : 0;
+/** $81:87FB -> $82:C85F: $D9EE is cleared off the water (or with the water off, $69CA). */
+function overlayProbe(ctx: Ctx, w: BallWorkFields): void {
+  if (!onWater(ctx, w.tile)) w.onOverlay = 0;
 }
 
 function highWord(z: number): number {

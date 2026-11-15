@@ -14,7 +14,7 @@
  * - `placeBall`: the poke equivalent the trace tests seed from.
  */
 import type { World } from 'koota';
-import { BallPos, BallVel, BallAir, BallSpin, StillCount, Modifier, BallHoled } from './traits/ball';
+import { BallPos, BallVel, BallAir, BallWet, BallSpin, StillCount, Modifier, BallHoled } from './traits/ball';
 import { Shot } from './traits/shot';
 import { BallWork, type BallWorkFields, emptyWork } from './traits/ball';
 import { HoleFlow } from './traits/flow';
@@ -47,6 +47,7 @@ import { spawnPlayer } from './world';
 import { IsPlayer, activePlayer } from './traits/player';
 import { BoostHum } from './traits/boost';
 import { SnapTrail } from './traits/snap';
+import { WaterFx, KirbyPalette } from './traits/water';
 
 export interface BallPlacement {
   xc: number; xf: number; yc: number; yf: number; z: number;
@@ -158,6 +159,7 @@ export function startHole(world: World, i: number): Ctx {
   e.set(BallPos, { xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z });
   e.set(BallVel, { vx: 0, vy: 0, vz: 0 });
   e.set(BallAir, { air: 0 });
+  e.set(BallWet, { wet: 0 });
   e.set(BallSpin, { sx: 0, sy: 0, pending: 0 });
   e.set(BallHoled, { holed: 0 });
   e.set(StillCount, { over: 0, frames: 0 });
@@ -193,6 +195,10 @@ export function startHole(world: World, i: number): Ctx {
   // objects 61 and 62, the snap panels' stars (systems/snap-trail.ts)
   const trail = world.get(SnapTrail)!;
   trail.keep = 0xffff; trail.spawners = []; trail.stars = [];
+  // the water's splashes and bubbles (systems/water-fx.ts), Kirby's dry palette
+  const fx = world.get(WaterFx)!;
+  fx.splashes = []; fx.bubbles = [];
+  e.set(KirbyPalette, { wet: 0 });
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;

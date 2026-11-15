@@ -127,6 +127,13 @@ HAZARD_FRAME_TABLES = (0x84, 0xDD55)
 # quarter turn the sine reads (T[a + 64]).
 SNAP_STAR_DIRS = (0x85, 0xCFF2)
 POLAR_TRIG = (0x80, 0xEABA)
+# The water's effect objects (docs/animation.md "The water's objects"): the
+# splashes 53-58 (list 6, frame table $89:94DB) by type, from tbl_thread_types
+# $80:ED3A; and object 67's bubble (the rise at $85:E934, then the
+# continuation $641C).
+THREAD_TYPES = (0x80, 0xED3A)
+WATER_SPLASH_TYPES = (53, 54, 55, 56, 57, 58)
+WATER_BUBBLE_RISE = (0x85, 0xE934)
 
 
 def snap_star_scripts(d):
@@ -178,6 +185,96 @@ def snap_star_scripts(d):
                     ops.append(0)
                     break
     return [len(directory) + o for o in directory] + ops
+
+
+def water_fx_scripts(d):
+    """The water's straight-line thread objects, flat: a directory of 6
+    offsets (objects 53-58, by type - 53) into the op lists that follow it,
+    then the bubble's rise (object 67, `$85:E934`) after the last.
+
+    A splash opens with `LDX $531C,Y / LDA $0B1E,X / [INC A] / STA $5E9C,Y /
+    LDA $091E,X / STA $5F1C,Y / LDA $093E,X / STA $5F9C,Y / LDA #tbl /
+    STA $5E1C,Y` (Kirby's OAM queue, + 1 with the INC, and his point); its
+    list starts [queueAdd, table]. Object 57 first spawns 58 with its own
+    `$531C` (`LDA #$3A / JSL $80:E4F2 / LDX $D2 / LDA $531C,X / STA $531C,Y /
+    TXY`) and falls into 56's code. Ops:
+      [1, f]  LDA #f / STA $5D9C,Y   show frame f ($FFFF: -1, hidden)
+      [2]     TYX / INC $5D9C,X      the next frame
+      [3]     TYX / INC $5E9C,X      one OAM queue further back
+      [4, n]  LDA #n / JSL $80:E445  yield n (resumes n + 1 ticks on)
+      [5, k, v] LDA #v / STA field,Y the velocity: k 0 $611C (x, whole),
+              1 $621C (x, fraction), 2 $619C (y), 3 $629C
+      [6, t]  spawn object t at the same point (57's 58)
+      [0]     LDY $D2 / JML $80:E060  the end
+      [7]     LDA $641C,Y ... JML [$1EDE]  the bubble's continuation
+    Anything else fails the export.
+    """
+    def b(bank, addr):
+        return d[snes_to_file(bank, addr)]
+
+    def w(bank, addr):
+        return b(bank, addr) | b(bank, addr + 1) << 8
+
+    def at(bank, addr, want):
+        return all(b(bank, addr + i) == v for i, v in enumerate(want))
+
+    fields = {0x611C: 0, 0x621C: 1, 0x619C: 2, 0x629C: 3}
+
+    def body(bank, a, ops, end):
+        acc = None  # the last LDA #imm, which a run of STAs stores
+        while True:
+            if at(bank, a, [0xA9]) and at(bank, a + 3, [0x22, 0x45, 0xE4, 0x80]):
+                ops += [4, w(bank, a + 1)]
+                a += 7
+            elif at(bank, a, [0xA9]):
+                acc = w(bank, a + 1)
+                a += 3
+            elif acc is not None and at(bank, a, [0x99, 0x9C, 0x5D]):
+                ops += [1, -1 if acc == 0xFFFF else acc]
+                a += 3
+            elif acc is not None and b(bank, a) == 0x99 and w(bank, a + 1) in fields:
+                ops += [5, fields[w(bank, a + 1)], acc]
+                a += 3
+            elif at(bank, a, [0xBB, 0xFE, 0x9C, 0x5D]):
+                ops.append(2)
+                a += 4
+            elif at(bank, a, [0xBB, 0xFE, 0x9C, 0x5E]):
+                ops.append(3)
+                a += 4
+            elif end == 0 and at(bank, a, [0xA4, 0xD2, 0x5C, 0x60, 0xE0, 0x80]):
+                ops.append(0)
+                return
+            elif end == 7 and at(bank, a, [0xB9, 0x1C, 0x64, 0x85, 0xDE, 0xB9, 0x9C, 0x64,
+                                           0x85, 0xE0, 0xDC, 0xDE, 0x1E]):
+                ops.append(7)
+                return
+            else:
+                raise SystemExit("water objects: ${:02X}:{:04X} is {}".format(
+                    bank, a, bytes(b(bank, a + i) for i in range(6)).hex()))
+
+    tb, ta = THREAD_TYPES
+    directory, ops = [], []
+    for t in WATER_SPLASH_TYPES:
+        a = w(tb, ta + 4 * t)
+        bank = b(tb, ta + 4 * t + 2)
+        directory.append(len(ops))
+        if at(bank, a, [0xA9]) and at(bank, a + 3, [0x22, 0xF2, 0xE4, 0x80, 0xA6, 0xD2, 0xBD, 0x1C,
+                                                    0x53, 0x99, 0x1C, 0x53, 0x9B]):
+            spawn = [6, w(bank, a + 1)]
+            a += 16
+        else:
+            spawn = []
+        inc = at(bank, a + 6, [0x1A])
+        head = [0xBE, 0x1C, 0x53, 0xBD, 0x1E, 0x0B] + ([0x1A] if inc else []) + [
+            0x99, 0x9C, 0x5E, 0xBD, 0x1E, 0x09, 0x99, 0x1C, 0x5F, 0xBD, 0x3E, 0x09, 0x99, 0x9C, 0x5F, 0xA9]
+        if not at(bank, a, head) or not at(bank, a + len(head) + 2, [0x99, 0x1C, 0x5E]):
+            raise SystemExit("water objects: type {} at ${:02X}:{:04X} has no splash prologue".format(t, bank, a))
+        ops += [1 if inc else 0, w(bank, a + len(head))] + spawn
+        body(bank, a + len(head) + 5, ops, 0)
+    rise = len(ops)
+    body(WATER_BUBBLE_RISE[0], WATER_BUBBLE_RISE[1], ops, 7)
+    n = len(directory) + 1
+    return [n + o for o in directory] + [n + rise] + ops
 
 
 # --------------------------------------------------------------------------
@@ -497,6 +594,41 @@ def build_tables(d):
     put("snapStars", SNAP_STAR_DIRS[0], SNAP_STAR_DIRS[1], snap_star_scripts(d), 2)
     put("polarTrig", POLAR_TRIG[0], POLAR_TRIG[1],
         rom_words(d, POLAR_TRIG[0], POLAR_TRIG[1], 320, True), 2)
+    # --- the water $60-$6F ($82:80F6 land, $82:8000 hit; docs/tiles.md "Water") ---
+    # the skips ($82:8256), by the count 0-2: speed along the heading and vz,
+    # the selector $6B58 < 7 (topspin) or >= 7 (backspin)
+    put("waterSkipSpeed", 0x82, 0x8324, rom_words(d, 0x82, 0x8324, 3), 2)
+    put("waterSkipVz", 0x82, 0x832A, rom_words(d, 0x82, 0x832A, 3), 2)
+    put("waterSkipSpeedBack", 0x82, 0x8330, rom_words(d, 0x82, 0x8330, 3), 2)
+    put("waterSkipVzBack", 0x82, 0x8336, rom_words(d, 0x82, 0x8336, 3), 2)
+    # the A/Y modifier's bounce at count 0, by $DA76 (0 A, 2 Y) / 2: x/y, z
+    put("waterModBounce", 0x82, 0x833C, rom_words(d, 0x82, 0x833C, 2), 2)
+    put("waterModBounceZ", 0x82, 0x8340, rom_words(d, 0x82, 0x8340, 2), 2)
+    # the skim's x/y factor with the modifier armed ($82:852B), by $DA76 / 2
+    put("waterSkimMod", 0x82, 0x8589, rom_words(d, 0x82, 0x8589, 2), 2)
+    scalar("waterLevelOffset", 0x82, 0x83C8)    # $82:83C7 LDA #$57AD: the level over the base
+    scalar("waterDrag", 0x80, 0xDD69)           # $82:836E: v -= v x 6 / 256, three axes
+    scalar("waterDragRoll", 0x80, 0xDD6B)       # $82:8344: x and y
+    scalar("waterSkimFactor", 0x82, 0x8529)     # $82:8528 LDA #$E180
+    scalar("waterSkimFactorZ", 0x82, 0x8555)    # $82:8554 LDA #$E800 (negated)
+    scalar("waterSkimVzMax", 0x82, 0x84E5)      # $82:84E4 CMP #$0980
+    scalar("waterSkimSpeedMin", 0x82, 0x8501)   # $82:8500 CMP #$07C0
+    scalar("waterSkimBig", 0x82, 0x850D)        # $82:850C CMP #$0B00: object 54, else 53
+    scalar("waterSplashBig", 0x82, 0x8611)      # $82:8610 CMP #$01F0: object 57
+    scalar("waterSplashMid", 0x82, 0x8619)      # $82:8618 CMP #$0110: object 56, else 55
+    scalar("waterSinkSlow", 0x82, 0x81E4)       # $82:81E3 CPX #$FEA0: sound $49, else $4C
+    # the splash objects 53-58 and the bubble's rise (water_fx_scripts)
+    put("waterFx", THREAD_TYPES[0], THREAD_TYPES[1], water_fx_scripts(d), 2)
+    # object 67, the bubbles ($85:E76B): the offsets by Kirby's facing while he
+    # stands (dx, dy, the OAM queue's), the random offsets (dx, dy by rng & 7),
+    # the wait's index by rng & 7 and the waits ($85:E87D, read past its six
+    # bytes into the code that follows: the ROM's index is x 2)
+    put("bubbleFacingDx", 0x85, 0xE845, rom_words(d, 0x85, 0xE845, 8, True), 2)
+    put("bubbleFacingDy", 0x85, 0xE855, rom_words(d, 0x85, 0xE855, 8, True), 2)
+    put("bubbleFacingQueue", 0x85, 0xE865, rom_words(d, 0x85, 0xE865, 8, True), 2)
+    put("bubbleOffset", 0x85, 0xEA2F, rom_words(d, 0x85, 0xEA2F, 16, True), 2)
+    put("bubbleWaitIndex", 0x85, 0xE875, rom_bytes(d, 0x85, 0xE875, 8), 1)
+    put("bubbleWait", 0x85, 0xE87D, rom_bytes(d, 0x85, 0xE87D, 11), 1)
 
     return t
 

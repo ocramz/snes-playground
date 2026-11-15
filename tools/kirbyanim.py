@@ -1092,6 +1092,24 @@ def gif_write(images, durations, path, loop):
                    transparency=0, disposal=2, optimize=False, **kw)
 
 
+# Kirby in the water (port_v2 phase 4): $82:8604 copies OBJ palette 0's
+# colours 2-8 from $98:C796 (wet) or $98:C77A (dry) with sub_cgram_partial;
+# every clip frame is drawn a second time with the wet set (`png_wet`). Colour
+# 7, his outline, is rewritten every frame after it by the thread hook at
+# $84:9A38 ($98:D4A8[$84:9DDB[...]]: $0C63 whenever the ball is in the water,
+# and in mode 0), and colour 8 is $18E2 in both sets: only 2-6 change on screen
+# (web_water_shot 2760-2761, `--watch-write $7E:0500-$7E:0513`).
+WET_PALETTE = 0x0C4796     # $98:C796, 7 words
+
+
+def wet_palettes(rom, palettes):
+    d = rom.d if hasattr(rom, "d") else rom
+    wet = [snes_color(d[WET_PALETTE + 2 * i] | d[WET_PALETTE + 2 * i + 1] << 8) for i in range(5)]
+    out = [list(p) for p in palettes]
+    out[0][2:7] = wet
+    return out
+
+
 def clips(rom, out, base, live_ok=True):
     """Every state x switch arm -> GIF, strip, frame PNGs and clips.json."""
     import hashlib
@@ -1179,7 +1197,11 @@ def clips(rom, out, base, live_ok=True):
                 fname = "frames/{}.png".format(h)
                 if not os.path.exists(os.path.join(cdir, fname)):
                     img.save(os.path.join(cdir, fname))
-                cells.append({"png": fname, "duration": f.duration,
+                wname = "frames/{}_w.png".format(h)
+                if not os.path.exists(os.path.join(cdir, wname)):
+                    objsheets.draw(f.parts, f.tiles, wet_palettes(rom, f.palettes), fb).save(
+                        os.path.join(cdir, wname))
+                cells.append({"png": fname, "png_wet": wname, "duration": f.duration,
                               "x": fb[0], "y": fb[1], "w": fb[2] - fb[0],
                               "h": fb[3] - fb[1], "list": fmt_snes(FRAME_BANK, f.addr),
                               "index": f.index})

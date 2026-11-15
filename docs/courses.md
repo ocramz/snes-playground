@@ -283,8 +283,9 @@ into palette 4 ("The palette cycles" above):
   every 8 frames like course 1's (hole 12).
   - Not modelled by the exporter: `$84:84F1`, the table taken while
     `$7E:6A2E` is set; `$7E:ED5B`'s `$98:EA50`/`$EA7A`; the hook's freeze
-    while `$69CA` is set; and the splash it plays instead while the ball
-    sinks (`$69DA`: `$98:C22E`-`$C282`, then the same back).
+    while `$69CA` (the water off) is set; and the colours it plays instead
+    while the water is iced (`$69DA`, set by Freeze, mode 9: `$98:C22E`-`$C282`,
+    then the same back; [tiles.md](tiles.md) "Water").
 
 *Emulated* on course 1 hole 7 (`play_hole1` with `$6A5A` = 0 and `$6A5E` = 6
 poked at 2050, a snapshot every frame 2280-2344, read 2026-11-15):

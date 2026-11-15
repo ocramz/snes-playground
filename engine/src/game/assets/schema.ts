@@ -73,7 +73,8 @@ export interface UiJson {
   gauge: Record<string, UiPart[]>;
   /** By meter value: the face's 9 tiles. */
   faces: Record<string, UiPart[]>;
-  guide: { dot: string; cone: string; note: string };
+  /** dotWet / coneWet: the pictures from the water (absent from older exports). */
+  guide: { dot: string; cone: string; note: string; dotWet?: string; coneWet?: string };
   timing: {
     one: number;
     panel: number;

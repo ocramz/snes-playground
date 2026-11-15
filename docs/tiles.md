@@ -79,14 +79,15 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$40-$52`, `$57` | `$82:8967` | **spawns an actor** |
 | `$02` | `$82:94D3` | solid object standing 3 height steps tall |
 | `$28-$2D` | `$82:8FF1` | **the play-area outline**, a wall: see below |
-| `$60-$6F` | `$82:80F6` | **water**, a surface overlay with enter/leave tracking: see "Not established" |
+| `$60-$6F` | `$82:80F6`, `$82:8000` | **water**: below its level the ball sinks, drags and rises out; a fast, flat ball skims, a spun one skips. See "Water" |
 | `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
 | `$B0-$B9` | `$82:A980`, `$82:A9DB` | **warp panels**, in pairs: the ball goes to the other one and leaves it along its arrow |
 | `$1C`, `$1D`, `$58-$5D` | various | not established |
 
 The shot guide does not use these two tables. It has its own, `$81:B455`, in
-which only the outline `$28-$2D` and the overlay `$60-$6F` act; every other
-value, the pillar, the enemies and the cup included, is plain ground
+which only the outline `$28-$2D` and the water `$60-$6F` act (the water by
+its own model, "Water"); every other value, the pillar, the enemies and the
+cup included, is plain ground
 ([physics.md](physics.md) "The shot guide").
 
 ### Friction — `$20-$24`
@@ -282,6 +283,127 @@ notes/port-v2-phase3-snaps.md):
   is skipped: only the friction acts (7864, 7852, …).
 
 The shot guide's table `$81:B455` treats the snap panels as plain ground.
+
+### Water — `$60-$6F`
+
+Read 2026-11-15 (notes/port-v2-phase4-water.md) and checked frame for frame
+against eight poked scenarios and one played shot on course 1 hole 7
+(`tools/snesstep/inputs/web_water_*`; engine `test/water-scenarios.ts`).
+The engine's port is `engine/src/core/sim/water.ts`.
+
+Only `$61`, open water, and `$64-$6F`, the rim, occur. The rim tiles restate
+the terrain shapes 4-15, as the pond slopes in from its banks.
+
+**The region** (`$82:83DD`, a jump table on the tile) tests the fractions and
+gives `$69CC`: 0 dry, 1 shallow, 2 deep.
+
+| tiles | test | result |
+|---|---|---|
+| `$61` | none | always deep |
+| `$64` `$65` `$66` `$67` (straight rims) | a = yf, −xf, −yf, xf | deep while a < `$E000`, else dry. A straight rim is never shallow |
+| `$68`-`$6B` (outer corners) | (x, y) = (−xf, yf), (−xf, −yf), (xf, −yf), (xf, yf) | dry if either ≥ `$F000`; shallow if either ≥ `$E000`; else deep |
+| `$6C`-`$6F` (inner corners) | the same pairs | dry if both ≥ `$F000`; deep if x < `$E000`; shallow if y ≥ `$E000`; else deep |
+
+`$60`, `$62` and `$63` jump to `BRA $840E` and hang the game. No hole has
+them.
+
+**The level** (`$82:83B9`) is `$69D0:$69CE` = the height of the cell's
+elevation (`$88:8000`/`$88:80C8`, + 1 on `$61`) + `$57AD`. That is `$2D5`
+under one step above it. On course 1 hole 7 the open water sits one step
+lower than the rim, so both give `$1_6733`, just under the banks' surface.
+
+**In the water** is `$D9EE`, the player block's `$D872`. Only the handlers
+set it. The probe's wrapper `$81:87FB` → `$82:C85F` clears it whenever the
+tile is not `$60-$6F`. `$69CA` turns the water off altogether: the handlers
+and the wrapper then treat the tiles as plain ground. The load sets it when
+the hole has `$5D` and no `$5C` (`$82:BC59`).
+
+**Landing, `$82:80F6`** (mode 0):
+
+1. It saves the probe's ground and code (`$69D2`-`$69D6`).
+2. While the previous tile `$DA2A` is not water it counts the skips
+   (`$82:8228`): `$69DC` = −1 without spin (`$D9CC|$D9CE` = 0) or with
+   \|`$6B58` − 6\| < 4, else 1, or 2 when ≥ 6.
+3. **Already in the water**: below the level, the drag (`$82:836E`: v −= v × 6
+   / 256 on all three axes, `$80:A342`). At or above it, the ball is out:
+   `$D9EE` = 0, the skips counted again, a splash and the dry palette
+   (`$82:8604`), sound `$49`. Either way the default landing follows, on the
+   bed.
+4. **Dry, in the region, below the level**, in this order:
+   - **a skip** (`$82:8256`), while the count is 1 or 2. The ball leaves
+     along its heading at a speed and vz from `$82:8324`/`$832A` (top spin,
+     `$6B58` < 7: `$800`/`$420`, then `$B80`/`$660` at count 2) or
+     `$82:8330`/`$8336` (back spin: `$200`/`$2C0`, `$320`/`$480`). It is put on
+     the level, with object 54, sound `$48`, Kirby's state 14 and the spin
+     zeroed. The count drops by one.
+   - **The modifier's bounce**, at count 0 with A or Y armed (`$DA76` ≥ 0).
+     The routine means vx, vy × `$82:833C` and vz × −`$82:8340`, but it reloads
+     the second factor before its first multiply and never stores its
+     second product. So vx and vz take `$8340`'s factor (`$F000` for A,
+     `$C000` for Y), negated for vz, and vy is unchanged. It plays object 53
+     and `$48`. web_water_mod confirms this.
+   - **A skim** (`$82:84DB`), when \|vz\| < `$980` and \|vx\| + \|vy\| ≥
+     `$7C0`: vx and vy × `$E180` (or `$82:8589`[`$DA76`] armed: `$F000`,
+     `$C800`), vz × −`$E800` (`$80:A367`, the factor unsigned). Then the ball
+     is on the level, with code 0 and the spin halved. Object 54 at a speed of
+     `$B00` or more, else 53, and `$48`.
+   - **Else the entry**: the velocities ÷ 2 if shallow (an arithmetic shift),
+     ÷ 8 if deep (toward zero, `$82:85CB`); `$D9EE` = 1 and the spin zeroed;
+     a splash by \|vz\| (object 57 from `$1F0`, 56 from `$110`, else 55) and
+     the wet palette (`$82:8604`); two object 67s (`$82:85DD`); sound `$49`
+     if vz ≥ −`$160`, else `$4C`; effect 0 (`$80:B542`); then `JML $80:8F78`,
+     one frozen frame, after which the handler returns without the default
+     landing.
+
+   A skip, a bounce or a skim also returns without the default landing.
+
+**Rolling, `$82:8000`** (mode 0):
+- **From dry ground onto the water** (`$DA2A` not water): vz = 0, air = 1,
+  and the step ends. The ball drops in, and the landing handler takes it from
+  the next frame.
+- `$69DC` = −1.
+- **In the water**: in the region, the drag on x and y (`$82:8344`); out of
+  it, the ball is out: `$D9EE` = 0, object 55 and the dry palette, no
+  sound.
+- **On a water tile but not in the water, in the region**: the entry, as
+  above, with vz = 0 and `$49`.
+
+**The ability modes** (ported as read, untraced):
+- Wheel (6) and UFO (10, with `$D77A` = 0) ride the level: in the region the
+  ground becomes the level with code 0 (`$69D8` = 1). The rolling side also
+  quarters `$DA3A`.
+- Freeze (9) under the level ices it: `$69DA` = 1 and `$47`. From then on
+  every mode rides it. If the other player's ball is in the water, that
+  player's reaction is `$15`.
+- With an ability active, entering water drops it (Kirby's state code
+  `$82:CDC5`/`$82:DE3B`, state 19; docs/animation.md).
+
+**The shot guide** has its own water (`$81:B0C4` airborne, `$81:B285`
+rolling). The level is zeroed at every step (`$81:AF82`) and set only on a
+water tile in the region.
+- A guide ball that started in the water (the block's `$D872`) drags as above
+  and is out at the level, or out of the region.
+- A dry one treats the water as flat ground at the level, code 0: airborne
+  it lands on the level, or falls freely above it; rolling, the ground
+  becomes the level.
+
+Its dots and its end draw other pictures while in the water (docs/
+animation.md).
+
+*Emulated* (course 1 hole 7):
+- **web_water_roll**: off the plateau onto the rim at 2496 (air 1, vz 0). In
+  the region at 2502, deep: −1207 → −150, −384 → −48, object 55, `$49`. Then
+  the drag to the bed and rest at (8,9).
+- **web_water_drop**: onto `$61` at −4544 → −568, objects 57 and 58, `$4C`.
+- **web_water_shallow**: the corner `$6A` at xf `$E800`, −768 → −384,
+  object 56.
+- **web_water_skim**: four skims (54, 54, 54, 53), then the entry.
+- **web_water_climb**: from the bed up the rim, out at x `$ECB5` with no
+  sound.
+- **web_water_skip / _back / _mod**: two skips each, then the third
+  contact: past the pond, the entry, or the modifier's bounce.
+- **web_water_shot**: in at 2761, the second aim from the water, out through
+  the surface at 3176.
 
 ### Warp panels — `$B0-$B9`
 
@@ -592,22 +714,16 @@ the game (the engine's per-species clips, docs/engine.md):
 Some layer-2 values are locked to a layer-1 shape:
 
 - `$61`, `$64`-`$6F` mirror the shape byte exactly — `$64` only ever appears
-  on shape `$04`, `$65` on `$05`, and so on. The `$60-$6F` group is a surface
-  overlay that needs the shape restated.
+  on shape `$04`, `$65` on `$05`, and so on. They are the water, whose region
+  test (above) needs the shape restated.
 - `$20`-`$23` sit only on shapes `$04`-`$07`, and `$2A`-`$2D` mostly on the
   diagonal shapes `$10`-`$17`.
 - Everything else sits overwhelmingly on flat ground (`$01`).
 
 ## Not established
 
-- What the `$60-$6F` overlay *does* to the ball. It is water: a hole that
-  has it loads the water's tiles and spawns object 113, which ripples
-  palette 4 and plays a splash while the ball sinks (`$69DA`)
-  ([courses.md](courses.md) "Per-hole surface graphics"). Kirby's state 19,
-  the ball sinking, is entered on it ([animation.md](animation.md)). Its
-  handler `$82:80F6` tracks entering and leaving via `$69CA`/`$69D2`-`$69DA`,
-  and it appears in 45 holes with 1,807 cells, the second largest group. The
-  mechanics are traced, but what the water does to a ball is not established.
+- (Settled: `$60-$6F` are the water, see "Water". They are in 45 holes, with
+  1,807 cells, the second largest group.)
 - `$1C`, `$1D`, `$58-$5D`: handlers located, not read. (`$14-$17` are
   settled: the arrow panels, above; so are `$B0-$B9`, the warp panels.)
   The engine ports `$1C`/`$1D` from the disassembly as the rough family

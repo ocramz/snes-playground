@@ -27,6 +27,7 @@ export const PRESENTATION: Array<{ name: string; run: (p: Presentation) => void 
   { name: 'sync-cup-mask', run: syncCupMask },
   { name: 'sync-warp', run: (p) => p.warp.update(p.ctx) },
   { name: 'sync-snap-stars', run: (p) => p.snapStars.update(p.ctx) },
+  { name: 'sync-water-fx', run: (p) => p.waterFx.update(p.ctx) },
   { name: 'sync-panel', run: (p) => p.panel.update(panelState(p.ctx.world, p.ctx.history)) },
   { name: 'sync-cutscene', run: (p) => p.cutscene.update(p.director.frame(), p.groundOver) },
   { name: 'play-feedback', run: playFeedback },

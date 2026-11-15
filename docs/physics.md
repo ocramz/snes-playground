@@ -24,6 +24,7 @@ ball).
 | `$D9D8` | `$D882` | vertical velocity |
 | `$DA06` / `$DA08` | | ground height under the ball, from the terrain probe |
 | `$D9EC` | `$D8A6` | airborne flag |
+| `$D9EE` | `$D872` | **in the water**: set by the water's handlers, cleared off the water by the probe's wrapper `$81:87FB` ([tiles.md](tiles.md) "Water") |
 | `$DA38` | | gravity, `$FFC0` (`tbl_ball_gravity $80:DB6D`[0]), added to the vertical velocity each airborne frame |
 | `$DA3A` | | rolling friction, from `tbl_roll_friction $80:DC49` (`$0C00` on flat ground) |
 | `$DA3C`, `$DA3E` | | bounce factors, Q15: horizontal 0.98 (`$7D6F`), vertical 0.65 (`$5332`) |
@@ -608,9 +609,12 @@ traced aim sweeps matches the engine's port):
 * **The aim camera always looks at end 0** (`$81:AE26`, written to
   `$6AAA`/`$6AAC`).
 * **It has its own tile table, `$81:B455`.** Only the outline (`$28`-`$2D`)
-  and the overlay (`$60`-`$6F`) act; pillars, enemies, the cup and every
+  and the water (`$60`-`$6F`) act; pillars, enemies, the cup and every
   other tile are plain ground for it. The web demo's few mismatched angles
   ("the rest run into the pillar", [web-demo.md](web-demo.md)) are this.
+  The water has its own model in the guide (`$81:B0C4`, `$81:B285`): a dry
+  ball lands and rolls on the level as on flat ground; one that starts in
+  the water drags until it is out ([tiles.md](tiles.md) "Water").
 * Its own integrator `$81:AF82` is not needed to reproduce the ends: the
   ordinary step with that tile table gives them.
 * When it runs, and how long the aim loop waits for it, is
@@ -648,6 +652,24 @@ traced aim sweeps matches the engine's port):
 | `$6ADC` | shot power P |
 | `$6B3A` | power meter |
 | `$6B50`, `$6B52` | spin selectors during the stage |
+
+### In the water
+
+A ball below the water's level, in the region of a `$60-$6F` cell, is in the
+water (`$D9EE`; [tiles.md](tiles.md) "Water" has the region, the level and
+both handlers). Entering, its velocities are divided by 2 (shallow) or 8
+(deep), and the step freezes one frame (`JML $80:8F78`). In the water, every
+airborne frame takes v × 6 / 256 off all three axes after the air drag, and
+every rolling frame takes it off x and y. A landing on the bed is an ordinary
+landing. At the level going up, or out of the region rolling, the ball is
+out. A flat, fast ball skims instead of entering (vx, vy × 0.88, vz ×
+−0.906), and top or back spin first makes it skip once or twice, relaunched
+along its heading. *Emulated*: course 1 hole 7, nine runs
+(notes/port-v2-phase4-water.md).
+
+A fly shot from the bed of course 1's pond leaves the water (web_water_shot,
+3176). A grounder, by the engine's search over the meter, needs almost full
+power to climb the rim (**unconfirmed** in the game).
 
 ### Not yet known
 

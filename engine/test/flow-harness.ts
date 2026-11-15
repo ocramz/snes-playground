@@ -25,7 +25,8 @@ import { Camera } from '../src/core/traits/camera';
 import { HoleFlow } from '../src/core/traits/flow';
 import { Course, courseEntity } from '../src/core/traits/course';
 import { Pose, BallScreen, BallSprite } from '../src/core/traits/pose';
-import { BallPos, BallVel, BallAir, BallSpin, StillCount, BallHoled } from '../src/core/traits/ball';
+import { BallPos, BallVel, BallAir, BallSpin, BallWet, StillCount, BallHoled } from '../src/core/traits/ball';
+import { GameRng } from '../src/core/traits/water';
 import { activePlayer } from '../src/core/traits/player';
 import { Tomatoes, Strokes, Stars, Career, TomatoQueue } from '../src/core/traits/counters';
 import { s16 } from '../src/core/fixed';
@@ -103,6 +104,7 @@ export function sample(world: World): Record<string, number> {
     card0: Math.max(0, world.get(Career)!.card[0] ?? 0),
     tqw: (world.get(TomatoQueue)!.pushed * 2) & 0x1f,
     tqr: (world.get(TomatoQueue)!.applied * 2) & 0x1f,
+    wet: e.get(BallWet)!.wet,
   };
 }
 
@@ -118,6 +120,7 @@ function readBall(world: World, gameFrame: number): BallTraceFrame {
     vx: s16(vel.vx), vy: s16(vel.vy), vz: s16(vel.vz),
     air: e.get(BallAir)!.air ? 1 : 0,
     spinx: s16(spin.sx), spiny: s16(spin.sy), spinp: spin.pending,
+    wet: e.get(BallWet)!.wet,
     aim: shot.aim, elev: shot.elev,
   };
 }
@@ -144,6 +147,8 @@ export function runFlowScript(
      * (alignActors below). Returns the tick count in `actorTicks`.
      */
     alignActors?: number;
+    /** Seed the game's random numbers ($0079/$007B) from flow_<script>.json at the set-up. */
+    seedRng?: boolean;
   } = {},
 ): FlowRun {
   const offset = opts.offset ?? GAME_OFFSET;
@@ -152,6 +157,7 @@ export function runFlowScript(
   const pokes = opts.pokes ? loadBallPokes(script) : new Map<number, Array<[number, number]>>();
   const world = createGameWorld();
   const ctx = startCourse(world, rules, [course]);
+  if (opts.seedRng) seedRngFromFlow(world, script, offset + 1);
   const entries = parseInputScript(opts.text ?? readFileSync(inputScriptPath(script), 'utf8'));
   const run: FlowRun = { world, ctx, events: [], ball: [], emitted: [], phases: [] };
   const last = new Map<string, number>();
@@ -178,10 +184,28 @@ export function runFlowScript(
   return run;
 }
 
+/** The random state the game had at `frame` (trace_flow.py's rnga/rngb), into GameRng. */
+function seedRngFromFlow(world: World, script: string, frame: number): void {
+  const path = romTestPath(`flow_${script}.json`);
+  if (!existsSync(path)) return;
+  const events = (JSON.parse(readFileSync(path, 'utf8')) as { events: FlowEvent[] }).events;
+  let a = -1;
+  let b = -1;
+  for (const [f, k, v] of events) {
+    if (f > frame) break;
+    if (k === 'rnga') a = Number(v);
+    else if (k === 'rngb') b = Number(v);
+  }
+  if (a >= 0 && b >= 0) world.set(GameRng, { a: a & 0xffff, b: b & 0xffff });
+}
+
 /** The ball block's words the stepper's pokes write ($7E:D8xx -> the block traits). */
 const BLOCK_WORDS: Record<number, string> = {
   0xd8aa: 'xf', 0xd8ae: 'xc', 0xd8b2: 'yf', 0xd8b6: 'yc', 0xd8ba: 'zlo', 0xd8be: 'zhi',
   0xd87a: 'vx', 0xd87e: 'vy', 0xd882: 'vz', 0xd8a6: 'air',
+  0xd866: 'spinx', 0xd86a: 'spiny', 0xd86e: 'spinp', 0xd872: 'wet',
+  // not the block: the top/back selector latched at the shot (Shot.rollTB)
+  0x6b58: 'rollTB',
 };
 
 /** tools/snesstep/inputs/<name>.pokes -> {frame: [[addr, value]]}, the ball block's words only. */
@@ -213,6 +237,8 @@ function pokeBlock(world: World, words: Array<[number, number]>): void {
   const pos = { ...e.get(BallPos)! };
   const vel = { ...e.get(BallVel)! };
   const air = { ...e.get(BallAir)! };
+  const spin = { ...e.get(BallSpin)! };
+  const wet = { ...e.get(BallWet)! };
   let zlo = pos.z & 0xffff;
   let zhi = (pos.z >>> 16) & 0xffff;
   for (const [a, v] of words) {
@@ -222,11 +248,18 @@ function pokeBlock(world: World, words: Array<[number, number]>): void {
     else if (k === 'zhi') zhi = v;
     else if (k === 'vx' || k === 'vy' || k === 'vz') vel[k] = v;
     else if (k === 'air') air.air = v;
+    else if (k === 'spinx') spin.sx = v;
+    else if (k === 'spiny') spin.sy = v;
+    else if (k === 'spinp') spin.pending = v;
+    else if (k === 'wet') wet.wet = v;
+    else if (k === 'rollTB') world.set(Shot, { ...world.get(Shot)!, rollTB: v });
   }
   pos.z = ((zhi << 16) | zlo) | 0;
   e.set(BallPos, pos);
   e.set(BallVel, vel);
   e.set(BallAir, air);
+  e.set(BallSpin, spin);
+  e.set(BallWet, wet);
 }
 
 /** A recorded actor slot: build/engine/rom-test/actors_<name>.json, by slot. */

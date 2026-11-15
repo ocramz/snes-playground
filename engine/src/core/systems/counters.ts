@@ -22,6 +22,7 @@ import { emitEvent } from './flow-util';
 import { tickHazards } from './actors';
 import { tickBoostHum } from './boost-hum';
 import { tickSnapTrail } from './snap-trail';
+import { tickWaterFx } from './water-fx';
 
 /** `$83:ABC5` (delta -1) / `$83:ABAD` (+1): queue a tomato change. */
 export function pushTomato(world: World, delta: 1 | -1): void {
@@ -49,7 +50,8 @@ export function changeTomatoes(world: World, delta: 1 | -1): void {
 /**
  * The thread scheduler's tick at the frame's end: the HUD thread (the
  * tomato queue), the hazard actors, object 112's hum (boost-hum.ts) and the
- * snap panels' stars, objects 61 and 62 (snap-trail.ts). Not in a frame the
+ * snap panels' stars, objects 61 and 62 (snap-trail.ts), and the water's
+ * splashes and bubbles, objects 53-58 and 67 (water-fx.ts). Not in a frame the
  * cup reveal's decompression wait holds it.
  */
 export function threadTick(world: World, ctx: import('../sim/context').Ctx): void {
@@ -62,6 +64,7 @@ export function threadTick(world: World, ctx: import('../sim/context').Ctx): voi
   tickHazards(world, ctx);
   tickBoostHum(world);
   tickSnapTrail(world, ctx);
+  tickWaterFx(world, ctx);
 }
 
 /** The HUD thread takes the next entry: 20 ticks to its change. */

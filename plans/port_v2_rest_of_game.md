@@ -18,22 +18,22 @@ The hole index is course×8 + hole (`$82:B0A4`, [courses.md](../docs/courses.md)
 
 | indices | mode | clean | course-1 level | blocked |
 |---|---|---|---|---|
-| 0-63 | 1P courses 1-8 | 17 | 42 | 5 |
-| 64-127 | extra game: the same terrain, a different layer 2 | 5 | 54 | 5 |
-| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 3 | 8 | 21 |
-| 160-179 | **unconfirmed**: the 20 DEMOPLAY holes. Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 8 | 11 | 1 |
+| 0-63 | 1P courses 1-8 | 20 | 39 | 5 |
+| 64-127 | extra game: the same terrain, a different layer 2 | 6 | 53 | 5 |
+| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 4 | 7 | 21 |
+| 160-179 | **unconfirmed**: the 20 DEMOPLAY holes. Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 9 | 10 | 1 |
 | 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 2 | 5 | 25 |
-
-The counts are after step 3 (the snap panels, §8). Before it, with the snaps blocking, they were 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
 | 224-243 | stub layer 2: a lone `$0C` and no enemies, so no cup is possible | — | — | 20 |
 | 184 | **unconfirmed**: Dedede's arena. physics.md puts the extra game's Dedede at 184. The slot holds the "shared filler" entry, whose header `$9F:EB41` is a real 16×16 hole named `MAPF0`. Not exported | | | |
+
+The counts are after step 4 (the water, §8). After step 3 they were 17/42/5, 5/54/5, 3/8/21, 8/11/1 and 2/5/25; before it, with the snaps blocking, 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
 
 The columns:
 - **Clean:** every layer-2 tile goes through a ported handler.
 - **Course-1 level:** the hole also uses what course 1 ships with today:
-  - the water `$60-$6F`, treated as plain ground;
   - ability enemies, whose take is ported but which grant nothing;
   - the `unk5c` handler (`$5C`/`$5D`: course 1 hole 8 has a `$5C`).
+  (Until step 4 the water `$60-$6F`, then plain ground, counted here too.)
 - **Blocked:** the hole has the toggles, `$58-$5B`, or the roulette `$57` (and, until step 3, the snap tiles).
 
 Two things do not affect any hole:
@@ -49,7 +49,7 @@ Not counted, because they touch every hole: the crest's cross-cell branches (`en
 | ~~snap tiles `$18-$1B`: the gate `$82:A692` and the exact clamps~~ | 14, all with no other blocker: 29, 32, 37, 39, 41, 45, 49, 50, 52, 54, 55, 57, 62, 63 | **ported in step 3**, with the star trail (objects 61/62); 29 and 37 are now clean, the other 12 course-1 level (water or ability enemies) | traced: web_snap* (docs/tiles.md "Snap panels") |
 | toggles `$70-$7B`, always with `$5A`/`$5B` | 5: 10, 19, 25, 26, 43 | stub: plain ground (`dispatch.ts:166-184`) | the direction map `$88:9190`, `$82:A086`/`$A0D9`/`$A0F9` (unread). **Unconfirmed:** `$5B` is the toggle's switch. It occurs in 30 holes, and all 30 have toggles (35 holes have toggles) |
 | `$58-$5D` | `$5A`/`$5B` in the 5 above; `$5C`/`$5D` in 2 (hole 7, which is course 1 hole 8, and 23) | stub | handlers located, not read ([tiles.md](../docs/tiles.md) "Not established") |
-| **water** `$60-$6F` | 17: 6, 7, 12, 20, 22, 23, 27, 31, 32, 33, 35, 50, 52, 55, 57, 62, 63 | stub: plain ground, **course 1's holes 7 and 8 included**. The `$D9EE` flag is ported | `$82:80F6`, `$69CA`/`$69D2-$69DA`, Kirby's state 19 (the sink). What the water does to a ball is unknown |
+| ~~**water** `$60-$6F`~~ | 17: 6, 7, 12, 20, 22, 23, 27, 31, 32, 33, 35, 50, 52, 55, 57, 62, 63 | **ported in step 4**, with its splashes, bubbles and Kirby's wet palette; 6, 12 and 27 are now clean | traced: web_water_* (docs/tiles.md "Water") |
 | **ability enemies** | 38 of 64. Per course: 3, 3, 3, 5, 6, 5, 7, 6. Course 1 has `$42` Parasol and `$48` Hi-Jump | the take is ported and the ability stored, but nothing uses it | §3 |
 
 Over all 232 holes, water is on 45 (17 + 17 + 4 + 3 + 4 by the ranges above), which agrees with tiles.md.
@@ -238,6 +238,21 @@ Ordered by holes unlocked per unit of RE:
      - course 7 hole 7's reveal delays the HUD's tomato by 4 frames (lag).
    - After it: 1P 17 clean, 42 at course-1 level, 5 blocked (§1). The random holes' solve rates are unchanged (29, 28, 20 of 30).
 4. **The water `$60-$6F`.** 17 1P holes, and it fixes course 1's own holes 7 and 8.
+   - **Done 2026-11-15** ([notes/port-v2-phase4-water.md](../notes/port-v2-phase4-water.md); docs/tiles.md "Water", docs/animation.md "The water's objects", docs/physics.md "In the water", docs/engine.md). Both handlers (`$82:80F6`, `$82:8000`) are ported exactly: the region, the level, the entry (÷ 2 or ÷ 8, one frozen frame), the drag, the way out, skims, skips and the modifier's bounce. So is the guide's own water model. The ability modes' branches are ported as read and untraced.
+   - Also ported:
+     - the splash objects 53-58 and the bubble emitter 67, with the game's random numbers (`$80:87DD`, `sim/rng.ts`);
+     - Kirby's wet palette (OBJ palette 0 colours 2-6, a second Kirby frame set);
+     - the guide's pictures from the water;
+     - the sounds `$47`, `$48`, `$49` and `$4C`.
+   - Eight poked scenarios and one played shot on course 1 hole 7 match frame for frame: the ball states, the sounds, `$D872`, the palette, and every splash's and bubble's states, with the random state seeded at the set-up. The guide's ends over the water match too. 565 tests pass, and so do the e2e pages, with a new `water.mjs`.
+   - Found on the way:
+     - the engine's `overlayProbe` set `$D9EE`, where the ROM only clears it;
+     - the modifier's bounce stores the wrong factors (vx and vz take `$8340`'s, vy keeps its own);
+     - object 67's waits read past their table into code;
+     - `$84:9A38` rewrites Kirby's outline colour every frame, so only colours 2-6 change in the water;
+     - a splash in Kirby's OAM queue covers him, one queue back is behind him (which may also hold for the snap stars, unconfirmed).
+   - After it: 1P 20 clean, 39 at course-1 level, 5 blocked (§1). Course 1 hole 7 is clean; hole 8 keeps its `$5C`.
+   - Left: the ability's drop on entering water (`$D9C6`, step 5), `$69CA`'s toggles (step 6), player 2's palette (step 9), and water in the random holes.
 5. **The copy abilities**, recorded from demos 10-19. They gate exact play on 38 of the 64 1P holes, course 1 included.
 6. **The toggles and `$58-$5D`**, for the last 5 blocked 1P holes, and `$5C`/`$5D` on 2 more.
 7. **The shell:** the per-hole card, pause and the overview, the course map, title → map → course, the medals and SRAM.
@@ -257,7 +272,7 @@ import glob, json, os
 R = 'build/engine/rules/tables.json'; t = json.load(open(R))
 name = {d['id']: d['name'] for d in t['dispatchHandlers']}
 land, abil = t['landDispatch']['values'], t['enemyAbility']['values']
-BLOCK, PARITY = {'toggle', 'unk58', 'unk5a', 'roulette'}, {'overlay', 'ability', 'unk5c'}  # 'snap' left BLOCK at step 3
+BLOCK, PARITY = {'toggle', 'unk58', 'unk5a', 'roulette'}, {'ability', 'unk5c'}  # 'snap' left BLOCK at step 3, 'overlay' PARITY at step 4
 for d in sorted(glob.glob('build/courses/[0-9][0-9][0-9]_MAP*')):
     m = json.load(open(f'{d}/map.json')); n = m['grid_width'] * m['grid_height']
     l2 = open(glob.glob(f'{d}/t02_*.bin')[0], 'rb').read()

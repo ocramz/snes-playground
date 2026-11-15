@@ -30,6 +30,8 @@ export interface BallTraceFrame {
   spinp: number;
   aim: number;
   elev: number;
+  /** $D872, the block's in-the-water flag (trace_ball.py `wet`; absent from older recordings). */
+  wet?: number;
 }
 
 /** The fields a frame-exact comparison covers (position, height, velocity, airborne). */

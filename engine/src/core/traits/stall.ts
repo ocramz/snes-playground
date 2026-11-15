@@ -19,10 +19,13 @@ import { trait } from 'koota';
  *   step; its own list is systems/reveal.ts (`tickReveal`), and the step
  *   resumes when it is over.
  * - `takeWait`: $82:8A83's 4 frames after an ability enemy's take.
+ * - `waterWait`: the water's entry ($82:81F5 / $82:80D0) jumps to the frame
+ *   helper $80:8F78 once inside the step, then returns from the handler
+ *   (sim/water.ts): one frozen frame.
  * - `warp`: $82:AA02, the ball goes from one warp panel to the other inside
  *   the step; its own list is systems/warp.ts (`tickWarp`), and the step
  *   resumes when it is over.
- * The HUD thread (the tomato queue) runs in the hit-stops, the take wait,
+ * The HUD thread (the tomato queue) runs in the hit-stops, the take and water waits,
  * the reveal and the warp, as the ROM's frame helper $80:8F78 does; not in the
  * guide's or the APU's lag, where the main loop is busy.
  *
@@ -30,7 +33,7 @@ import { trait } from 'koota';
  * resumes on frame F+N. The suspended ball step's state rides as plain
  * fields (koota traits hold primitives only).
  */
-export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp' | 'guideLag' | 'apuLag';
+export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'waterWait' | 'warp' | 'guideLag' | 'apuLag';
 
 export const Stall = trait({
   kind: 'none' as StallKind,

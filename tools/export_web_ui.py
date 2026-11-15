@@ -223,6 +223,16 @@ def build(outdir):
     out["guide"] = {"dot": pic(dot), "cone": "u_cone",
                     "note": "the dot's 8x8 centre sits at the path point + (-3, 0); the cone's top-left at the "
                             "path end + (-6, -15) (measured: 31 aim angles, tools/snesstep/trace_flow.py)"}
+    # ... and from the water: with $D9EE set the guide draws palette 0's own
+    # pictures ($81:ACF6: $89:8F52 for a rolling dot, $81:ADF6: $89:8F6B for the
+    # end; same offsets as the dry lists), in the wet palette: drawn from the
+    # aim in the pond of web_water_shot (export_web_sprites.py's snapshot)
+    from export_web_sprites import WATER_REF_AIM, draw_list, water_ref_snapshot
+    wet = water_ref_snapshot(WATER_REF_AIM)
+    atlas.add("u_dot_wet", draw_list(wet, 0x8F52)[0], 0, 0, trim=False)
+    atlas.add("u_cone_wet", draw_list(wet, 0x8F6B)[0], 0, 0, trim=False)
+    out["guide"]["dotWet"] = "u_dot_wet"
+    out["guide"]["coneWet"] = "u_cone_wet"
 
     # --- timings, from the frames of web_ui (A = 2800) -----------------------------
     # the "1" bobs: -40 from +46, -39 from +54, then from +70 a 32 frame cycle

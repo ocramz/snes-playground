@@ -1,0 +1,29 @@
+# Course 1 hole 7 (index 6, MAP06) played from the tee, no ball pokes (the hole
+# is picked by the .pokes at 2050): a fly shot at the meter's top over the
+# enemy at (11,9), which it takes, into the pond (the entry at 2761, by the
+# engine); the ball rests on the bed of (8,9), in the water. The next set-up
+# (2942) aims from the water: the guide starts in it ($81:A9D6), the bubbles
+# come from Kirby's head while he stands ($D842). A fly shot west: out through
+# the surface ($82:820D: sound $49, a splash, the dry palette), over the enemy
+# at (6,9). For the engine's trace-script and flow tests and the guide over
+# water (the timings were found with the engine, then recorded).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2380 UP 3       # the fly shot
+2420 A 2        # aim (the set-up's 180)
+2470 A 2        # the shot panel
+2500 A 2        # end the spin stage (the top/back selector moves by itself)
+2567 A 2        # latch the meter (its top)
+2990 UP 3       # the second shot, from the water: a fly shot
+3030 A 2        # aim (180)
+3080 A 2        # the shot panel
+3110 A 2        # end the spin stage
+3142 A 2        # latch the meter

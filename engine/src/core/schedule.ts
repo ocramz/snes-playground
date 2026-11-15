@@ -95,7 +95,7 @@ export function runCoreFrame(world: World, ctx?: Ctx): void {
 /** Is the idle stall one whose ROM loop still runs the threads each frame? */
 function sameIteration(world: World): boolean {
   const k = world.get(Stall)!.kind;
-  return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'cupReveal' || k === 'warp';
+  return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'waterWait' || k === 'cupReveal' || k === 'warp';
 }
 
 /**
@@ -110,7 +110,7 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   const own = stall.kind === 'cupReveal' || stall.kind === 'warp'; // a list of its own, no count
   if (!own && stall.framesLeft <= 0) return 'none';
   const hit = stall.kind === 'hitStop' || stall.kind === 'stepStop';
-  const threads = hit || stall.kind === 'takeWait' || own;
+  const threads = hit || stall.kind === 'takeWait' || stall.kind === 'waterWait' || own;
   if (hit) {
     // $81:8CAB-$81:8CBF: OR the pad of every stall frame
     const pad = world.get(Pad)!;

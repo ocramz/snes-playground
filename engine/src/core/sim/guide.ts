@@ -19,7 +19,10 @@
  *
  * The guide's own step, $81:AF82-$81:B44B, is a separate routine built on
  * the same primitives (probe, edges, wall and step bounce, reflection, the
- * spin impulse, the outline wall); it is NOT ported. The engine runs the
+ * spin impulse, the outline wall); it is NOT ported, except its water
+ * ($81:B0C4, $81:B285: sim/water.ts, which the dispatch reaches with
+ * `presentation` false; the guide starts from the block's $D872 through the
+ * live work copy, $81:A9D6). The engine runs the
  * kernel entries of BALL_STEP instead (plans/port_v1_koota_phaser4.md),
  * silently ($6AC0 = 0). docs/web-demo.md found the guide's ends to match
  * that for 105 of 110 aims; test/flow.test.ts measures the engine's.
@@ -106,14 +109,14 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
   let gapPending: GuideEnd | null = null; // $6AD0 and the slot $81:AC3D saved
   let rolling = shot.kind !== 2;
   const dot = (): void => {
-    out.points.push({ xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z, air: w.air });
+    out.points.push({ xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z, air: w.air, wet: w.onOverlay });
   };
   const end = (): void => {
     // $81:AD97: the pending gap end, else the ball where it is
     const e = gapPending ?? at(w.xc, w.xf, w.yc, w.yf, w.z);
     gapPending = null;
     const p = project(origin, e.xc, e.xf, e.yc, e.yf, e.z);
-    out.ends.push({ ...e, sx: p.x, sy: p.y });
+    out.ends.push({ ...e, sx: p.x, sy: p.y, wet: w.onOverlay });
   };
 
   for (;;) {
@@ -204,7 +207,7 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
 }
 
 function at(xc: number, xf: number, yc: number, yf: number, z: number): GuideEnd {
-  return { xc, xf, yc, yf, z, sx: 0, sy: 0 };
+  return { xc, xf, yc, yf, z, sx: 0, sy: 0, wet: 0 };
 }
 
 /** $81:8751's copy, as begin-ball-step does it. */
