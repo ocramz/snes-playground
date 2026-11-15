@@ -25,7 +25,8 @@ import { Camera } from '../src/core/traits/camera';
 import { HoleFlow } from '../src/core/traits/flow';
 import { Course, courseEntity } from '../src/core/traits/course';
 import { Pose, BallScreen, BallSprite } from '../src/core/traits/pose';
-import { BallPos, BallVel, BallAir, BallSpin, BallWork, StillCount, BallHoled } from '../src/core/traits/ball';
+import { BallPos, BallVel, BallAir, BallSpin, StillCount, BallHoled } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { Tomatoes, Strokes, Stars, Career, TomatoQueue } from '../src/core/traits/counters';
 import { s16 } from '../src/core/fixed';
 import type { World } from 'koota';
@@ -60,7 +61,7 @@ export interface FlowRun {
 export function sample(world: World): Record<string, number> {
   const shot = world.get(Shot)!;
   const cam = world.get(Camera)!;
-  const e = world.queryFirst(BallWork)!;
+  const e = activePlayer(world);
   const pose = e.get(Pose)!;
   const sc = e.get(BallScreen)!;
   const pos = e.get(BallPos)!;
@@ -106,7 +107,7 @@ export function sample(world: World): Record<string, number> {
 }
 
 function readBall(world: World, gameFrame: number): BallTraceFrame {
-  const e = world.queryFirst(BallWork)!;
+  const e = activePlayer(world);
   const pos = e.get(BallPos)!;
   const vel = e.get(BallVel)!;
   const spin = e.get(BallSpin)!;
@@ -208,7 +209,7 @@ export function loadBallPokes(name: string): Map<number, Array<[number, number]>
  * fields stay as they were, as the block's ($D8C2-$D8DE) do in the game.
  */
 function pokeBlock(world: World, words: Array<[number, number]>): void {
-  const e = world.queryFirst(BallWork)!;
+  const e = activePlayer(world);
   const pos = { ...e.get(BallPos)! };
   const vel = { ...e.get(BallVel)! };
   const air = { ...e.get(BallAir)! };

@@ -23,7 +23,7 @@ import type { Ctx } from '../sim/context';
 import { emitEvent } from './flow-util';
 import { pushTomato } from './counters';
 import { freeEnemies, startReveal } from './reveal';
-import { ballEntity } from './ball-step';
+import { activePlayer } from '../traits/player';
 
 /** $82:8A83: the wait after an ability enemy's take (copy abilities deferred). */
 export const ABILITY_TAKE_FRAMES = 4;
@@ -51,7 +51,7 @@ export function takeEnemy(world: World, ctx: Ctx, w: BallWorkFields): TakeStall 
   if (enemy === undefined) return null; // no actor on the cell (a placed test grid)
   if (enemy.has(IsCup) || enemy.targetFor(TakenBy) !== undefined) return null; // $82:8B0F
   const kind = enemy.get(EnemyKind)!;
-  const player = ballEntity(world);
+  const player = activePlayer(world);
   const ability = kind.ability === 0x0b ? 0 : kind.ability; // the roulette: deferred
   emitEvent(world, 'enemy-taken', ability !== 0 ? 0x50 : 0x4f, enemy);
   if (ability !== 0) player.set(StockedAbility, { id: ability }); // $82:8A70: $D852

@@ -15,13 +15,13 @@ import { BallSprite } from '../traits/pose';
 import { Stall } from '../traits/stall';
 import type { Ctx } from '../sim/context';
 import { kirbyPriority } from '../sim/priority';
-import { ball } from './flow-util';
+import { activePlayer } from '../traits/player';
 import { rollLoopPresents } from './camera';
 
 export function updateBallSprite(world: World, ctx: Ctx): void {
   if (!rollLoopPresents(world)) return;
   if (world.get(Stall)!.kind === 'apuLag') return; // the rest of this iteration comes after the handshake
-  const e = ball(world);
+  const e = activePlayer(world);
   const prio = kirbyPriority(ctx.rules, ctx.course, e.get(BallWork)!);
   if (e.get(BallSprite)!.prio !== prio) e.set(BallSprite, { prio });
 }

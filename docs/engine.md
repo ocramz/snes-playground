@@ -82,6 +82,7 @@ The rules (reference §3), checked statically by `test/no-phaser-in-core.test.ts
   - `features/{catalog-data, kirby/pose-clips, kirby/sprite-rules, layers/layer-depth, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames, layers/styled}`;
   - `assets/schema`, `config`.
 - **There is no global world.** `boot-game.ts` creates it with `createGameWorld()` and passes it in the scenes' data (`game/host.ts`).
+- **The player is reached through its handle.** Core, game and the tests find "the player" with `activePlayer(world)` (it throws outside a course) or `findActivePlayer(world)` (`core/traits/player.ts`), never with a `queryFirst` on a trait the player entity carries.
 
 ## The event model
 
@@ -182,7 +183,7 @@ World singletons (`world.add` at creation, `core/world.ts`):
 | `TomatoQueue` (AoS) | the ring, the pending change, the timer, the HUD's shown flag, hold | `$68FA`, `$68F4` | `traits/counters.ts` |
 | `BoostHum` | active (object 112 lives: the hole has a boost panel), its counter | object 112's `$531C` | `traits/boost.ts` |
 
-The player's ball, spawned by `startHole` with `Visual {kind: 'ball'}`:
+The player: one entity per player (`spawnPlayer`, `core/world.ts`), tagged `IsPlayer`. The one whose turn it is carries `IsActivePlayer`, which stands for `$7E:1803`: `$82:F030` loads the per-player block at X = `$1803`, 0 or 2 ([physics.md](physics.md) "The ball's state"). In 1P the first `startCourse` spawns the one player, and it is the active player from then on. It is not under the hole root, so it outlives the holes and GAME END. Everything finds it with `activePlayer` / `findActivePlayer` (`traits/player.ts`), so a 2P turn change has only to move the tag. The entity carries `Visual {kind: 'ball'}` and:
 - the block, SoA: `BallPos`, `BallVel`, `BallAir`, `BallSpin`, `BallMode` (always 0), `BallHoled`, `BallHeading`;
 - persistent, SoA: `StillCount` (`$D9BE/C0`), `Modifier` (`$DA76/78/7A`), `Tomatoes` (`$D7F0`), `Strokes` (`$D82A`), `Stars` (`$6A10`), `StockedAbility` (`$D852`);
 - `Pose` (`$D7D4`, `$D7C4`, `$D7CC`, `$6A6E`), the semantic state only, never a clip;
@@ -496,7 +497,7 @@ The bridge:
 
 ## Verification
 
-`make engine-test` runs 37 vitest files (464 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 37 vitest files (466 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -507,7 +508,7 @@ The bridge:
 | `flow`, `flow-units` | web_flow, web_curve, web_ui, web_fly, web_fly_spin, web_hole and web_tomatoes against the per-frame flow traces. The discrete fields are within ±2 frames (the state, facing, angle, aim, elevation, selectors, meter, over, the counters, the card, Kirby's priority `$D96A`). The camera is within ±2 px in x and ±8 in y; the guide's end within 1 px on 95 % of the targets. The projection is bit-exact |
 | `events` | every sound request of seven runs, on its iteration |
 | `stalls`, `reveal` | the hit-stops and the reveal's edges, frame-exact; the reveal's stages on course 1's holes 1-4 |
-| `hole-entities`, `hazards`, `hazard-actors`, `trace-hazards` | the sweep on all 8 holes; the five hazard scenarios (ball states, sounds, the actors' state sequences); `$A2` and the auto-tiling on t7 |
+| `hole-entities`, `hazards`, `hazard-actors`, `trace-hazards` | the sweep on all 8 holes; the one player entity, active from `startCourse` through `nextHole`, GAME END and CONTINUE; the five hazard scenarios (ball states, sounds, the actors' state sequences); `$A2` and the auto-tiling on t7 |
 | `trace-warp` | two poked scenarios on course 1 hole 4 (`web_warp`, `web_warp_fly`): the warp `$B4` → `$B5` rolled onto and landed on; ball states and sounds, the stall's frames, Kirby's sprite and the camera's pan every frame from the warp's start |
 | `trace-terrain` | three poked scenarios on course 1 holes 2 and 3 (`web_arrow`, `web_ramps`, `web_step`): the arrow panel's turn, the in-cell crest, flush ramp edges along ±y, a step hit by the N edge and its hit-stop; two on course 3 hole 2 (`web_boost`, `web_boost_side`): the N boost panel hit straight and askew (the small push, the launch), object 112's hum and its end; ball states and sounds (`test/scenarios.ts`, shared with `trace-hazards`) |
 | `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
@@ -518,7 +519,7 @@ The bridge:
 | `frame-clock`, `cutscene`, `director`, `panel-state` | the 60.0988 Hz clock; the replay against the recording, sprite by sprite, and the anchors; the director's timing against core on web_hole; the panel's ages, closings, blink and meter lags on web_ui |
 | `gen`, `gen-sim` | the random holes: 200 layouts per difficulty valid and flush but for their step-downs, actors on `$01`, only ported tiles; a seed always gives the same hole and plan; plans within the par windows; three plans replayed through the world hole out; the shot simulator's rests equal the world's on the test holes, and its speed |
 | `styled` | the styled terrain: deterministic, a flat cell is the `$020/$021` block, the walls go to the outline mask, and course 1 redrawn from its grids matches its exported art (see "Random holes") |
-| `no-phaser-in-core` | the dependency rules above |
+| `no-phaser-in-core` | the dependency rules above, the player's handle included: no `queryFirst` on a player trait anywhere in `src/` or `test/` |
 
 In the browser:
 - `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs` and `test/e2e/random.mjs` (Playwright with the cached Chromium). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
@@ -570,7 +571,7 @@ The presentation:
 ## Deferred
 
 - Copy abilities: the modes 1-21 (`$D9C8`), the swallow, the ability's use. An ability enemy's take is ported (`$50`, the 4 frames, the stocked id); the roulette `$57` counts as none; the test holes reject ability enemies.
-- Two players: the `$1803` block, the follow's catch-up states, stolen stars (`$82:8B0F`), ball-to-ball hits, the 2P HUD, the asleep turn-skip.
+- Two players: the second player entity and the turn change (the handle, `IsActivePlayer` for `$1803`, is in place), pad 2, the tomato queue's per-player entries, the follow's catch-up states, stolen stars (`$82:8B0F`), ball-to-ball hits, the 2P HUD, the asleep turn-skip.
 - King Dedede, the course result's medals, the map (the plan's stretch goal), the scoreboard, player names, the menus, SRAM.
 - The extra game (holes 64-127): the same loading with `ENGINE_HOLES` (its songs and ripples are courses 1-8's), but not offered.
 - The night palette on courses 2-8: only course 1 hole 1's swap is recorded.

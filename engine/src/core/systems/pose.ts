@@ -14,12 +14,12 @@
 import type { World } from 'koota';
 import { Pose, PoseState, HOP_FRAMES } from '../traits/pose';
 import { BallWork } from '../traits/ball';
-import { ball } from './flow-util';
+import { activePlayer, findActivePlayer } from '../traits/player';
 import { HURT_POSE, THROWN_POSE } from './hazard-reaction';
 
 
 export function updatePose(world: World): void {
-  const e = world.queryFirst(BallWork);
+  const e = findActivePlayer(world);
   if (e === undefined) return; // no hole running
   const w = e.get(BallWork)!;
   const pose = e.get(Pose)!;
@@ -44,7 +44,7 @@ export function updatePose(world: World): void {
 
 /** The hit-stop's pose: 12 on its first frame, the return when it ends. */
 export function squashPose(world: World, begin: boolean, variant: number): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   const pose = e.get(Pose)!;
   if (begin) {
     // $81:8C9E: the state is pushed; $81:8CC6 restores 13 or 14

@@ -17,7 +17,8 @@
  */
 import type { World } from 'koota';
 import type { GameEvent } from '../../../core/events';
-import { BallHoled, BallWork } from '../../../core/traits/ball';
+import { BallHoled } from '../../../core/traits/ball';
+import { findActivePlayer } from '../../../core/traits/player';
 import { Strokes } from '../../../core/traits/counters';
 import { HoleFlow } from '../../../core/traits/flow';
 import { Time } from '../../../core/traits/time';
@@ -91,7 +92,7 @@ export class CutsceneDirector {
     if (!ran) return;
     const f = world.get(Time)!.frame;
     if (this.name === null && this.holedAt < 0) {
-      const ball = world.queryFirst(BallWork);
+      const ball = findActivePlayer(world);
       if (ball && ball.get(BallHoled)!.holed === 2) {
         this.holedAt = f - OUTRO_HOLED_SFX_AT;
         const hio = ball.get(Strokes)!.n === 2;

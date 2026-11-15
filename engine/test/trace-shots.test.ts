@@ -24,6 +24,7 @@ import { placeBall, startCourse } from '../src/core/actions';
 import { Stall } from '../src/core/traits/stall';
 import { drainEvents } from '../src/core/events';
 import { BallPos, BallVel, BallAir, BallWork } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { Pad } from '../src/core/traits/pad';
 import { RomRules } from '../src/core/rules';
 import { fromRomCourse } from '../src/core/course-data';
@@ -81,7 +82,7 @@ describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by fra
           drainEvents(world);
           // the game's ball-lost reset (back on the tee) is flow, not
           // physics: stop comparing once the port's ball is lost
-          if (world.queryFirst(BallWork)!.get(BallWork)!.fellOut !== 0) {
+          if (activePlayer(world).get(BallWork)!.fellOut !== 0) {
             diff = null;
             break;
           }
@@ -113,7 +114,7 @@ describe.skipIf(!haveRules || !haveRomTest)('port vs the real game, frame by fra
 });
 
 function readBall(world: ReturnType<typeof createGameWorld>): BallTraceFrame {
-  const e = world.queryFirst(BallPos)!;
+  const e = activePlayer(world);
   const pos = e.get(BallPos)!;
   const vel = e.get(BallVel)!;
   const air = e.get(BallAir)!;

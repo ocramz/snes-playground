@@ -1,4 +1,4 @@
-import { createWorld, type World } from 'koota';
+import { createWorld, type Entity, type World } from 'koota';
 import { Pad } from './traits/pad';
 import { Time } from './traits/time';
 import { Shot } from './traits/shot';
@@ -18,6 +18,7 @@ import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
 import { Warp } from './traits/warp';
 import { Hazards } from './traits/hazards';
+import { IsPlayer, IsActivePlayer } from './traits/player';
 
 /**
  * The one game world. No module-level world: the headless test harness and
@@ -54,9 +55,16 @@ export function createGameWorld(): World {
   return world;
 }
 
-/** The ball entity: the block-backed traits, the work copy, Kirby's pose, the counters. */
-export function spawnBall(world: World): number {
+/**
+ * A player entity (traits/player.ts): the block-backed traits, the work
+ * copy, Kirby's pose, the counters. 1 player: it is spawned once, by the
+ * first `startCourse`, and is the active player from then on; it is not
+ * under the hole root, so it outlives the holes and GAME END.
+ */
+export function spawnPlayer(world: World): Entity {
   const e = world.spawn(
+    IsPlayer,
+    IsActivePlayer,
     BallPos({ xc: 0, xf: 0, yc: 0, yf: 0, z: 0 }),
     BallVel({ vx: 0, vy: 0, vz: 0 }),
     BallAir({ air: 0 }),

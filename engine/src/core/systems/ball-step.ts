@@ -33,6 +33,7 @@ import { countStill } from '../sim/still';
 import { s16, wrap16, mul16x8 } from '../fixed';
 import { emit } from '../events';
 import { Stall } from '../traits/stall';
+import { activePlayer } from '../traits/player';
 import { startWarp } from './warp';
 import { Pose, PoseState } from '../traits/pose';
 import { takeEnemy } from './take';
@@ -316,7 +317,7 @@ export const BALL_STEP: StepEntry[] = [
       if (w.sunk !== 0) {
         // $82:AEC1-$82:AEEF: Kirby's state 1, the music's volume to 0
         // ($80:B5F4: APU port 2 and $1003), sfx $82:AEF5[mode] ($21 in mode 0)
-        const e = ballEntity(world);
+        const e = activePlayer(world);
         e.set(Pose, { ...e.get(Pose)!, state: PoseState.Holed, timer: 0 });
         emit(world, api, 'music-mute'); // not a sound request: no id
         emit(world, api, 'holed', s.ctx.rules.table('holedSfx')[w.mode & 0xff] ?? 0x21);
@@ -357,7 +358,7 @@ export const BALL_STEP: StepEntry[] = [
     kernel: false,
     run: (world, s) => {
       countStill(s.w);
-      const e = ballEntity(world);
+      const e = activePlayer(world);
       e.set(StillCount, { over: s.w.over, frames: s.w.frames });
       return null;
     },
@@ -431,8 +432,7 @@ interface PendingState {
 }
 
 function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | null): boolean {
-  const e = world.queryFirst(BallWork);
-  if (e === undefined) throw new Error('no ball entity');
+  const e = activePlayer(world);
   const w = e.get(BallWork)!;
   const mod = e.get(Modifier)!;
   const s: StepState = {
@@ -498,16 +498,9 @@ export function cloneWork(w: BallWorkFields): BallWorkFields {
 // Block <-> work copy ($82:F030 / $82:F1E3)
 // ------------------------------------------------------------------
 
-/** The ball entity (the world's only one in phase 4). */
-export function ballEntity(world: World): import('koota').Entity {
-  const e = world.queryFirst(BallWork);
-  if (e === undefined) throw new Error('no ball entity');
-  return e;
-}
-
 /** $82:F030: the block traits -> the work copy. */
 function loadBallWork(world: World, w: BallWorkFields): void {
-  const e = ballEntity(world);
+  const e = activePlayer(world);
   const pos = e.get(BallPos)!;
   const vel = e.get(BallVel)!;
   const air = e.get(BallAir)!;
@@ -543,7 +536,7 @@ function loadBallWork(world: World, w: BallWorkFields): void {
 
 /** $82:F1E3: the work copy -> the block traits. */
 function storeBallWork(world: World, w: BallWorkFields): void {
-  const e = ballEntity(world);
+  const e = activePlayer(world);
   e.set(BallPos, { xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z });
   e.set(BallVel, { vx: w.vx, vy: w.vy, vz: w.vz });
   e.set(BallAir, { air: w.air });

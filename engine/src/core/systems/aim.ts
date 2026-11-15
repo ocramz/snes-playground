@@ -29,14 +29,15 @@ import { facingFromAim } from '../sim/facing';
 import { simulateGuide } from '../sim/guide';
 import { aimQuarter } from '../sim/camera';
 import { BallScreen } from '../traits/pose';
-import { ball, emitEvent, enterPhase, frameOf, phaseNow } from './flow-util';
+import { emitEvent, enterPhase, frameOf, phaseNow } from './flow-util';
+import { activePlayer } from '../traits/player';
 
 /** Schedule item 6. */
 export function updateAim(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase !== 'Aim' || t === 0) return;
   const pad = world.get(Pad)!;
-  const e = ball(world);
+  const e = activePlayer(world);
   if ((pad.pressed & PAD.A) !== 0) {
     // $81:A780: the aim is confirmed
     emitEvent(world, 'aim-confirm', 0x34);
@@ -120,7 +121,7 @@ export function publishGuide(world: World): void {
  */
 export function requestGuide(world: World, ctx: Ctx, lag: number, tick = -1): void {
   const shot = world.get(Shot)!;
-  const e = ball(world);
+  const e = activePlayer(world);
   const live = e.get(BallWork)!;
   const pos = e.get(BallPos)!;
   // the live work copy carries the block's position; the guide restarts

@@ -15,6 +15,7 @@ import { rollPoseState } from '../src/core/systems/panel';
 import { createGameWorld } from '../src/core/world';
 import { startCourse } from '../src/core/actions';
 import { BallWork, BallPos } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { Pad } from '../src/core/traits/pad';
 import { latchPad } from '../src/core/systems/pad';
 import { haveRules, haveRomTest, loadFlow, loadRomCourse, loadTables, loadTrace } from './fixtures';
@@ -163,7 +164,7 @@ describe.skipIf(!haveRules || !haveRomTest)('flow kernels on hole 1', () => {
   it("the guide's first end is the aim camera's target (web_flow 2336: aim 0 -> 408, 147)", () => {
     const world = createGameWorld();
     const ctx = startCourse(world, rules, [course]);
-    const e = world.queryFirst(BallWork)!;
+    const e = activePlayer(world);
     const pos = e.get(BallPos)!;
     const shot = (aim: number, elev: number) => ({
       aim, elev, kind: elev ? 2 : 0, grounder: elev ? 0 : 1, guideSide: 6, guideTB: 6, ends: 1,

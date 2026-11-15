@@ -37,7 +37,7 @@ import { project } from '../projection';
 import { warpDestination, warpExit, warpTeleport } from '../sim/warp';
 import type { Ctx } from '../sim/context';
 import { emitEvent } from './flow-util';
-import { ballEntity } from './ball-step';
+import { activePlayer } from '../traits/player';
 
 /** $82:AAC0: the frames before Kirby goes. */
 export const WARP_LEAD = 10;
@@ -63,7 +63,7 @@ export function startWarp(world: World, ctx: Ctx, w: BallWorkFields): { kind: 'w
   if (to === null) return null;
   if (w.warpSquash !== 0) {
     // $82:A9BD-$82:A9C9: Kirby's state $0C, its variant $6A6E
-    const e = ballEntity(world);
+    const e = activePlayer(world);
     e.set(Pose, { ...e.get(Pose)!, state: PoseState.Squash, variant: w.lock6a6e, timer: 0 });
   }
   const from = { x: w.xc, y: w.yc };
@@ -91,7 +91,7 @@ export function tickWarp(world: World, ctx: Ctx): boolean {
     case 'lead':
       if (r.t === WARP_LEAD) {
         // $82:AAC7-$82:AB33
-        const e = ballEntity(world);
+        const e = activePlayer(world);
         const w = e.get(BallWork)!;
         const old = e.get(BallScreen)!;
         r.outX = old.x; // object 63 takes Kirby's place ($85:CE1A)

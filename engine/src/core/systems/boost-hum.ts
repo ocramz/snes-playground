@@ -21,6 +21,7 @@
 import type { World } from 'koota';
 import { BoostHum } from '../traits/boost';
 import { BallWork } from '../traits/ball';
+import { findActivePlayer } from '../traits/player';
 import { emitEvent } from './flow-util';
 
 export const BOOST_HUM_SFX = 0x15;
@@ -31,7 +32,7 @@ export const MUSIC_VOLUME_FULL = 0xff;
 export function tickBoostHum(world: World): void {
   const hum = world.get(BoostHum);
   if (!hum || hum.active === 0) return;
-  const e = world.queryFirst(BallWork);
+  const e = findActivePlayer(world);
   if (!e) return;
   const w = e.get(BallWork)!;
   if (w.boostFlash === 0) return;

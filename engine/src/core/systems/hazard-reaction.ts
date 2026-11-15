@@ -21,7 +21,8 @@ import { BallAir, BallVel, Modifier, BallWork, type BallWorkFields } from '../tr
 import { Pose } from '../traits/pose';
 import type { Ctx } from '../sim/context';
 import { atan2Deg, mulFloor, wrap16 } from '../fixed';
-import { ball, emitEvent } from './flow-util';
+import { emitEvent } from './flow-util';
+import { activePlayer } from '../traits/player';
 
 /** Kirby's hurt states and their length (measured: 49). */
 export const HURT_POSE = 49;
@@ -29,7 +30,7 @@ export const THROWN_POSE = 40;
 export const HURT_FRAMES = 32;
 
 export function hazardReaction(world: World, ctx: Ctx, w: BallWorkFields): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   w.modifierKind = -1; // $82:DBC1
   w.modifierWindow = 0;
   e.set(Modifier, { ...e.get(Modifier)!, kind: -1, window: 0 });

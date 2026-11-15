@@ -24,7 +24,7 @@ import { Shot } from '../../../core/traits/shot';
 import { Time } from '../../../core/traits/time';
 import { Camera } from '../../../core/traits/camera';
 import { BallScreen } from '../../../core/traits/pose';
-import { BallWork } from '../../../core/traits/ball';
+import { findActivePlayer } from '../../../core/traits/player';
 import { Tomatoes } from '../../../core/traits/counters';
 import type { CoreHistory } from '../../bridge/history';
 import type { PanelInput } from './panel-layout';
@@ -59,7 +59,7 @@ export function panelState(world: World, history: CoreHistory): PanelInput {
   const latch = flow.phase === 'LaunchDelay' || flow.phase === 'Rolling' ? history.since('LaunchDelay') : undefined;
   if (latch !== undefined && f - latch >= ONE_CLOSE_AT) return HIDDEN;
   if (flow.phase === 'Rolling' && latch === undefined) return HIDDEN;
-  const ball = world.queryFirst(BallWork);
+  const ball = findActivePlayer(world);
   if (ball === undefined) return HIDDEN;
   const sc = ball.get(BallScreen)!;
   const cam = world.get(Camera)!;

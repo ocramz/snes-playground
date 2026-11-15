@@ -134,8 +134,8 @@ The engine:
 ## 4. Two players: a structural refactor plus RE
 
 The engine assumes one player:
-- `spawnBall` (`core/world.ts:56-78`) makes one entity that carries the ball and every counter.
-- `queryFirst(BallWork)` stands for "the player" at about 10 sites. In core: `systems/ball-step.ts:494`, `systems/flow-util.ts:25`, `systems/counters.ts:24`, `systems/actors.ts:44`, `systems/pose.ts:22`, `systems/reveal.ts:66`. In the game layer: `features/hud/hud-state.ts:21`, `features/shot-panel/panel-state.ts:62`, `features/cutscene/director.ts:88`.
+- `spawnPlayer` (`core/world.ts`) makes one entity that carries the ball and every counter.
+- ~~`queryFirst(BallWork)` stands for "the player" at about 10 sites.~~ Done in step 2 (§8): every site goes through `activePlayer` / `findActivePlayer` (`core/traits/player.ts`), the `IsActivePlayer` tag standing for `$1803`. A turn change has only to move the tag.
 - `Career` and `TomatoQueue` are world singletons (`core/traits/counters.ts:41,67`), but the game tags each queue entry with its player.
 - `Pad` reads player 1 only.
 - `HoleFlow` has no turn change.
@@ -222,6 +222,10 @@ Ordered by holes unlocked per unit of RE:
      - a poke of `$6A5A` alone leaves `$6A5C` at 0.
    - Left: objects 116-118's cycles (with the `$58-$5D` tiles), the scenery's own cycles, the ability species' pose and pulse as two cycles.
 2. **An active-player handle**, replacing `queryFirst(BallWork)`, even before 2P. It is cheap at about 10 sites, and expensive once the abilities add more.
+   - **Done 2026-11-15** (docs/engine.md "Traits"). `core/traits/player.ts` defines the tags `IsPlayer` and `IsActivePlayer` (`$1803`) and the lookups `activePlayer` (throws) and `findActivePlayer`. It replaces the helpers `ball()`, `ballEntity()` and `counters.ts`'s `player()`, and every bare `queryFirst(BallWork)` in core, the game layer and the tests (about 60 sites). `spawnBall` is now `spawnPlayer`.
+   - `test/no-phaser-in-core.test.ts` fails on any `queryFirst` on a player trait, so new sites can't bypass the handle. `hole-entities.test.ts` pins the one player's life from `startCourse` through CONTINUE.
+   - No behaviour changed: all 466 tests pass with every trace still frame-exact, and so do the e2e pages.
+   - Left for step 9: `PlayerSlot` and `setActivePlayer`, pad 2, and the tomato queue's per-player entries.
 3. **The snap gate `$82:A692` and its clamps.** One routine and a trace unblock 14 1P holes and 14 extra-game holes.
 4. **The water `$60-$6F`.** 17 1P holes, and it fixes course 1's own holes 7 and 8.
 5. **The copy abilities**, recorded from demos 10-19. They gate exact play on 38 of the 64 1P holes, course 1 included.

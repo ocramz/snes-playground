@@ -41,6 +41,7 @@ import { Cell, EnemyKind, Hover, IsCup, IsEnemy, TakenBy } from '../traits/hole'
 import { Visual } from '../traits/visual';
 import { TomatoQueue } from '../traits/counters';
 import { BallWork } from '../traits/ball';
+import { activePlayer } from '../traits/player';
 import { panStep } from '../sim/camera';
 import { project } from '../projection';
 import { actorGround } from '../sweep';
@@ -63,7 +64,7 @@ export const RING_FRAMES = 92;
  */
 export function startReveal(world: World, ctx: Ctx, cup: import('koota').Entity, extraLead = 0): void {
   const { x, y } = cup.get(Cell)!;
-  const ball = world.queryFirst(BallWork)!;
+  const ball = activePlayer(world);
   ball.get(BallWork)!.enemyLatch = 0; // $82:8B65: STZ $6A68,X
   const cam = world.get(Camera)!;
   // $82:8B77: kind 8; the cup is the enemy itself from now on

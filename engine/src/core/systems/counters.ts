@@ -17,14 +17,10 @@ import type { World } from 'koota';
 import {
   Tomatoes, TomatoQueue, Career, type TomatoQueueState, TOMATO_MAX, TOMATO_QUEUE_FRAMES, TOMATO_HUD_HIDE, LIVES_MAX,
 } from '../traits/counters';
-import { BallWork } from '../traits/ball';
+import { findActivePlayer } from '../traits/player';
 import { emitEvent } from './flow-util';
 import { tickHazards } from './actors';
 import { tickBoostHum } from './boost-hum';
-
-function player(world: World): import('koota').Entity | undefined {
-  return world.queryFirst(BallWork);
-}
 
 /** `$83:ABC5` (delta -1) / `$83:ABAD` (+1): queue a tomato change. */
 export function pushTomato(world: World, delta: 1 | -1): void {
@@ -35,7 +31,7 @@ export function pushTomato(world: World, delta: 1 | -1): void {
 
 /** `$83:ABDD`'s two halves: apply a change now (sfx only when it lands). */
 export function changeTomatoes(world: World, delta: 1 | -1): void {
-  const e = player(world);
+  const e = findActivePlayer(world);
   if (e === undefined) return;
   const n = e.get(Tomatoes)!.n;
   if (delta > 0) {
@@ -106,12 +102,12 @@ export function applyTomatoQueue(world: World): void {
 }
 
 export function setTomatoes(world: World, n: number): void {
-  const e = player(world);
+  const e = findActivePlayer(world);
   if (e !== undefined) e.set(Tomatoes, { n });
 }
 
 export function tomatoes(world: World): number {
-  const e = player(world);
+  const e = findActivePlayer(world);
   return e === undefined ? 0 : e.get(Tomatoes)!.n;
 }
 

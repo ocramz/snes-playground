@@ -5,7 +5,7 @@
  */
 import type { World } from 'koota';
 import { Session } from '../../../core/traits/session';
-import { BallWork } from '../../../core/traits/ball';
+import { findActivePlayer } from '../../../core/traits/player';
 import { Career, Stars, Strokes, Tomatoes } from '../../../core/traits/counters';
 import { HoleFlow, type FlowPhase } from '../../../core/traits/flow';
 
@@ -18,7 +18,7 @@ export interface HudState {
 }
 
 export function hudState(world: World): HudState | null {
-  const ball = world.queryFirst(BallWork);
+  const ball = findActivePlayer(world);
   const session = world.get(Session);
   if (ball === undefined || !session || session.holeIndex < 0) return null;
   return {

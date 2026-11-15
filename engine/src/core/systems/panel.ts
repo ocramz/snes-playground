@@ -29,7 +29,8 @@ import { BallVel, BallAir, BallSpin, StillCount, BallWork, emptyWork } from '../
 import type { Ctx } from '../sim/context';
 import { PAD } from '../sim/aim';
 import { shotPower, launchVelocity, shotSpin } from '../sim/shot';
-import { ball, emitEvent, enterPhase, phaseNow } from './flow-util';
+import { emitEvent, enterPhase, phaseNow } from './flow-util';
+import { activePlayer } from '../traits/player';
 
 export const PAN_DELAY = 4;
 /** $81:BF30: the curl's yield $1D, then the panel's initial state. */
@@ -47,7 +48,7 @@ export function updateSpinStage(world: World): void {
   if (phase === 'PanToShot') {
     if (t > PAN_DELAY && world.get(Camera)!.arrived !== 0) {
       // $81:BEEB: the camera is on the shot view: Kirby curls
-      const e = ball(world);
+      const e = activePlayer(world);
       e.set(Pose, { ...e.get(Pose)!, state: PoseState.Curl, timer: 0 });
       enterPhase(world, 'Spin');
     }
@@ -156,7 +157,7 @@ export function updatePowerMeter(world: World): void {
 export function launchBall(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase !== 'LaunchDelay') return;
-  const e = ball(world);
+  const e = activePlayer(world);
   const shot = world.get(Shot)!;
   if (t === 1) {
     emitEvent(world, 'silence', 0); // $81:C046, after one frame's yield

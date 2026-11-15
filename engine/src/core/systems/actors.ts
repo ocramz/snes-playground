@@ -11,6 +11,7 @@ import type { HazardField } from '../sim/hazards';
 import { spawnActor, tickActor, autotileTracks, type BallView } from '../sim/actors';
 import type { HoleActors } from '../sweep';
 import { BallHoled, BallPos, BallWork } from '../traits/ball';
+import { findActivePlayer } from '../traits/player';
 import { HoleFlow } from '../traits/flow';
 import { Reveal } from '../traits/reveal';
 import { Hazards } from '../traits/hazards';
@@ -41,7 +42,7 @@ export function setupHazards(world: World, ctx: Ctx, actors: HoleActors): Hazard
 export function tickHazards(world: World, ctx: Ctx): void {
   const f = world.get(Hazards)!;
   if (f.actors.length === 0) return;
-  const e = world.queryFirst(BallWork);
+  const e = findActivePlayer(world);
   const w = e?.get(BallWork);
   const pos = e?.get(BallPos);
   const phase = world.get(HoleFlow)!.phase;

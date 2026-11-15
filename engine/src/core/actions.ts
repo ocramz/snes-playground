@@ -14,7 +14,6 @@
  * - `placeBall`: the poke equivalent the trace tests seed from.
  */
 import type { World } from 'koota';
-import { ballEntity } from './systems/ball-step';
 import { BallPos, BallVel, BallAir, BallSpin, StillCount, Modifier, BallHoled } from './traits/ball';
 import { Shot } from './traits/shot';
 import { BallWork, type BallWorkFields, emptyWork } from './traits/ball';
@@ -44,7 +43,8 @@ import type { CourseData } from './course-data';
 import type { RomRules } from './rules';
 import { sweepActors, type HoleActors } from './sweep';
 import { setupHazards } from './systems/actors';
-import { spawnBall } from './world';
+import { spawnPlayer } from './world';
+import { IsPlayer, activePlayer } from './traits/player';
 import { BoostHum } from './traits/boost';
 
 export interface BallPlacement {
@@ -57,7 +57,7 @@ export interface BallPlacement {
 }
 
 export function placeBall(world: World, p: BallPlacement, ctx?: Ctx): void {
-  const e = ballEntity(world);
+  const e = activePlayer(world);
   e.set(BallPos, { xc: p.xc, xf: p.xf, yc: p.yc, yf: p.yf, z: p.z });
   e.set(BallVel, { vx: p.vx, vy: p.vy, vz: p.vz });
   e.set(BallAir, { air: p.air });
@@ -114,8 +114,8 @@ export function startCourse(world: World, rules: RomRules, courses: CourseData[]
   career.card = courses.map(() => -1);
   const q = world.get(TomatoQueue)!;
   q.entries = []; q.pending = null; q.timer = 0; q.hold = 0;
-  if (world.queryFirst(BallWork) === undefined) spawnBall(world);
-  ballEntity(world).set(Tomatoes, { n: TOMATO_MAX });
+  if (world.queryFirst(IsPlayer) === undefined) spawnPlayer(world);
+  activePlayer(world).set(Tomatoes, { n: TOMATO_MAX });
   return startHole(world, 0);
 }
 
@@ -144,8 +144,8 @@ export function startHole(world: World, i: number): Ctx {
   };
   s.holeIndex = i;
   s.ctx = ctx;
-  if (world.queryFirst(BallWork) === undefined) spawnBall(world);
-  const e = ballEntity(world);
+  if (world.queryFirst(IsPlayer) === undefined) spawnPlayer(world);
+  const e = activePlayer(world);
   // a fresh work copy: the set-up's coefficients ($80:C688)
   e.set(BallWork, emptyWork());
   const w = e.get(BallWork)!;

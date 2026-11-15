@@ -48,12 +48,13 @@ import { aimToward, nearestEnemy, snapAim } from '../sim/aim';
 import { shotPower } from '../sim/shot';
 import { panStep } from '../sim/camera';
 import { project } from '../projection';
-import { ball, emitEvent, enterPhase, phaseNow } from './flow-util';
+import { emitEvent, enterPhase, phaseNow } from './flow-util';
 import { requestGuide } from './aim';
 import { rollPoseState } from './panel';
 import { freeEnemies } from './reveal';
 import { Reveal } from '../traits/reveal';
 import { changeTomatoes, gainLife, loseLife, setTomatoes, tomatoes } from './counters';
+import { activePlayer } from '../traits/player';
 
 /** RollEnd: `$82:C172` runs at least one frame after the over, then tests $68F4. */
 export const ROLL_END_MIN = 2;
@@ -180,7 +181,7 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
     case 'LaunchDelay':
       if (t >= LAUNCH_FRAMES) {
         // $82:C84E: the roll's pose from the latched selectors
-        const e = ball(world);
+        const e = activePlayer(world);
         const shot = world.get(Shot)!;
         e.set(Pose, { ...e.get(Pose)!, state: rollPoseState(shot.rollSide, shot.rollTB, shot.grounder !== 0), timer: 0 });
         enterPhase(world, 'Rolling');
@@ -207,7 +208,7 @@ function holeSong(world: World): number {
 
 function tired(world: World, t: number): void {
   const flow = world.get(HoleFlow)!;
-  const e = ball(world);
+  const e = activePlayer(world);
   const pose = e.get(Pose)!;
   if (pose.state !== PoseState.Tired) {
     const sc = e.get(BallScreen)!;
@@ -234,7 +235,7 @@ function tired(world: World, t: number): void {
  * where the ball lies.
  */
 function outOfTomatoes(world: World, t: number): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   if (t === 0) emitEvent(world, 'silence', 0); // $82:E206: JSL $80:B542 with A = 0
   if (t === OOT_POSE_AT) {
     e.set(Pose, { ...e.get(Pose)!, state: PoseState.Native, timer: 0 }); // $82:E221
@@ -269,7 +270,7 @@ function holeOut(world: World, t: number): void {
     // $83:D4F6: the card's strokes ($D82A - 1; 99 stays 99)
     const s = world.get(Session)!;
     const c = world.get(Career)!;
-    const strokes = ball(world).get(Strokes)!.n;
+    const strokes = activePlayer(world).get(Strokes)!.n;
     c.card[s.holeIndex] = strokes >= STROKES_MAX ? STROKES_MAX : strokes - 1;
     world.set(HoleFlow, { ...flow, length: t });
     return;
@@ -292,7 +293,7 @@ function enterGameOver(world: World): void {
 export function setupShot(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase !== 'ShotSetup') return;
-  const e = ball(world);
+  const e = activePlayer(world);
   const shot = world.get(Shot)!;
   if (t === 0) {
     // $80:F73B: the turn's load. $D832 was set to $FFFF after a roll that
@@ -379,7 +380,7 @@ export function setupShot(world: World, ctx: Ctx): void {
 export function detectBallOut(world: World): void {
   const { phase } = phaseNow(world);
   if (phase !== 'Rolling') return;
-  const e = ball(world);
+  const e = activePlayer(world);
   const w = e.get(BallWork)!;
   // $82:C076 (still count) set the shot over: the roll loop ends (RollEnd)
   if (e.get(StillCount)!.over === 0) return;
@@ -392,7 +393,7 @@ export function detectBallOut(world: World): void {
  * shot over, $81:A612), lost ($D876 bit 0) or settled.
  */
 function rollOutcome(world: World): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   if (e.get(BallHoled)!.holed !== 0) {
     const hio = e.get(Strokes)!.n === 2 ? 1 : 0; // $83:D2AB tests $D82A == 2
     enterPhase(world, 'HoleOut');
@@ -417,7 +418,7 @@ function rollOutcome(world: World): void {
  * them) and the camera centred on him.
  */
 function resetToOrigin(world: World, ctx: Ctx): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   const shot = world.get(Shot)!;
   e.set(BallPos, { xc: shot.originXc, xf: shot.originXf, yc: shot.originYc, yf: shot.originYf, z: shot.originZ });
   e.set(BallVel, { vx: 0, vy: 0, vz: 0 });

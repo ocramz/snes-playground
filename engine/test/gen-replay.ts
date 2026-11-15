@@ -9,10 +9,10 @@
  */
 import { Shot } from '../src/core/traits/shot';
 import { BallPos, BallHoled, BallWork } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { POWER_FIRST } from '../src/core/systems/panel';
 import type { ShotSpec } from '../src/core/gen/shot-sim';
 import { FLY_ELEVATION } from '../src/core/gen/shot-sim';
-import { ballEntity } from '../src/core/systems/ball-step';
 import type { CourseDriver } from './course-driver';
 
 const A = 0x0080;
@@ -46,7 +46,7 @@ export function replayShot(d: CourseDriver, shot: ShotSpec): Replayed {
   d.untilPhase('Rolling', 100);
   // the roll ends in RollEnd; the flow then decides holed / lost / settled
   d.until(() => d.phase !== 'Rolling', 6000, 'the end of the roll');
-  const e = ballEntity(d.world);
+  const e = activePlayer(d.world);
   const lost = (e.get(BallWork)!.lost & 1) !== 0;
   const holed = e.get(BallHoled)!.holed !== 0;
   return { pos: { ...e.get(BallPos)! }, holed, lost, phase: d.phase };
