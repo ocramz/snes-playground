@@ -6,7 +6,7 @@
  *              update-spin-stage, update-power-meter, launch-ball
  *   ball step  BALL_STEP (items 11-29): in Rolling (the roll loop; the sink
  *              is part of it, and the roll ends once the ball has sunk)
- *   post-step  detect-ball-out, update-camera, update-pose
+ *   post-step  detect-ball-out, update-camera, update-ball-sprite, update-pose
  *   threads    the thread tick: the HUD's tomato queue, the hazard actors
  *
  * The stall runner: while a stall is active a frame runs only that stall's
@@ -41,6 +41,7 @@ import { updateHoleFlow, setupShot, detectBallOut, ballStepRuns } from './system
 import { updateAim, updateShotGuide } from './systems/aim';
 import { updateSpinStage, updatePowerMeter, launchBall } from './systems/panel';
 import { updateCamera } from './systems/camera';
+import { updateBallSprite } from './systems/ball-sprite';
 import { updatePose, squashPose } from './systems/pose';
 import { threadTick } from './systems/counters';
 import { emitEvent } from './systems/flow-util';
@@ -61,10 +62,11 @@ export const FLOW: Array<{ name: string; run: System }> = [
   { name: 'launch-ball', run: launchBall },
 ];
 
-/** Schedule items 30-32. */
+/** Schedule items 30-32, with update-ball-sprite between update-camera and update-pose. */
 export const POST_STEP: Array<{ name: string; run: System }> = [
   { name: 'detect-ball-out', run: (w) => detectBallOut(w) },
   { name: 'update-camera', run: updateCamera },
+  { name: 'update-ball-sprite', run: updateBallSprite },
   { name: 'update-pose', run: (w) => updatePose(w) },
 ];
 

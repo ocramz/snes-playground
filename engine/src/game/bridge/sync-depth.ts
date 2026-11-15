@@ -4,7 +4,9 @@
  * web/test/e2e/depth.mjs's rule); actors sort by the world y of their feet
  * (a larger y is nearer the camera). All of it sits over both of the course's
  * layers (BG*.0 and BG*.1): every sprite of play is OAM priority 3
- * (layers-view.ts). While the cup's rim mask is up (object 75,
+ * (layers-view.ts). The exception is Kirby behind the course: at priority 1
+ * or 2 (`BallSprite`, $82:F4FD) his view puts him under the layers
+ * (features/kirby/sprite-rules.ts). While the cup's rim mask is up (object 75,
  * features/enemies/cup-mask.ts), sync-cup-mask raises the ring over Kirby
  * and cuts him off below the rim.
  */

@@ -318,6 +318,56 @@ builder at `$80:8C08` drains all ten in order into the OAM staging buffer at
 pointers are initialised by `$80:8823 (0x000823)`: OAM low table at `$0600`,
 high table at `$0800`.
 
+### Kirby behind the course
+
+Every sprite of play is drawn at OAM priority 3, over both course layers,
+except Kirby. His frame lists open with the record `$7E $D96A`, so the
+per-player word `$D96A` sets the priority of all his parts. The roll loop
+recomputes it every frame in `$82:F4FD`. Player 1 calls it at `$82:C06E`,
+after the presentation `$81:A121` and the shadow `$81:A23E`, and player 2
+at `$82:C0F7`. Read with `tools/dis65816.py`, 2026-11-15:
+
+| where the ball is | `$D96A` | behind |
+|---|---|---|
+| z < 0 (the high word's sign) | 1 | yes |
+| on a cell (shape ≠ 0) | 3 | |
+| over a gap, xc < 0 | 1 | yes |
+| over a gap, yc < 0 | 3 | |
+| over a gap, yc ≥ h (`$8B94`) | 1 | yes |
+| over a gap, otherwise | table 10's priority while z ≤ the top of the record's cell, else 3 ([courses.md](courses.md) "Table 10") | with the record |
+
+- **Behind** also sets `$DA6C` = 9, which puts Kirby in the last OAM queue,
+  after every other sprite. It also counts `$ECDD`. On the next frame
+  `$81:A1E6` sees that count and does not sort him back
+  (`$81:A237` copies `$DA6C` to `$0B1E`).
+- **Resets.** The set-up (`$80:C532`) and the lost ball's reset
+  (`$80:F59A` → `$80:F5BD`) write 3.
+- **In mode 1 with BG3 priority**, priority 1 is under BG1 and BG2 at both
+  of their priorities and over BG3.0. Priority 2 is under the priority-bit
+  half only.
+
+**The shadow** has its own routine, `$81:A23E`, which sets its frame
+`$D996`. The frame is `$FFFF` (no shadow) in these cases:
+- `$D9D2` bit 0 (the ball is below z 0);
+- holed (`$DA4A`);
+- `$6B7E` non-zero (the cup handler's depth scratch);
+- a ground of 0 (`$DA08:$DA06`: a gap, [terrain.md](terrain.md) "Gaps").
+
+Otherwise the frame is the surface code `$DA04` (or `$69D6` in one case).
+The shadow's picture therefore changes with the slope.
+
+*Emulated* on web_fly (`snesstep --snap-every 4`, read 2026-11-15). Kirby
+flies off the near side at xc = 12, yc = 3:
+- **3196**: the probe first reads a gap. From this frame there is no shadow
+  sprite.
+- **Through 3252**: `$D96A` stays 3. Column 15 has no record for xc = 12.
+- **3256**: z is below 0 and `$D96A` = 1.
+- **3260**: Kirby's nine 8 x 8 sprites have moved to the end of OAM, at
+  priority 1.
+
+The store lands at 3256, not 3252, because the fall's song request blocks
+the loop in the APU handshake first ([flow.md](flow.md) "The fall").
+
 ## Batch extraction
 
 ```bash

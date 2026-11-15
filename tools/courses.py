@@ -19,7 +19,8 @@ all point at one shared default entry.
                      last column, and word offset into tables 8/9
     8-9    $88:BF70  compressed, 704-16880 bytes; the BG1 and BG2 tilemaps,
                      row-packed against tables 5-7. See tools/coursemap.py
-    10     $88:C570  compressed, ~150 bytes: 16-bit table, meaning unknown
+    10     $88:C570  compressed, 39-343 bytes: Kirby's occlusion table, read
+                     by $82:F4FD over a gap (docs/courses.md "Table 10")
 
 Everything is written under build/courses/<index>/ with the table number
 in the file name, plus headers.tsv listing every populated index.

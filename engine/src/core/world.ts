@@ -5,7 +5,7 @@ import { Shot } from './traits/shot';
 import { HoleFlow } from './traits/flow';
 import { Camera } from './traits/camera';
 import { Guide } from './traits/guide';
-import { Pose, BallScreen } from './traits/pose';
+import { Pose, BallScreen, BallSprite, PRIO_OVER } from './traits/pose';
 import {
   BallPos, BallVel, BallAir, BallSpin, BallMode, BallHoled, BallHeading,
   StillCount, Modifier, BallWork,
@@ -67,6 +67,7 @@ export function spawnBall(world: World): number {
     BallWork(),
     Pose(),
     BallScreen(),
+    BallSprite({ prio: PRIO_OVER }),
     Tomatoes({ n: 4 }),
     Strokes({ n: 1 }),
     Stars({ n: 0 }),

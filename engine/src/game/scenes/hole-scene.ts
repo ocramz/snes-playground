@@ -290,7 +290,8 @@ export class HoleScene extends Phaser.Scene {
         for (const [e, v] of this.views.entries()) {
           const d = this.views.sortY.get(e);
           if (d === null || d === undefined) continue;
-          (out[v.kind] ??= []).push((v.band === 'decal' ? DEPTH.decal : DEPTH.actor) + d * 1e-5);
+          // Kirby's own: behind the course his priority, not the sort, decides
+          (out[v.kind] ??= []).push(v instanceof KirbyView ? v.depth : (v.band === 'decal' ? DEPTH.decal : DEPTH.actor) + d * 1e-5);
         }
         return out;
       },

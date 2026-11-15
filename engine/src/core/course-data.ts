@@ -14,6 +14,7 @@
  *             handler writes tile $08 into it at run time, so it is mutable
  */
 import { isEnemyTile, ENEMY_LIST_MAX, TEE_TILE } from './sweep';
+import { buildOcclusion, fromOcclusionJson, type OcclusionJson, type OcclusionTable } from './occlusion';
 import { sweepWarps } from './sim/warp';
 
 export interface CourseData {
@@ -46,12 +47,20 @@ export interface CourseData {
    * Derived from the tile layer, so ROM and authored holes agree.
    */
   enemies: Array<{ x: number; y: number }>;
+  /**
+   * Kirby's occlusion table: table 10 ($88:C570 → $7E:A3B2, occlusion.ts),
+   * which $82:F4FD reads over a gap. A ROM hole has the game's own table, an
+   * authored hole the one `buildOcclusion` makes.
+   */
+  occlusion: OcclusionTable;
 }
 
 /** Optional course fields; authored courses that omit them get defaults. */
 export interface CourseExtras {
   name?: string;
   screenBase?: number;
+  /** Table 10; absent: built from the shape layer (buildOcclusion). */
+  occlusion?: OcclusionTable;
 }
 
 /** The exported ROM hole (tools/export_web.py --only course). */
@@ -71,6 +80,8 @@ export interface CourseJson {
   enemies: Array<{ x: number; y: number; tile: number; actor: number }>;
   objects: Array<{ x: number; y: number; tile: number; actor: number; type: number }>;
   edgeTiles: number[];
+  /** Table 10 (tools/export_web.py `occlusion_table`); older exports lack it. */
+  occlusion?: OcclusionJson;
 }
 
 const N = (v: number): number => {
@@ -96,10 +107,11 @@ export function courseData(
     return Uint8Array.from(a, N);
   };
   if (tee.x < 0 || tee.x >= w || tee.y < 0 || tee.y >= h) throw new Error(`tee outside the grid`);
+  const shapes = check(shape, 'shape');
   return {
     w,
     h,
-    shape: check(shape, 'shape'),
+    shape: shapes,
     elev: check(elev, 'elevation'),
     walls: check(walls, 'walls'),
     tile: check(tile, 'tile'),
@@ -110,6 +122,7 @@ export function courseData(
     screenBase: extras.screenBase ?? originY + 224,
     enemies: enemyCells(tile, w, h),
     name: extras.name ?? '',
+    occlusion: extras.occlusion ?? buildOcclusion(w, h, shapes),
   };
 }
 
@@ -129,6 +142,7 @@ export function fromRomCourse(json: CourseJson): CourseData {
   return courseData(json.w, json.h, json.shape, json.elev, json.walls, json.tile, json.tee, json.word7, {
     screenBase: (json.header[5] ?? 0) * 8,
     name: json.name,
+    occlusion: json.occlusion === undefined ? undefined : fromOcclusionJson(json.occlusion, json.w, json.h),
   });
 }
 

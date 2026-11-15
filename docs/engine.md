@@ -56,7 +56,7 @@ engine/
   courses/            the test holes (*.course.json; README.md is the format)
   index.html random.html  the two pages: main.ts (the course menu), random.ts (random holes)
   src/core/           imports koota only
-    fixed.ts rules.ts terrain.ts projection.ts course-data.ts sweep.ts
+    fixed.ts rules.ts terrain.ts projection.ts course-data.ts occlusion.ts sweep.ts
     gen/              the random holes: layouts, placement, features, the shot simulator and solver
     sim/              kernels: pure functions over the ball's work copy, one per routine
     traits/           state: world singletons, the ball, the hole's entities
@@ -76,7 +76,7 @@ The rules (reference §3), checked statically by `test/no-phaser-in-core.test.ts
 - **The view reads traits and calls actions.** Nothing under `src/game` imports `core/systems` or `core/sim`. Views read core's traits; scenes call core's actions and run its schedule (`runCoreFrame`).
 - **The pure half of the bridge imports nothing from Phaser**, so the node tests run it:
   - `bridge/{tick-time, frame-loop, history, placement}`;
-  - `features/{catalog-data, kirby/pose-clips, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames, layers/styled}`;
+  - `features/{catalog-data, kirby/pose-clips, kirby/sprite-rules, layers/layer-depth, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames, layers/styled}`;
   - `assets/schema`, `config`.
 - **There is no global world.** `boot-game.ts` creates it with `createGameWorld()` and passes it in the scenes' data (`game/host.ts`).
 
@@ -133,8 +133,9 @@ The rules that go with it:
 | | **after the step** | | |
 | 28 | detect-ball-out | `$D956`, `$D9D2`, the hazards | `systems/hole-flow.ts` |
 | 29 | update-camera | the pans `$81:BA8A`, the follow `$80:BA35`, the roll loop's `$81:A121` | `systems/camera.ts`, `sim/camera.ts` |
-| 30 | update-pose | the hop's return, the squash `$81:8C95`-`$81:8CD2`, the bounce pose `$82:CE07` | `systems/pose.ts` |
-| 31 | the thread tick | the scheduler in `$80:8F78`: the HUD's tomato queue `$84:98EC` → `$83:ABDD`, the hazard actors `$80:E0C0` | `systems/counters.ts`, `systems/actors.ts`, `sim/actors.ts` |
+| 30 | update-ball-sprite | the roll loop's `$82:F4FD`: Kirby's OAM priority `$D96A`, behind the course over a gap (table 10) or below z 0 | `systems/ball-sprite.ts`, `sim/priority.ts` |
+| 31 | update-pose | the hop's return, the squash `$81:8C95`-`$81:8CD2`, the bounce pose `$82:CE07` | `systems/pose.ts` |
+| 32 | the thread tick | the scheduler in `$80:8F78`: the HUD's tomato queue `$84:98EC` → `$83:ABDD`, the hazard actors `$80:E0C0` | `systems/counters.ts`, `systems/actors.ts`, `sim/actors.ts` |
 
 The ball step's order is the game's. It differs from the plan's in two places:
 - the A/Y arming (the plan's item 12) runs after the physics, together with the bonus, as the Kirby state code does;
@@ -182,6 +183,7 @@ The player's ball, spawned by `startHole` with `Visual {kind: 'ball'}`:
 - persistent, SoA: `StillCount` (`$D9BE/C0`), `Modifier` (`$DA76/78/7A`), `Tomatoes` (`$D7F0`), `Strokes` (`$D82A`), `Stars` (`$6A10`), `StockedAbility` (`$D852`);
 - `Pose` (`$D7D4`, `$D7C4`, `$D7CC`, `$6A6E`), the semantic state only, never a clip;
 - `BallScreen` (`$DA56`-`$DA64`);
+- `BallSprite` (`$D96A`): Kirby's OAM priority, 3 except behind the course (1 or 2);
 - `BallWork` (AoS): the work copy with its facts.
 
 The hole's entities, spawned from the load-time sweep (`sweep.ts`, `$82:B320`; `traits/hole.ts`):
@@ -228,6 +230,8 @@ Course data comes from two places (`core/course-data.ts`):
 - `fromRomCourse(course.json)` reads an exported ROM hole; the Preload scene and the test fixtures share it;
 - `fromAuthoredCourse` reads the test holes' own format, validated: one tee on flat ground, at least two enemies, no ability enemy, no actor on a gap, warps in pairs.
 
+Either way the course carries Kirby's occlusion table, table 10 (`core/occlusion.ts`). A ROM hole has the game's own, exported as course.json's `occlusion`. An authored hole gets the one `buildOcclusion` makes from its shape layer.
+
 ## The bridge and the view
 
 **The host frame** (`HoleScene.update`, `bridge/frame-loop.ts`):
@@ -248,7 +252,7 @@ Course data comes from two places (`core/course-data.ts`):
 |---|---|
 | bind-views | `Visual` without `Ref` → a view from the catalog; `Removed(Visual)` → release; a changed kind (enemy → star or cup) → rebind |
 | sync-transforms | each view placed: the ball at `BallScreen`, the actors at their cell corner and `actorGround` (`bridge/placement.ts`, the core's `project`) |
-| sync-depth | the depth bands: BG3 0, back 10, front 12, decals 20, guide 25, actors 100 + y × 10⁻⁵, cutscene sprites 900, panel 1100, fade 2000. Every sprite of play is OAM priority 3, over both course layers |
+| sync-depth | the depth bands: BG3 0, back 10, front 12, decals 20, guide 25, actors 100 + y × 10⁻⁵, cutscene sprites 900, panel 1100, fade 2000. Every sprite of play is OAM priority 3, over both course layers, except Kirby behind the course: `BallSprite.prio` 1 puts him at 5 (under both layers), 2 at 11.5 (under the front one; `features/kirby/sprite-rules.ts`) |
 | sync-camera | the scroll from `Camera` (`scrollOf`), or the replay's camera during a cutscene |
 | sync-layers | the outline's colour walk (`$98:D3E6` from `tables.json`), the water's ripple on holes 7 and 8 (`layers.json` `ripple`: `$84:8533`, sets A B A C of `$98:E030`, 8 frames each), the night swap |
 | sync-guide | the guide's dots and cone, in the Aim phase only |
@@ -263,7 +267,7 @@ Course data comes from two places (`core/course-data.ts`):
 
 | kind | view | pictures |
 |---|---|---|
-| ball | `KirbyView` | the atlas's Kirby clips by `poseClip(state, facing, angle, variant, tomatoes, air)`; the `shadow` frame under an airborne ball, not in the cup; off while `Warp.hidden`; cut off below the cup's rim (`cupmask`, object 75's shape) |
+| ball | `KirbyView` | the atlas's Kirby clips by `poseClip(state, facing, angle, variant, tomatoes, air)`; the `shadow` frame under an airborne ball, but not in the cup, over a gap or below z 0 (`$81:A23E`); under the course's layers at priority 1 or 2; off while `Warp.hidden`; cut off below the cup's rim (`cupmask`, object 75's shape) |
 | enemy / star | `EnemyView` | `enemy_idle`, then `star`; the hover lift |
 | cup | `CupView` | the hover drop, `cup_open` and the ring `cupring` from `Reveal.stage` |
 | tee | `TeeView` | `tee` (the pad, object 108) |
@@ -465,12 +469,21 @@ The bridge:
 - **A clip's `next` is ignored**, because it names a state and core sets that state itself.
 - **The music plays on its own `AudioBufferSourceNode`**, with the loop points; Phaser's WebAudioSound has no loop region.
 - **The score panel has no slot for the enemies left**, so they are not drawn. The lives sit in the blanked portrait box.
-- **The course's front layer (BG*.1) is under every sprite.** Every sprite of play is OAM priority 3, over both BG layers (the OAM of web_hole0 from 2185 on: Kirby, the trees, the enemies, the tee, the cup). Only the intro's first frames, before 2185, use priority 2, under the front layer, while the screen is black or fading in. The engine does not model that.
+- **The course's front layer (BG*.1) is under every sprite but a hidden Kirby.**
+  - Every sprite of play is OAM priority 3, over both BG layers (the OAM of web_hole0 from 2185 on: Kirby, the trees, the enemies, the tee, the cup).
+  - Only the intro's first frames, before 2185, use priority 2, under the front layer, while the screen is black or fading in. The engine does not model that.
+  - Kirby alone drops to 1 or 2 behind the course (`$82:F4FD`, [graphics.md](graphics.md) "Kirby behind the course"). The view gives him a depth under the layers then.
+- **Behind the course, Kirby's OAM queue is not modelled.** The game also puts him in queue 9, after every other sprite (`$DA6C` = 9). Under the course layers he is already under every other sprite of play, so the engine has nothing to add.
+- **On the fall's first frame the priority waits for the APU's lag.** The song request blocks the loop before `$82:F4FD` runs, so web_fly stores the 1 at 3256 and not at 3252. `update-ball-sprite` skips the frame that began the lag, and the lag's last frame computes it.
+- **Table 10 for holes the ROM has none for.** Authored holes (and generated ones) get the table `buildOcclusion` makes (`core/occlusion.ts`, [courses.md](courses.md) "Table 10").
+  - Its rule picks the ROM's cell, or no record, for 99.76 % of the gap positions of the 232 holes.
+  - Its records are all priority 1; the ROM's priority-2 records (1,286 of those positions) are not reproduced.
+  - A column past the directory (xc + yc ≥ w + h, far off the near side) has no record in the engine. The game reads past the table there.
 - **The cup's rim (object 75) is drawn as a cut and an order**, not as a sprite mask. In the game it is a priority-0 sprite: lower in OAM than Kirby, so where it is opaque Kirby gives way to the course behind it. From the frame it appears, the ring is also over Kirby (web_hole 3896-3909, every frame). The engine raises the ring over Kirby and crops Kirby from the mask's third row down. Its top two rows are the ring's opening, and the ring covers the rest of them. That is the same picture while Kirby, 24 px wide, sits inside the 32 px mask. The engine stops when Kirby is hidden; the game keeps the object until 3303 (3654 in a hole in one), but nothing the engine draws is under it by then.
 
 ## Verification
 
-`make engine-test` runs 36 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 37 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -478,7 +491,7 @@ The bridge:
 | `kernels` | single routines against the numbers emulated in physics.md |
 | `trace-shots` | 11 shots seeded at the launch: every ball state frame-exact to the lost ball's reset |
 | `trace-script` | 15 scripts end to end, no seed and no pokes: the game's exact launch, then every distinct ball state with no catch-up (195-409 per shot), through web_hole's sink |
-| `flow`, `flow-units` | web_flow, web_curve, web_ui, web_fly, web_fly_spin, web_hole and web_tomatoes against the per-frame flow traces. The discrete fields are within ±2 frames (the state, facing, angle, aim, elevation, selectors, meter, over, the counters, the card). The camera is within ±2 px in x and ±8 in y; the guide's end within 1 px on 95 % of the targets. The projection is bit-exact |
+| `flow`, `flow-units` | web_flow, web_curve, web_ui, web_fly, web_fly_spin, web_hole and web_tomatoes against the per-frame flow traces. The discrete fields are within ±2 frames (the state, facing, angle, aim, elevation, selectors, meter, over, the counters, the card, Kirby's priority `$D96A`). The camera is within ±2 px in x and ±8 in y; the guide's end within 1 px on 95 % of the targets. The projection is bit-exact |
 | `events` | every sound request of seven runs, on its iteration |
 | `stalls`, `reveal` | the hit-stops and the reveal's edges, frame-exact; the reveal's stages on course 1's holes 1-4 |
 | `hole-entities`, `hazards`, `hazard-actors`, `trace-hazards` | the sweep on all 8 holes; the five hazard scenarios (ball states, sounds, the actors' state sequences); `$A2` and the auto-tiling on t7 |
@@ -487,6 +500,7 @@ The bridge:
 | `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
 | `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists (the rim's `cupmask`, the warp's objects); the water holes' ripple (holes 7 and 8 only); every sound id has a file; nothing is emitted outside the event table |
 | `cup-mask-warp` | the rim mask's first frame and cut; objects 63 and 64's pictures and lives |
+| `occlusion` | table 10 as exported; `$82:F4FD`'s branches on hole 1 and web_fly's fall; the builder against the ROM's tables (99 % at least); Kirby's depths and the shadow's test |
 | `determinism` | host frames of 1, 2, 3 and mixed core frames give the same world and the same events (web_hole on hole 1; a pad policy on t1) |
 | `frame-clock`, `cutscene`, `director`, `panel-state` | the 60.0988 Hz clock; the replay against the recording, sprite by sprite, and the anchors; the director's timing against core on web_hole; the panel's ages, closings, blink and meter lags on web_ui |
 | `gen`, `gen-sim` | the random holes: 200 layouts per difficulty valid and flush but for their step-downs, actors on `$01`, only ported tiles; a seed always gives the same hole and plan; plans within the par windows; three plans replayed through the world hole out; the shot simulator's rests equal the world's on the test holes, and its speed |
@@ -534,6 +548,7 @@ The presentation:
 - The guide's dots march in four steps of 5 frames toward the next point; the game's order of the march is not traced.
 - The outline pulse starts at the hole's first frame; its phase in the game is not known.
 - The water's ripple starts at phase A on the hole's first frame. Object 113 starts it at the load, so the phase is not known either, and the game's lag frames, which stretch a step (10 frames once in a recording), are not modelled. The ripple's other variants are not ported: the splash while the ball sinks, the freeze while `$69CA` is set, and the `$6A2E`/`$ED5B` tables ([courses.md](courses.md)).
+- The shadow has one picture. The game's frame is the surface code (`$D996` = `$DA04`, `$81:A23E`), so its shape follows the slope.
 - The procedural terrain is a picture of the data the physics runs on (quadrant planes, slope shading, tile groups by colour, walls and outline as lines), not the game's art.
 
 ## Deferred
