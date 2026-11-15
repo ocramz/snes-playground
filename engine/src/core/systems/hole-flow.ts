@@ -36,7 +36,7 @@ import type { World } from 'koota';
 import { HoleFlow, HOLE_SONG } from '../traits/flow';
 import { Shot, METER_TOP } from '../traits/shot';
 import { Camera } from '../traits/camera';
-import { Pose, PoseState, BallScreen } from '../traits/pose';
+import { Pose, PoseState, BallScreen, BallSprite, PRIO_OVER } from '../traits/pose';
 import {
   BallPos, BallVel, BallAir, BallHoled, StillCount, Modifier, BallWork,
 } from '../traits/ball';
@@ -311,6 +311,7 @@ export function setupShot(world: World, ctx: Ctx): void {
     const w = e.get(BallWork)!;
     w.lost &= ~1; // $80:C519 TRB #$8001
     w.lost &= ~0x8000;
+    e.set(BallSprite, { prio: PRIO_OVER }); // $80:C52F-$80:C535: $D96A = 3
     e.set(StillCount, { over: e.get(StillCount)!.over, frames: 0 }); // $80:C589
     e.set(Modifier, { kind: -1, window: 0, timer: 0 });
     const cam = world.get(Camera)!;
@@ -423,6 +424,7 @@ function resetToOrigin(world: World, ctx: Ctx): void {
   w.air = 1;
   w.fellOut = 0;
   w.fallTimer = 0xf0;
+  e.set(BallSprite, { prio: PRIO_OVER }); // $80:F59A -> $80:F5BD: $D96A = 3 (the block's lost bit)
   e.set(Pose, { ...e.get(Pose)!, state: PoseState.Hold, timer: 0 });
   const p = project(ctx.course, shot.originXc, shot.originXf, shot.originYc, shot.originYf, shot.originZ);
   const sc = e.get(BallScreen)!;

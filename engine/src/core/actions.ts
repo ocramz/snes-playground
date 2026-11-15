@@ -21,7 +21,7 @@ import { BallWork, type BallWorkFields, emptyWork } from './traits/ball';
 import { HoleFlow } from './traits/flow';
 import { Camera } from './traits/camera';
 import { Guide } from './traits/guide';
-import { Pose, BallScreen } from './traits/pose';
+import { Pose, BallScreen, BallSprite, PRIO_OVER } from './traits/pose';
 import { Course, setCourse, courseEntity } from './traits/course';
 import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
@@ -166,6 +166,7 @@ export function startHole(world: World, i: number): Ctx {
   e.set(StockedAbility, { id: 0 });
   const p = project(ctx.course, w.xc, w.xf, w.yc, w.yf, w.z);
   e.set(BallScreen, { x: p.x, xf: 0, y: p.y, yf: 0, px: p.x, pxf: 0, py: p.y, pyf: 0 });
+  e.set(BallSprite, { prio: PRIO_OVER });
   world.set(Shot, {
     ...world.get(Shot)!,
     aim: 0xffff, elev: 0xffff, // $80:F78F/$80:F795 at the hole's start

@@ -22,6 +22,8 @@ export interface KernelCourse {
   hazards?: import('./hazards').HazardField;
   /** The warp lists ($82:BD5C; absent: none). */
   warps?: import('./warp').WarpLists;
+  /** Kirby's occlusion table, table 10 (../occlusion.ts; absent: no records). */
+  occlusion?: import('../occlusion').OcclusionTable;
 }
 
 export function kernelCourse(data: CourseData): KernelCourse {
@@ -35,6 +37,7 @@ export function kernelCourse(data: CourseData): KernelCourse {
     originY: data.originY,
     screenBase: data.screenBase,
     warps: sweepWarps(data),
+    occlusion: data.occlusion,
   };
 }
 

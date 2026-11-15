@@ -11,9 +11,12 @@
  * trees, the enemies, the tee and the cup in every snapshot of web_hole0
  * from 2185 on (play and the hole-out; read 2026-11-14). Only the intro's
  * frames before 2185, while the screen is black or fading in, use priority
- * 2, under the front layer; the engine does not model that. The priority-0
- * sprites are masks that let the course show through (object 75, the cup's
- * rim: features/enemies/cup-mask.ts). The play area's outline is not baked in:
+ * 2, under the front layer; the engine does not model that. Kirby goes to
+ * priority 1 or 2 while he is behind the course ($82:F4FD: core's
+ * `BallSprite`), and his view draws him under the layers then
+ * (features/kirby/sprite-rules.ts). The priority-0 sprites are masks that let
+ * the course show through (object 75, the cup's rim:
+ * features/enemies/cup-mask.ts). The play area's outline is not baked in:
  * `layer_outline_{back,front}` are white masks of palette 7 colour 15, which
  * object $84:81A3 cycles through the 15 colours of $98:D3E6 in a ping-pong
  * walk of 30 steps, 3 frames each (tables.json outlineColours/outlineWalk;
@@ -34,16 +37,9 @@ import type { LayersJson } from '../../assets/schema';
 import type { RomRules } from '../../../core/rules';
 import type { CourseState } from '../../../core/traits/course';
 import { drawTerrain } from './procedural';
+import { DEPTH } from './layer-depth';
 
-export const DEPTH = {
-  bg3: 0,
-  back: 10,
-  rippleBack: 10.5,
-  outlineBack: 11,
-  front: 12,
-  rippleFront: 12.5,
-  outlineFront: 13,
-} as const;
+export { DEPTH };
 
 /** The backdrop of every course-1 hole (layers.json backColour), also behind the authored ones. */
 const DEFAULT_BACK: [number, number, number] = [33, 57, 231];

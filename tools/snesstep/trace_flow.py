@@ -54,6 +54,7 @@ WATCH = {
     "c2": 0x38C2, "c4": 0x38C4, "c6": 0x38C6, "c8": 0x38C8,    # the follow camera's lag: wanted, reached
     "st": 0x39D6,                       # the follow camera's state
     "bx": 0xD8AE, "by": 0xD8B6, "air": 0xD8A6, "over": 0xD9BE,
+    "prio": 0xD96A,                     # Kirby's OAM priority ($82:F4FD; 1/2 behind the course)
     # the hole's counters (engine phase 6, read 2026-11-14)
     "tom": 0xD7F0,                      # tomatoes (Kirby's health), 0-4
     "lives": 0xD7F4,                    # spare lives

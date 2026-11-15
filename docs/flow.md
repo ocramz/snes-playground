@@ -128,7 +128,8 @@ The camera's formula is the Camera row of web-demo.md "Measured with the stepper
 
 **The fall.** The projection sets `$D9D2` bit 0 when z drops below 0 (`$81:A516`). On the first such frame `$81:A121` requests the fall's song: `$90` (song 18) at `$81:A175`, or `$8F` (17) in ball mode 10. The request blocks about 3 frames in the APU's port handshake `$80:B70A` ([audio.md](audio.md) "Which code plays what"); both fly traces skip from record 3252 to 3256. Then:
 - the follow stops;
-- `$6A88` counts 240 frames to the shot over, or fewer if z < −`$18_0000`.
+- `$6A88` counts 240 frames to the shot over, or fewer if z < −`$18_0000`;
+- Kirby goes behind the course: `$82:F4FD` stores his OAM priority 1 once the handshake is over (web_fly 3256), and the shadow is already gone over the gap ([graphics.md](graphics.md) "Kirby behind the course").
 
 **The roll's end waits for the HUD** (`$82:C172`). After the shot is over at O (`$D9BE`), the roll loop keeps running frames until `$68F4`, the HUD's tomato display, is clear. The display hides 89 iterations after the last tomato change (`$84:9990`). So the loop exits at E = max(O + 2, hidden + 1):
 - web_flow: 3473 → 3475;

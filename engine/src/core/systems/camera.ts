@@ -51,12 +51,20 @@ export function updateCamera(world: World, ctx: Ctx): void {
     world.set(Camera, cam);
     return;
   }
-  // The ROM's presentation ($81:A121) precedes the still count's shot-over
-  // ($81:A5CD), so the sink's last step (holed 2 and over in one step) is
-  // still projected (web_hole 3908). A fall's over comes from the
-  // presentation itself and is seen on the next frame (web_fly 3496).
-  const sank = phase === 'RollEnd' && t === 0 && ball(world).get(BallHoled)!.holed >= 2;
-  if (phase === 'Rolling' || sank) presentRoll(world, ctx);
+  if (rollLoopPresents(world)) presentRoll(world, ctx);
+}
+
+/**
+ * Whether this frame runs the roll loop's presentation ($81:A121, then
+ * $81:A23E and $82:F4FD). The presentation precedes the still count's
+ * shot-over ($81:A5CD), so the sink's last step (holed 2 and over in one
+ * step) is still projected (web_hole 3908). A fall's over comes from the
+ * presentation itself and is seen on the next frame (web_fly 3496).
+ */
+export function rollLoopPresents(world: World): boolean {
+  const { phase, t } = phaseNow(world);
+  if (phase === 'Rolling') return true;
+  return phase === 'RollEnd' && t === 0 && ball(world).get(BallHoled)!.holed >= 2;
 }
 
 /** $81:A121, the roll loop's presentation (see the header). */
