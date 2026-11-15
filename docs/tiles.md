@@ -69,7 +69,9 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$30-$3B` | `$82:9DB3`+ | **boost panel**, four directions |
 | `$10-$13` | `$82:A7DD` | **kicker**: landing speed becomes a directional impulse |
 | `$14-$17` | `$82:A6C7`, `$82:A70B` | **arrow panel**: turns the ball to the arrow's direction, N/E/S/W, at the same speed |
-| `$70-$7B` | `$82:9FD1`+ | toggled directional impulse, two magnitudes |
+| `$70-$7B` | `$82:9FD1`+ | **swirl**: in a disc about the cell's centre, a push across the line to the centre, as strong as the ball is far from it; some always, some while the toggles' switch `$6A2A` is set, some while it is clear. See "Swirls" |
+| `$5A`, `$5B` | `$82:A1B1`, `$82:A175` | **the toggles' switch**: flips `$6A2A` once a visit. See "The toggles' switch" |
+| `$5C`, `$5D` | `$82:A3EB`, `$82:A43E` | **the water switch**: flips `$69CA` (the water off), and the step waits 64 frames while the water's tiles dissolve. See "The water switch" |
 | `$18-$1B` | `$82:A5B1` | **snap panel**: pushes the ball `$300` a frame along its arrow, to `$2000`; landed on, it is first set on the surface. A star trail (objects 61/62) |
 | `$80-$8F`, `$98-$A1` | `$82:98F8` | **hazard**: the bumper track's shape, then a cube test against the riding bumpers (object 76) |
 | `$90-$97` | `$82:9653` | hazard: the bobbing bumper's box (object 77) |
@@ -82,7 +84,8 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$60-$6F` | `$82:80F6`, `$82:8000` | **water**: below its level the ball sinks, drags and rises out; a fast, flat ball skims, a spun one skips. See "Water" |
 | `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
 | `$B0-$B9` | `$82:A980`, `$82:A9DB` | **warp panels**, in pairs: the ball goes to the other one and leaves it along its arrow |
-| `$1C`, `$1D`, `$58-$5D` | various | not established |
+| `$58`, `$59` | `$82:A25D`, `$82:A2F5` | the `$6A2E` switch, three uses (2P holes only): read, not ported. See "Not established" |
+| `$1C`, `$1D` | `$82:9342`, `$82:938E` | not established |
 
 The shot guide does not use these two tables. It has its own, `$81:B455`, in
 which only the outline `$28-$2D` and the water `$60-$6F` act (the water by
@@ -314,9 +317,12 @@ lower than the rim, so both give `$1_6733`, just under the banks' surface.
 
 **In the water** is `$D9EE`, the player block's `$D872`. Only the handlers
 set it. The probe's wrapper `$81:87FB` → `$82:C85F` clears it whenever the
-tile is not `$60-$6F`. `$69CA` turns the water off altogether: the handlers
-and the wrapper then treat the tiles as plain ground. The load sets it when
-the hole has `$5D` and no `$5C` (`$82:BC59`).
+tile is not `$60-$6F`. `$69CA` turns the water off altogether: the handlers,
+the wrapper and the shot guide (`$81:B0D3`, `$81:B294`) then treat the
+tiles as plain ground, Freeze's ice holds nothing (`$82:D862`), and object
+113's ripple stops (`$84:8533`). The load sets it when the hole has `$5D`
+and no `$5C` (`$82:BC59`), and zero-fills the water's tiles (`$80:CCF8`); the
+water switch flips it in play ("The water switch").
 
 **Landing, `$82:80F6`** (mode 0):
 
@@ -492,6 +498,175 @@ Objects 63 and 64 (`trace_actors.py --types 63,64`):
   20 and 0 of the same table.
 
 The shot guide's table `$81:B455` treats the warps as plain ground.
+
+### Swirls — `$70-$7B`
+
+Read 2026-11-15 (`$82:9EF9`-`$82:A174`; notes/port-v2-phase6-switches.md),
+traced by web_sw_toggle_roll, _land, _pull and _off. The tile picks three
+things:
+
+| bits | meaning |
+|---|---|
+| (tile − `$70`) >> 2 | 0 (`$70-$73`): always on; 1 (`$74-$77`): on while `$6A2A` is set; 2 (`$78-$7B`): on while it is clear |
+| bit 1 | the landing's magnitude: `$80:DDEF` = 4912 (clear), `$80:DDF3` = 2456 (set) |
+| bit 0 | the way round: clear subtracts (`$82:A0D9`), set adds (`$82:A0F9`) |
+
+Only `$74` (166 cells), `$75` (54), `$70` (3) and `$71` (2) occur. In
+1P they are on holes 10, 19, 25, 26 and 43, each with a toggles' switch.
+
+**The disc** (`$82:A086`) is the bitmap `$88:9190`. Each fraction is
+folded to |f − `$8000`|, and its high byte, halved, gives a row (y) and a
+bit (x), 8 bytes a row, LSB first (`tbl_edge_bitmask $80:8815`). The set
+bits form a quarter disc of radius about 60 of 64 half-cells. A fraction
+of 0 folds to `$8000`, which reads one row (or one byte) past the bitmap.
+
+**The push** (`$82:A111`):
+- the heading of the ball from the centre, `$80:A4C1`(xf^`$8000`, yf^`$8000`);
+- k = the high word of (|dx| + |dy|) × the magnitude (`$80:A367`; the sum is
+  16-bit);
+- (X, Y) = the high words of k × (−sin, cos) of the heading (`$80:A378`);
+- v −= (X, Y) or v += (X, Y), then the heading (`$81:8E60`).
+
+(−sin, cos) is the heading turned 90 degrees, so the ball is turned round
+the centre, not pushed out or in. `$75` (adding) turns a ball north of a
+cell's centre west, and `$74` the other way round.
+
+**Landed on** (`$82:9FD1`-`$82:A082`):
+1. the switch's gate by the group;
+2. z under the ground, strictly (`CMP` / `BCS`: z = ground fails);
+3. in the disc;
+4. modes 3 and 6 do nothing, mode 5 halves the magnitude;
+5. the push, then the default landing from `$81:892B` (as the kicker's).
+
+Any failure goes to `$81:8905`.
+
+**Rolled through** (`$82:9EF9`-`$82:9FCD`):
+1. the gate by the group;
+2. in the disc;
+3. modes 3, 6 and `$0A` do nothing, mode 5 halves;
+4. the push. Then modes 1, 4, 2 and `$10` return from the handler (no roll
+   this step); every other path goes to `$81:8A56`.
+
+The magnitude is not the constant the handler loads (`$80:DDED` = 2440 or
+`$80:DDF1` = 1024). It is kept in `$B6`, which the disc test overwrites with
+the bitmap's byte (`$82:A0C7`), and that is what is reloaded. So a rolling
+ball is pushed with $FF inside the disc and with the rim's partial bytes
+at its edge, strong and weak tiles alike (`--log-pc '$82:A111'` on
+web_sw_toggle_roll: A = 7, then $FF). The land side keeps its magnitude in
+`$00`, which the disc test leaves alone.
+
+**Object 127** (`$84:DB6A`) animates the swirls' tiles. `$82:BBAE` spawns
+one for each pair (`$70/$71` … `$7A/$7B`) present:
+- its variant `$531C` is 2 × the pair;
+- its list `$539C` is 0 for the first spawned, `$14` for the others.
+
+Its hook (`$84:DB97`) runs while the pair's group is on and stops while it
+is off, keeping the last frame. It counts down `$549C` from `$84:DC42`
+(the even pairs: ten 4s) or `$84:DC4D` (the odd: ten 6s), `$FF`-ended. At
+each frame it uploads record `$84:DC58`[frame + 10 × list]: 14 tiles,
+`$94:BAA1`-`$94:CC21`, to VRAM `$3000` (list 0) or `$3100` (list 1).
+
+Those are tiles `$300-$30D`, palette 7. Holes 10, 19, 25, 26 and 43 draw
+their checkerboard floor with them: 134 of hole 10's cells. So the whole
+floor's squares turn while the swirls are on (stepper snapshots 2496-2508
+of web_sw_toggle_roll), and stop when the switch turns them off.
+
+The shot guide's table treats the swirls as plain ground.
+
+### The toggles' switch — `$5A`/`$5B`
+
+Read and traced as the swirls, by web_sw_switch_roll and web_sw_switch_land.
+The two tiles act alike; they differ only at the load. `$82:BC59` sets
+`$6A2A` when the hole has `$5B` and no `$5A`, so `$74-$77` start on.
+Holes 10, 19, 26 and 43 have a `$5B` and hole 25 a `$5A`.
+
+**The gate** (`$82:A1FD`): xf and yf both in [`$4000`, `$BFFF`] (signed
+`SBC #$4000 / BMI`). Outside it, the latch `$6A2C` clears.
+
+**Landed on** (`$82:A1B1`): the gate, then z under the ground, strictly. It
+runs on every airborne frame, so the latch clears while the ball is in the
+air past the gate (web_sw_switch_land, 2506).
+
+**Rolled onto** (`$82:A175`): the gate.
+
+**The flip** (`$82:A189`/`$82:A1D5`) happens unless the cell is the last
+step's (`$D9FC` = `$DA1C`) with the latch set. It does four things:
+- `$6A2A` ^= 1;
+- sound `$6B`, inline;
+- `$80:D7B5` 1: the switch's 8 tiles to VRAM `$3280`, from `$94:E1BB` while
+  `$6A2A` is set and `$94:E2BB` while it is clear;
+- `INC $6A2C`.
+
+(`$82:A20E` is 2P only: it handles the other ball, on a swirl, as the flip
+turns it.) Then the default landing or roll. No stall.
+
+So one pass over the cell flips once. A pass that leaves the gate and comes
+back without leaving the cell flips again.
+
+**Object 117** (`$84:85FB`) colours the switch: palette 4 colours 12-15
+(the switch's tiles `$328-$32F`). It writes two sets in turn, 4 frames
+each (the hook `$84:869D`):
+- `$98:D55A`/`$D562` while `$6A2A` is set;
+- `$98:D56A`/`$D572` while it is clear.
+
+When the switch flips, its thread starts the other pair from set 0 on the
+next tick. Measured: in the flip's iteration (web_sw_switch_roll: the flip
+at 2522, CGRAM 78 at 2523 line 45).
+
+### The water switch — `$5C`/`$5D`
+
+Read and traced by web_sw_water_drain (course 1 hole 8's `$5C`, rolled
+onto) and web_sw_water_fill (course 3 hole 8's `$5D`, landed on hard; the
+hole loads with the water off). The two tiles differ only at the load, as
+the toggles' switch's do.
+
+**The window** (`$82:A540`): xf and yf both in [`$4800`, `$B800`). Outside
+it, the latch `$6A68` clears. That latch is the enemies', the pillar's, the
+arrows' and the snap panels'.
+
+**Landed on** (`$82:A3EB`): at or under the surface (ground ≥ z), in the
+window, the latch clear, and falling (vz < `$FDC0`, unsigned). A hard
+landing (vz < `$F700`) in mode 0 or 7 also does three things:
+- squashes Kirby (`$6A6E` = `$DA04`, `$D7D4` = `$0C`);
+- sets `$6A70`, so the landing has no hit-stop of its own;
+- nothing returns Kirby to state 14: he stays squashed until another
+  routine sets his state (web_sw_water_fill: until the water's 14 at 2606).
+
+Then `INC $6A68` and the flip.
+
+**Rolled onto** (`$82:A43E`): the window, the latch clear, `INC $6A68`, the
+flip.
+
+**The flip** (`$82:A45D`) runs in this order:
+1. `$69CA` ^= 1.
+2. `$80:D7B5` 2: the switch's tiles to VRAM `$3300`. The two records are the
+   same bytes (`$94:E5BB` = `$94:E7BB`), so only the colours change.
+3. Sound `$6A`. (With `$17FF` set, in 2P, the other ball's water state comes
+   next: `$82:A474`-`$82:A4DE`.)
+4. Sound `$4A` if the water is now off, `$4B` if it is back (`$82:A4ED`).
+5. **The dissolve**, with the record `$82:A538`: 44 tiles of `$20` bytes
+   from `$91:ED29` to VRAM `$1800`, the water's tiles `$180-$1AB`.
+   - `$80:9120` copies them into a buffer (`$7E:B746`), or zeroes it if the
+     water is coming.
+   - Then 64 times: a 1-frame wait (`$80:8FB6`) and a step of `$80:9208`.
+   - Step k sets (coming) or clears (going) the pixel `$80:9271`[k − 1]
+     (row v >> 3, column v & 7) in every tile, all four planes
+     (`$80:9304`), and queues the buffer to VRAM.
+   - After the 20th step, palette set 3 (`$80:D2FE`: Kirby's colours by
+     `$D872`; set 4 for player 2, by `$180D`).
+6. The default landing or roll.
+
+So the ball's thread blocks for 64 frames inside the step, and the threads
+run on. In web_sw_water_drain, the flip is in iteration 2527 and the step's
+store in 2591. Through the block the camera stands still, the HUD's icon
+runs and the ripple stops. Kirby's state and palette are what the step
+left. Step k's pixels are in VRAM after the NMI of frame 2528 + k
+(tools/check_switch_gfx.py).
+
+**Object 118** (`$84:864C`) colours the switch as 117 does: palette 5
+colours 12-15 (tiles `$330-$337`).
+- `$98:D57A`/`$D582` while the water is off;
+- `$98:D58A`/`$D592` while it is on.
 
 ### Kicker — `$10-$13`
 
@@ -756,16 +931,28 @@ Some layer-2 values are locked to a layer-1 shape:
 
 - (Settled: `$60-$6F` are the water, see "Water". They are in 45 holes, with
   1,807 cells, the second largest group.)
-- `$1C`, `$1D`, `$58-$5D`: handlers located, not read. (`$14-$17` are
-  settled: the arrow panels, above; so are `$B0-$B9`, the warp panels.)
-  The engine ports `$1C`/`$1D` from the disassembly as the rough family
-  `$82:9342`/`$82:938E` (`engine/src/core/sim/dispatch.ts`); no trace
-  exercises them. `$58-$5D` also spawn objects 116-118 at the load
-  (`$82:BC59`), whose palette cycles are listed in [courses.md](courses.md).
-- The `$70-$7B` family's purpose. Twelve values in four groups of three,
-  gated on a toggle at `$6A2A`, two impulse magnitudes (`$80:DDEF` = 4912 and
-  `$80:DDF3` = 2456). Only four are used at all: `$74` (166 cells), `$75`
-  (54), `$70` (3) and `$71` (2).
+- `$1C`, `$1D`: handlers located, not read. (`$14-$17` are settled: the
+  arrow panels, above; so are `$B0-$B9`, the warp panels.) The engine ports
+  `$1C`/`$1D` from the disassembly as the rough family `$82:9342`/
+  `$82:938E` (`engine/src/core/sim/dispatch.ts`); no trace exercises them.
+- (Settled: `$70-$7B` are the swirls and `$5A-$5D` the two switches, above.)
+- `$58`/`$59` (`$82:A25D` land, `$82:A2F5` hit), read but not traced. `$58`
+  is only on the 2P holes 132-143 and 196-207, and `$59` on no hole. It is a
+  cup-like cell:
+  - the window `$82:A385`, [`$4800`, `$B7FF`);
+  - the ball "in" it (`$6A32`), at most 3 times a hole (`$6A3A`, set to 3 at
+    the load);
+  - a ball falls in at vz ≥ `$FDC0`, or in modes 2 and `$0A`.
+
+  `$82:A335` flips `$6A2E`, the alternate palette tables' flag
+  (courses.md), through a sequence that blocks the step:
+  1. sound `$6A`, `$80:CBF9` 2, 10 frames;
+  2. object 101 at (`$F8`, `$90`) with `$531C` = `$6A2E`, waiting for it
+     (`$6A30`);
+  3. tileset 1, palette set `$14`, 16 frames.
+
+  Object 116 colours it (palette 4 colours 8-11, `$98:D532`/`$D542` by
+  `$6A2E`) until the uses run out, then `$98:D552`.
 - ~~The actor ids~~ -- settled: an actor id is the thread object type
   `$82:B3AF` spawns (see Actors above). ~~Which picture each of the 20
   `$0049` subtypes selects~~ -- settled: the species' own frame lists and

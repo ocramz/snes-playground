@@ -309,7 +309,9 @@ Kirby's animation state `$D7D4` becomes `$0C`, and `$81:8C95` calls
 (`$81:8CAB`-`$81:8CBF`). `$81:8CD5`-`$81:8CDE` hands them back as the
 frame's pad when the wait is over, so a press during a hit-stop is not
 lost. The physics therefore stops for 4 frames, after which the
-state goes to `$0E` (unless it was `$0D`). The ball's block is not written
+state goes to `$0E` (unless it was `$0D`). (A hard landing on the water
+switch sets `$6A70` and the squash itself, with no return to `$0E`:
+[tiles.md](tiles.md) "The water switch".) The ball's block is not written
 meanwhile. A stop requested in frame F idles F+1 to F+3, and the step
 resumes where it stopped in F+4. This is frame-exact on web_fly's landing
 and step hit (the engine's `stalls.test.ts`). `$81:8C48` does the same for

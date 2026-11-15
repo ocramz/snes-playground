@@ -316,6 +316,25 @@ export interface BallWorkFields {
   waterSilence: number;
   waterWait: number;
   kirbyRoll: number;
+
+  // --- the switches and the toggles (sim/switches.ts; docs/tiles.md "Switches") ---
+  /** $6A2A: the toggles' switch. The `$74-$77` swirls act while it is set,
+   *  `$78-$7B` while it is clear; the `$5A`/`$5B` switch flips it. The load
+   *  sets it for `$5B` without `$5A` (`$82:BC59`). A global in the game. */
+  toggleOn: number;
+  /** $6A2C: the switch's latch, one flip per visit to its cell ($82:A1A0). */
+  switchLatch: number;
+  /** $69CA: the water is off, its tiles plain ground (sim/water.ts). The load
+   *  sets it for `$5D` without `$5C` (`$82:BC59`); the `$5C`/`$5D` switch
+   *  flips it ($82:A45D). A global in the game. */
+  waterOff: number;
+  /** Facts, for the step's effects (systems/switches.ts): the toggles'
+   *  switch flipped (sfx $6B); the water switch flipped (the block, the
+   *  dissolve, sfx $6A and $4A/$4B); a hard landing on it squashed Kirby
+   *  ($82:A41A: $6A6E and $D7D4 = $0C). */
+  switchFlip: number;
+  waterSwitch: number;
+  waterSquash: number;
 }
 
 export const emptyWork = (): BallWorkFields => ({
@@ -353,6 +372,7 @@ export const emptyWork = (): BallWorkFields => ({
   blockWet: 0, waterRegion: 0, waterLevel: 0, waterGround: 0, waterCode: 0,
   waterWalk: 0, waterFreeze: 0, waterSkips: 0,
   waterSplash: 0, waterBubbles: 0, waterPalette: -1, waterSilence: 0, waterWait: 0, kirbyRoll: 0,
+  toggleOn: 0, switchLatch: 0, waterOff: 0, switchFlip: 0, waterSwitch: 0, waterSquash: 0,
   hopRequest: 0,
   bouncePose: 0,
   fellOut: 0,

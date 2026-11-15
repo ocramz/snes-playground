@@ -244,15 +244,94 @@ def surface_kind(d, index):
     return None
 
 
-def hole_page(d, index):
+def hole_page(d, index, toggle=None, water=None, swirls=None):
     """The course page as it is while this hole is in play: `course_page`,
-    with the water tiles at `$180-$1AB` on a water hole."""
+    with the water tiles at `$180-$1AB` on a water hole, and the switches'
+    tiles of `$82:BC59` (`switch_state`). The water's tiles are zeroed while
+    `$69CA` is set (`$80:CCF8`, or the dissolve's end).
+
+    `toggle` / `water` override the load's `$6A2A` / `$69CA` (0 or 1), and
+    `swirls` uploads object 127's frames, {list: frame}: the variants the
+    engine draws as overlays (export_web.py)."""
     page = course_page(d)
+    st = switch_state(d, index)
+    if toggle is None:
+        toggle = st["toggle"]
+    if water is None:
+        water = st["water"]
+    if st["toggle"] is not None:
+        page = _upload(d, page, _switch_record(d, "toggle", toggle))
+    if st["water"] is not None:
+        page = _upload(d, page, _switch_record(d, "water", water))
+    for lst, frame in (swirls or {}).items():
+        page = _upload(d, page, swirl_record(d, lst, frame))
     if surface_kind(d, index) != "water":
         return page
     src = snes_to_file(*WATER_GFX)
     at = WATER_FIRST_TILE * TILE_BYTES4
-    return page[:at] + d[src:src + WATER_GFX_BYTES] + page[at + WATER_GFX_BYTES:]
+    gfx = bytes(WATER_GFX_BYTES) if water else d[src:src + WATER_GFX_BYTES]
+    return page[:at] + gfx + page[at + WATER_GFX_BYTES:]
+
+
+# The switches and the swirls (port_v2 phase 6; docs/courses.md "The
+# switches' objects"). `$82:BC59` at the load: a pair `$5A/$5B` (`$5C/$5D`)
+# present sets `$6A2A` (`$69CA`) when there is none of its first value, and
+# uploads the switch's 8 tiles by it (`$80:D7B5` entry 1 / 2: `LDA #clear /
+# LDX flag / BEQ / LDA #set`, the operands below; records in bank `$80`).
+# `$82:BBAE`: object 127 for each swirl pair `$70/$71` ... `$7A/$7B`; its
+# frames are the records `$84:DC58`[frame + 10 x list] (14 tiles to VRAM
+# `$3000`, list 0, or `$3100`, list 1).
+SWITCH_RECORDS = {"toggle": ((0x80, 0xD7E8), (0x80, 0xD7F0)),
+                  "water": ((0x80, 0xD80A), (0x80, 0xD812))}
+SWITCH_FIRST = {"toggle": 0x5A, "water": 0x5C}
+SWIRL_RECORDS = (0x84, 0xDC58)
+SWIRL_FRAMES = 10
+SWIRL_PAIRS = 6
+
+
+def switch_state(d, index):
+    """`$82:BC59` / `$82:BBAE` from the layer-2 counts: `toggle` / `water` =
+    `$6A2A` / `$69CA` at the load (None: no such switch on the hole), and
+    `swirls`, the swirl pairs present (0-5) in object 127's spawn order."""
+    _, fields, _, _ = header(d, index)
+    n = fields[W_WIDTH] * fields[W_HEIGHT]
+    try:
+        layer2 = table(d, index, 2)[:n]
+    except CompressionError:
+        layer2 = b""
+    out = {}
+    for k, first in SWITCH_FIRST.items():
+        a, b = layer2.count(first) & 0xFF, layer2.count(first + 1) & 0xFF
+        out[k] = None if a == 0 and b == 0 else (1 if a == 0 else 0)
+    out["swirls"] = [p for p in range(SWIRL_PAIRS)
+                     if (0x70 + 2 * p) in layer2 or (0x71 + 2 * p) in layer2]
+    return out
+
+
+def _record(d, bank, addr):
+    """One `sub_vram_queue` record (tools/vram.py): (size, source bank, source, VRAM word)."""
+    o = snes_to_file(bank, addr)
+    size = int.from_bytes(d[o + 1:o + 3], "little")
+    src = int.from_bytes(d[o + 3:o + 5], "little")
+    return size, d[o + 5], src, int.from_bytes(d[o + 6:o + 8], "little")
+
+
+def _switch_record(d, which, flag):
+    op = SWITCH_RECORDS[which][1 if flag else 0]
+    return _record(d, 0x80, _word(d, *op))
+
+
+def swirl_record(d, lst, frame):
+    """Object 127's record for a frame of list 0 or 1."""
+    return _record(d, 0x84, _word(d, SWIRL_RECORDS[0], SWIRL_RECORDS[1] + 2 * (frame + SWIRL_FRAMES * lst)))
+
+
+def _upload(d, page, rec):
+    size, bank, src, dest = rec
+    o = snes_to_file(bank, src)
+    at = dest * 2
+    assert at + size <= len(page), "upload past the course page"
+    return page[:at] + d[o:o + size] + page[at + size:]
 
 
 def _word(d, bank, addr):
@@ -355,8 +434,10 @@ def palette_cycles(d, index):
     """The BG colour cycles an object runs while the hole is in play (the
     ripple or the boost panels' cycle, and the warp or snap panels'). The
     outline's two colours, object 111's, are on every hole and are drawn as
-    masks instead (export_web.py). Not modelled: objects 116-118 of the
-    `$58-$5D` tiles, and the scenery's own cycles (`$84:CF31`, `$84:D072`)."""
+    masks instead (export_web.py). Not here: objects 116-118, the switches'
+    colours by their state (export_web.py draws 117's and 118's as the
+    switches' overlays; 116 is 2P only), and the scenery's own cycles
+    (`$84:CF31`, `$84:D072`)."""
     return [c for c in (water_ripple(d, index), boost_cycle(d, index), panel_cycle(d, index)) if c]
 
 

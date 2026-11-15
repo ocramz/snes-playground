@@ -52,6 +52,7 @@ export const EVENT_TABLE: Readonly<Record<string, EventRow>> = {
   'palette-set': { ids: [], site: '$80:D2FE a palette set (Fireball\'s 5; subject = the set)', react: 'none' },
   'enemy-taken': { ids: [0x4f, 0x50], site: '$82:8A92 / $82:8A79 (an ability enemy)', react: 'sfx' },
   'cup-reveal': { ids: [0x1c], site: '$82:8D49 the ring stage', react: 'sfx' },
+  switch: { ids: [0x6b, 0x6a, 0x4a, 0x4b], site: '$82:A195/$82:A1E1 the toggles\' switch flips $6A2A; $82:A470 the water switch, then $82:A4ED $4A (the water goes) or $4B (it comes)', react: 'sfx' },
   warp: { ids: [0x76, 0x77], site: '$82:AABC the ball goes in (object 63), $82:AB7C it comes out (object 64)', react: 'sfx' },
   'holed-in': { ids: [], site: '$82:AD13 object 75, the cup\'s rim over Kirby (bridge/sync-cup-mask.ts)', react: 'none' },
   holed: { ids: [0x1f, 0x20, 0x21, 0x22, 0x23], site: '$81:80A5 holedSfx[mode] ($82:AEF5: $21 mode 0, Stone $23, Spark and code 15 $22, Needle and Freeze $1F, ...)', react: 'sfx' },

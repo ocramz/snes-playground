@@ -37,7 +37,7 @@ import {
   TOMATO_MAX, START_LIVES, CONTINUE_LIVES,
 } from './traits/counters';
 import { probe } from './sim/probe';
-import { kernelCourse, type Ctx } from './sim/context';
+import { kernelCourse, toggleOnAtLoad, waterOffAtLoad, type Ctx } from './sim/context';
 import { project } from './projection';
 import type { CourseData } from './course-data';
 import type { RomRules } from './rules';
@@ -49,6 +49,7 @@ import { BoostHum } from './traits/boost';
 import { SnapTrail } from './traits/snap';
 import { WaterFx, KirbyPalette } from './traits/water';
 import { resetAbilityFx } from './systems/ability-fx';
+import { resetSwitches } from './systems/switches';
 
 export interface BallPlacement {
   xc: number; xf: number; yc: number; yf: number; z: number;
@@ -153,6 +154,10 @@ export function startHole(world: World, i: number): Ctx {
   // a fresh work copy: the set-up's coefficients ($80:C688)
   e.set(BallWork, emptyWork());
   const w = e.get(BallWork)!;
+  // $82:BBAE / $82:BC59 at the load: the switches' globals by the counts
+  // ($80:C45D clears the switch's latch $6A2C)
+  w.toggleOn = toggleOnAtLoad(data.tile) ? 1 : 0;
+  w.waterOff = waterOffAtLoad(data.tile) ? 1 : 0;
   w.xc = data.tee.x; w.xf = 0x8000;
   w.yc = data.tee.y; w.yf = 0x8000;
   w.air = 0;
@@ -203,6 +208,7 @@ export function startHole(world: World, i: number): Ctx {
   fx.splashes = []; fx.bubbles = [];
   e.set(KirbyPalette, { wet: 0 });
   resetAbilityFx(world, ctx); // Kirby's set 3, no palette object
+  resetSwitches(world, data.tile, w); // objects 127, 117 and 118 ($82:BBAE, $82:BC59)
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;

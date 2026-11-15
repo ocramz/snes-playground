@@ -234,7 +234,7 @@ describe.skipIf(!haveRules)('the water\'s kernels ($82:83DD, $82:83B9, $82:8228,
     Object.assign(w, { mode, tile, pTile: tile, elev: 3, xf: 0x8000, yf: 0x8000, z: 0x1_0f86, ground: 0x1_0f86, code: 4, air: 1, vz: 0xff00 }, extra);
     return w;
   };
-  const ctxOf = (waterOff = false): Ctx => ({ rules, course: { waterOff } } as unknown as Ctx);
+  const ctxOf = (): Ctx => ({ rules, course: {} } as unknown as Ctx);
 
   it('Wheel (6) and UFO (10) ride the level; rolling, the friction is quartered', () => {
     for (const mode of [6, 0x0a]) {
@@ -260,8 +260,8 @@ describe.skipIf(!haveRules)('the water\'s kernels ($82:83DD, $82:83B9, $82:8228,
   });
 
   it('with $69CA set the water is plain ground', () => {
-    const w = pond(0, 0x61, { elev: 2 });
-    expect(waterLand(ctxOf(true), w, { kind: -1, timer: 0 })).toEqual({ next: 'landing', entry: 'full' });
+    const w = pond(0, 0x61, { elev: 2, waterOff: 1 });
+    expect(waterLand(ctxOf(), w, { kind: -1, timer: 0 })).toEqual({ next: 'landing', entry: 'full' });
     expect([w.onOverlay, w.vz, w.waterSplash]).toEqual([0, 0xff00, 0]);
   });
 

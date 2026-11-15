@@ -38,6 +38,7 @@ import { activePlayer } from '../traits/player';
 import { startWarp } from './warp';
 import { noteSnapPush } from './snap-trail';
 import { noteWater } from './water-fx';
+import { switchEffects } from './switches';
 import { onWater } from '../sim/water';
 import { Pose, PoseState } from '../traits/pose';
 import { takeEnemy, finishTakeEnemy } from './take';
@@ -74,7 +75,7 @@ interface StepState {
 
 /** A stall the step asks for: the runner suspends the list after the entry. */
 interface StallRequest {
-  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp' | 'waterWait' | 'transform' | 'abilityWait';
+  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp' | 'waterWait' | 'waterSwitch' | 'transform' | 'abilityWait';
   frames: number;
   state: number;
 }
@@ -130,6 +131,9 @@ export const BALL_STEP: StepEntry[] = [
       w.waterSilence = 0;
       w.waterWait = 0;
       w.kirbyRoll = 0;
+      w.switchFlip = 0;
+      w.waterSwitch = 0;
+      w.waterSquash = 0;
       w.deg = 0xffff;
       copyPrev(w);
       s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
@@ -315,6 +319,15 @@ export const BALL_STEP: StepEntry[] = [
       s.w.waterWait = 0;
       return { kind: 'waterWait', frames: 1, state: 0 };
     },
+  },
+  {
+    // inside the switches' handlers ($82:A189 / $82:A1D5, $82:A45D): the
+    // toggles' switch's sound; the water switch's sounds, Kirby's squash and
+    // the block for the dissolve ($80:9120, 64 x $80:8FB6 + $80:9208), then
+    // the default landing or roll. Not a kernel: the guide never flips them.
+    name: 'switches',
+    kernel: false,
+    run: (world, s) => switchEffects(world, s.w),
   },
   {
     // the landing chain's first half, $81:8905 (its hit-stop suspends the
@@ -749,8 +762,8 @@ function copyPrev(w: BallWorkFields): void {
 }
 
 /** $81:87FB -> $82:C85F: $D9EE is cleared off the water (or with the water off, $69CA). */
-function overlayProbe(ctx: Ctx, w: BallWorkFields): void {
-  if (!onWater(ctx, w.tile)) w.onOverlay = 0;
+function overlayProbe(_ctx: Ctx, w: BallWorkFields): void {
+  if (!onWater(w, w.tile)) w.onOverlay = 0;
 }
 
 function highWord(z: number): number {

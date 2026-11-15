@@ -133,7 +133,11 @@ python3 tools/snesstep/trace_actors.py web_water_drop --types 53,54,55,56,57,58,
 #   the demos, `hudo10`/`hudi10` in slot 10 as from the map), the pad
 #   (`pad`/`padp`) and the demo flags; and iters_<name>.json: the frame
 #   helper's calls, the trigger's pad reads, the vblank waits and the VRAM
-#   queue pushes from bank $84 (the HUD's icon)
+#   queue pushes from bank $84 (the HUD's icon, and object 127's swirl frames)
+#   The switches (port_v2 phase 6): trace_flow.py adds `togon` ($6A2A),
+#   `swlatch` ($6A2C), `wateroff` ($69CA), `latch68` ($6A68), `hsl` ($6A70) and
+#   the CGRAM shadow's colours 78 and 94 (`sw117`, `sw118`: objects 117 and
+#   118) and 66 (`ripple`, object 113); the scenarios are inputs/web_sw_*
 python3 tools/snesstep/trace_flow.py web_demo10 --frames 3910   # a DEMOPLAY demo (no pokes)
 python3 tools/snesstep/trace_actors.py web_demo17 --types 21,27,28,29,30,31,32,33,34,35,36,37,38,39,49,50,51,52,65,66 --frames 3960   # the abilities' objects
 python3 tools/snesstep/trace_cutscene.py   # hole 1's intro and hole-outs, every frame -> build/web-test/cutscene_hole0.json
@@ -151,6 +155,9 @@ python3 tools/export_web.py --hole 17 --only course,layers --out build/engine/as
 #   the CGRAM in play and the palette cycles' overlays (docs/courses.md)
 python3 tools/check_hole_palette.py          # the exporter's BG colours vs the game's CGRAM, one hole a course
 python3 tools/check_hole_palette.py --holes 0-63   # every 1P hole (~45 s)
+python3 tools/check_switch_gfx.py            # the switches' tiles, object 127's frames and the water's
+#   dissolve (coursemap.hole_page, export_web.dissolve_map's order) vs the game's VRAM
+#   through the web_sw_* scenarios (snapshots in build/emu/switch_gfx)
 python3 tools/snesstep/trace_enemies.py      # every enemy species' idle clip -> build/sprites/enemies (~1 min)
 #   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?course=N, ?hole=N)
 #   make engine-e2e                  # the browser smoke test (needs the dev server)

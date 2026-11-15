@@ -55,12 +55,13 @@ sys.path.insert(0, HERE)
 
 from courses import ENTRIES, default_entries, entry, header  # noqa: E402
 from coursemap import (  # noqa: E402
-    EMPTY, backdrop, hole_page, hole_palette, palette_cycles, unpack, BG3_MAP_TILES)
+    EMPTY, backdrop, hole_page, hole_palette, palette_cycles, unpack, BG3_MAP_TILES,
+    switch_state, surface_kind, SWIRL_FRAMES, WATER_FIRST_TILE, WATER_GFX_BYTES)
 from halcomp import decompress  # noqa: E402
 from lorom import snes_to_file  # noqa: E402
 from romcheck import EXPECTED_SHA1, RomError, load_rom  # noqa: E402
 from terrain import Tables, Z_UNIT, load_hole, tile_table  # noqa: E402
-from tiles import decode_tiles  # noqa: E402
+from tiles import decode_tiles, snes_color  # noqa: E402
 
 VERSION = 1
 OUT_DEFAULT = os.path.join(ROOT, "build", "web")
@@ -479,11 +480,13 @@ def build_tables(d):
         (0x82, 0x9E1F): "boostW",           (0x82, 0x9D76): "boostWHit",      # $33 $36 $3B
         (0x82, 0x8967): "enemy",            # $40-$52, $57 on land; $40-$4C, $57 on roll
         (0x82, 0x8963): "enemyRollAlt",     # $4D-$52 on roll (no owner test)
-        (0x82, 0xA25D): "unk58",            (0x82, 0xA2F5): "unk58Hit",       # $58, $59 (undocumented)
-        (0x82, 0xA1B1): "unk5a",            (0x82, 0xA175): "unk5aHit",       # $5A, $5B (undocumented)
-        (0x82, 0xA3EB): "unk5c",            (0x82, 0xA43E): "unk5cHit",       # $5C, $5D (undocumented)
+        (0x82, 0xA25D): "switch58",         (0x82, 0xA2F5): "switch58Hit",    # $58, $59: the $6A2E switch (2P holes only; read, not ported)
+        (0x82, 0xA1B1): "switch",           (0x82, 0xA175): "switchHit",      # $5A, $5B: the toggles' switch $6A2A
+        (0x82, 0xA3EB): "waterSwitch",      (0x82, 0xA43E): "waterSwitchHit", # $5C, $5D: the water switch $69CA
         (0x82, 0x80F6): "overlay",          (0x82, 0x8000): "overlayHit",     # $60-$6F
-        # $70-$7B: the toggled directional impulse, one handler per tile
+        # $70-$7B: the swirls, one handler per tile: (tile - $70) >> 2 is
+        # always / while $6A2A is set / while it is clear, bit 1 the weak
+        # magnitude, bit 0 the other way round (docs/tiles.md "Toggles")
         (0x82, 0x9FE3): "toggle70", (0x82, 0x9F0B): "toggle70Hit",
         (0x82, 0xA01A): "toggle71", (0x82, 0x9F3D): "toggle71Hit",
         (0x82, 0x9FFF): "toggle72", (0x82, 0x9F24): "toggle72Hit",
@@ -637,9 +640,28 @@ def build_tables(d):
     # arrow panel per-mode gates ($82:A6C7/$82:A70B land, $82:A74F/$82:A783 hit), 22 words each
     put("arrowMode", 0x80, 0xDE4D, rom_words(d, 0x80, 0xDE4D, 22), 2)
     put("arrowModeHit", 0x80, 0xDE79, rom_words(d, 0x80, 0xDE79, 22), 2)
-    # toggled impulse ($70-$7B): the two magnitudes (tiles.md)
-    scalar("toggleImpulseBig", 0x80, 0xDDED)
-    scalar("toggleImpulseSmall", 0x80, 0xDDEF)
+    # the swirls $70-$7B ($82:9EF9-$82:A174; docs/tiles.md "Toggles"): the
+    # push's magnitudes, rolled through (hit) and landed on, strong (bit 1
+    # clear) and weak; and the disc where they act, a 64 x 64 quarter disc
+    # by |f - $8000| >> 9 ($82:A086, LSB first), read one byte past its last
+    # row by a fraction of 0 (521 bytes)
+    scalar("toggleHitStrong", 0x80, 0xDDED)
+    scalar("toggleLandStrong", 0x80, 0xDDEF)
+    scalar("toggleHitWeak", 0x80, 0xDDF1)
+    scalar("toggleLandWeak", 0x80, 0xDDF3)
+    put("toggleDisc", 0x88, 0x9190, rom_bytes(d, 0x88, 0x9190, 521), 1)
+    # object 127, the swirls' tiles ($84:DB97): the frames' waits, two
+    # $FF-ended lists of ten ($84:DC42 the strong pairs', $84:DC4D the weak)
+    put("swirlWaits", 0x84, 0xDC42, rom_bytes(d, 0x84, 0xDC42, 22), 1)
+    # objects 117 and 118, the switches' colours ($84:869D, 4 colours to CGRAM
+    # $4C / $5C, two sets alternating by 4 frames): 117 by $6A2A, set then
+    # clear ($98:D55A, $D562 | $D56A, $D572); 118 by $69CA, set (the water
+    # off) then clear ($98:D57A, $D582 | $D58A, $D592). BGR555 words
+    put("toggleSwitchColours", 0x98, 0xD55A, rom_words(d, 0x98, 0xD55A, 16), 2)
+    put("waterSwitchColours", 0x98, 0xD57A, rom_words(d, 0x98, 0xD57A, 16), 2)
+    # the water's dissolve ($80:9208): step k sets or clears the pixel
+    # $80:9271[k] (row v >> 3, column v & 7) of every water tile
+    put("dissolveOrder", 0x80, 0x9271, rom_bytes(d, 0x80, 0x9271, 64), 1)
     # rough/hazard-05 recovery launch ($82:93DA)
     scalar("hazard05Div", 0x80, 0xDD89)
     # the snap panels' stars, object 62 ($85:CFE1), and its motion's table
@@ -863,9 +885,47 @@ def blit_rgba(img, pal, tiles, word, y, x, masks=None):
     view[mask, 3] = 255
 
 
+def dissolve_map(g1, g2, tiles, want, map_w, W, H, step_of):
+    """Each pixel's dissolve step (red, alpha 255) where a water tile's opaque
+    pixel is the topmost of the layer: the step `$80:9208` writes its
+    tile-local position (flips applied, as the tile's data is what changes)."""
+    import numpy as np
+    out = np.zeros((H, W, 4), dtype=np.uint8)
+    for grid in (g2, g1):
+        for i, wd in enumerate(grid):
+            if wd == EMPTY or ((wd >> 13) & 1) != want:
+                continue
+            t = wd & 0x3FF
+            if t >= len(tiles):
+                continue
+            y, x = divmod(i, map_w)
+            water = t in WATER_TILES
+            for r in range(8):
+                for c in range(8):
+                    sr = 7 - r if (wd >> 15) & 1 else r
+                    sc = 7 - c if (wd >> 14) & 1 else c
+                    if tiles[t][sr][sc] == 0:
+                        continue
+                    if water:
+                        out[y * 8 + r, x * 8 + c] = (step_of[sr * 8 + sc], 0, 0, 255)
+                    else:
+                        out[y * 8 + r, x * 8 + c] = 0
+    return out
+
+
 # The overlay names the layers step may write (`layer_{back,front}_<name><k>.png`).
 CYCLE_NAMES = ("ripple", "boost", "panels")
 CYCLE_MAX_SETS = 4
+# The switches' objects (port_v2 phase 6; coursemap.switch_state): 117
+# writes palette 4 colours 12-15 by `$6A2A`, 118 palette 5 colours 12-15 by
+# `$69CA`, two sets each (tables.json toggleSwitchColours /
+# waterSwitchColours: the state set first).
+SWITCH_COLOURS = {"toggle": (0x98, 0xD55A, 4), "water": (0x98, 0xD57A, 5)}
+SWITCH_FIRST_COLOUR = 12
+# The water's dissolve ($80:9208): step k (1-64) sets or clears the pixel
+# `$80:9271`[k - 1] (row v >> 3, column v & 7) of each water tile.
+DISSOLVE_ORDER = (0x80, 0x9271)
+WATER_TILES = range(WATER_FIRST_TILE, WATER_FIRST_TILE + WATER_GFX_BYTES // 32)
 
 
 def build_layers(d, index, outdir):
@@ -874,14 +934,21 @@ def build_layers(d, index, outdir):
 
     _, fields, name, _ = header(d, index)
     map_w, map_h, g1, g2, _rows = unpack(d, index, fields)
+    # The switches (port_v2 phase 6): on a hole with the water switch the
+    # layers are drawn dry and the water is a layer of its own, which the
+    # view dissolves; the switches' tiles are the load's (coursemap.hole_page).
+    sw = switch_state(d, index)
+    dissolve = sw["water"] is not None and surface_kind(d, index) == "water"
+    page_args = {"water": 1} if dissolve else {}
     # A water hole's own tiles (coursemap.hole_page); the BG colours in play
     # with every cycle at its first set (coursemap.hole_palette).
-    tiles = decode_tiles(hole_page(d, index), 4)
+    tiles = decode_tiles(hole_page(d, index, **page_args), 4)
+    wet_tiles = decode_tiles(hole_page(d, index, water=0), 4) if dissolve else tiles
     pal = hole_palette(d, index)
     cycles = palette_cycles(d, index)
     W, H = map_w * 8, map_h * 8
 
-    def compose(want, pal=pal):
+    def compose(want, pal=pal, tiles=tiles):
         img = np.zeros((H, W, 4), dtype=np.uint8)
         masks = {(OUTLINE_PAL, OUTLINE_COLOUR): np.zeros((H, W, 4), dtype=np.uint8),
                  (GLOW_PAL, GLOW_COLOUR): np.zeros((H, W, 4), dtype=np.uint8)}
@@ -894,6 +961,12 @@ def build_layers(d, index, outdir):
                 blit_rgba(img, pal, tiles, wd, y * 8, x * 8, masks=masks)
         return img, masks[(OUTLINE_PAL, OUTLINE_COLOUR)], masks[(GLOW_PAL, GLOW_COLOUR)]
 
+    def overlay(arr, base):
+        over = np.zeros((H, W, 4), dtype=np.uint8)
+        diff = (arr != base).any(axis=2)
+        over[diff] = arr[diff]
+        return over
+
     (back, ol_back, gl_back), (front, ol_front, gl_front) = compose(0), compose(1)
     out = [("layer_back.png", back), ("layer_front.png", front),
            ("layer_outline_back.png", ol_back),
@@ -905,17 +978,61 @@ def build_layers(d, index, outdir):
     # of the pixels whose colour differs from set 0 in the composed layer, so a
     # BG1 tile over BG2 water stays on top. The view shows the overlay of
     # `order[phase]` (none for set 0). Every other overlay name is written
-    # empty, so a stale file is removed below.
+    # empty, so a stale file is removed below. The ripple of a dry-drawn
+    # hole is taken over its water (the view masks it with the water).
     have = {(c["name"], k): c for c in cycles for k in range(1, len(c["sets"]))}
+    wet = {w_: compose(w_, tiles=wet_tiles)[0] for w_ in (0, 1)} if dissolve else {0: back, 1: front}
     for cname in CYCLE_NAMES:
         for k in range(1, CYCLE_MAX_SETS):
             for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
                 over = np.zeros((H, W, 4), dtype=np.uint8)
                 if (cname, k) in have:
-                    arr = compose(want, hole_palette(d, index, {cname: k}))[0]
-                    diff = (arr != base).any(axis=2)
-                    over[diff] = arr[diff]
+                    t = wet_tiles if cname == "ripple" else tiles
+                    b = wet[want] if cname == "ripple" else base
+                    over = overlay(compose(want, hole_palette(d, index, {cname: k}), t)[0], b)
                 out.append(("{}_{}{}.png".format(stem, cname, k), over))
+    # The water switch's hole: the water's pixels (over the dry layer), and
+    # each one's dissolve step in red (alpha 255), from the topmost tile
+    # drawn there.
+    order = list(rom_bytes(d, DISSOLVE_ORDER[0], DISSOLVE_ORDER[1], 64))
+    step_of = {v: k for k, v in enumerate(order)}
+    for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+        water = np.zeros((H, W, 4), dtype=np.uint8)
+        steps = np.zeros((H, W, 4), dtype=np.uint8)
+        if dissolve:
+            water = overlay(wet[want], base)
+            steps = dissolve_map(g1, g2, wet_tiles, want, map_w, W, H, step_of)
+            steps[water[:, :, 3] == 0] = 0
+        out.append(("{}_water.png".format(stem), water))
+        out.append(("{}_dissolve.png".format(stem), steps))
+    # The switches' pictures: by the state (the tiles, `$80:D7B5`) and the
+    # object's set (the colours), each an overlay of the pixels that differ
+    # from the layer (the load's tiles, the course's colours: before the
+    # object's first write), `<stem>_{toggle,water}sw<state><set>.png`.
+    for which, (bank, addr, p) in SWITCH_COLOURS.items():
+        for state in (0, 1):
+            for k in (0, 1):
+                for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+                    over = np.zeros((H, W, 4), dtype=np.uint8)
+                    if sw[which] is not None:
+                        first = 0 if state else 2  # the set state's sets first
+                        cols = [snes_color(w_) for w_ in rom_words(d, bank, addr + 8 * (first + k), 4)]
+                        pal_s = [list(row) for row in pal]
+                        pal_s[p][SWITCH_FIRST_COLOUR:SWITCH_FIRST_COLOUR + 4] = cols
+                        t = decode_tiles(hole_page(d, index, **{**page_args, which: state} if which == "toggle" else page_args), 4)
+                        over = overlay(compose(want, pal_s, t)[0], base)
+                    out.append(("{}_{}sw{}{}.png".format(stem, which, state, k), over))
+    # Object 127's frames, list 0 (the first swirl pair's, VRAM $3000) and 1
+    # (the others', $3100), over the course page's tiles there.
+    lists = min(2, len(sw["swirls"]))
+    for lst in (0, 1):
+        for frame in range(SWIRL_FRAMES):
+            for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+                over = np.zeros((H, W, 4), dtype=np.uint8)
+                if lst < lists:
+                    t = decode_tiles(hole_page(d, index, swirls={lst: frame}, **page_args), 4)
+                    over = overlay(compose(want, tiles=t)[0], base)
+                out.append(("{}_swirl{}_{}.png".format(stem, lst, frame), over))
     wrote = {}
     for name_, arr in out:
         path = os.path.join(outdir, name_)
@@ -965,12 +1082,13 @@ def build_layers(d, index, outdir):
         bg3([changed.get(i, c) for i, c in enumerate(cols)], "layer_bg3_night.png")
         night_back = list(changed.get(0, cols[0]))
     # The backdrop colour behind everything is the course palette's colour 0.
-    from tiles import snes_color
     table = [snes_color(w) for w in rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15)]
     keep = ("name", "object", "source", "colours", "stepFrames", "order")
     return {"files": wrote, "backColour": list(cols[0]), "name": name,
             "nightBackColour": night_back,
             "cycles": [{k: c[k] for k in keep} for c in cycles],
+            "switches": {"toggle": sw["toggle"], "water": sw["water"], "swirlLists": lists,
+                         "dissolve": dissolve},
             "outline": {"source": src(*OUTLINE_TABLE), "stepFrames": 3,
                         "cycle": [list(table[i]) for i in OUTLINE_WALK]}}
 

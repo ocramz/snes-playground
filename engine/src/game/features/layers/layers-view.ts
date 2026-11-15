@@ -48,6 +48,8 @@ import type { CourseState } from '../../../core/traits/course';
 import { drawTerrain } from './procedural';
 import { rasterTerrain, type TerrainStyle } from './styled';
 import { DEPTH } from './layer-depth';
+import { SwitchLayers } from './switch-layers';
+import type { SwitchesState } from '../../../core/traits/switches';
 
 export { DEPTH };
 
@@ -90,6 +92,7 @@ export class LayersView {
   private readonly glowWalk: { stepFrames: number; values: number[] } | null;
   private readonly glowColours: Int32Array | null;
   private night = false;
+  private switches: SwitchLayers | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -113,7 +116,11 @@ export class LayersView {
       this.addMask(this.outlines, 'layer_outline_front.png', DEPTH.outlineFront);
       this.addMask(this.glows, 'layer_glow_back.png', DEPTH.outlineBack);
       this.addMask(this.glows, 'layer_glow_front.png', DEPTH.outlineFront);
+      const ripple = info?.cycles?.find((c) => c.name === 'ripple') ?? null;
+      if (info?.switches) this.switches = new SwitchLayers(scene, hole!, info, (f) => this.has(f), ripple);
       for (const cycle of info?.cycles ?? []) {
+        // a water switch's hole masks its ripple with the water (switch-layers.ts)
+        if (cycle.name === 'ripple' && this.switches?.ownsRipple) continue;
         this.addCycle(cycle, 'layer_back', DEPTH.cycleBack);
         this.addCycle(cycle, 'layer_front', DEPTH.cycleFront);
       }
@@ -185,9 +192,11 @@ export class LayersView {
 
   /**
    * Per frame: the outline's colour from the walk ($84:81A3, 3 frames a step),
-   * the glow's ($84:81B7), and each cycle's set (`stepFrames` a phase).
+   * the glow's ($84:81B7), and each cycle's set (`stepFrames` a phase); the
+   * ripple on object 113's own clock when core has it (it stops while the
+   * water is off), and the switches' pictures.
    */
-  update(ticks: number): void {
+  update(ticks: number, switches?: SwitchesState): void {
     if (this.outlines.length > 0 && this.walk.length > 0) {
       const k = this.walk[Math.floor(ticks / 3) % this.walk.length];
       const colour = bgr555(this.colours[k] ?? 0x7fff);
@@ -202,8 +211,10 @@ export class LayersView {
     for (const o of this.overlays) {
       const c = o.cycle;
       if (c.order.length === 0 || c.stepFrames <= 0) continue;
-      o.image.setVisible(c.order[Math.floor(ticks / c.stepFrames) % c.order.length] === o.set);
+      const t = c.name === 'ripple' && switches ? switches.rippleTicks : ticks;
+      o.image.setVisible(c.order[Math.floor(t / c.stepFrames) % c.order.length] === o.set);
     }
+    if (this.switches && switches) this.switches.update(switches);
   }
 
   /** The procedural terrain over the bitmaps or the styled terrain (?debug, key D). */
@@ -242,6 +253,7 @@ export class LayersView {
     for (const o of this.outlines) o.destroy();
     for (const g of this.glows) g.destroy();
     for (const o of this.overlays) o.image.destroy();
+    this.switches?.destroy();
     this.terrain?.destroy();
     for (const k of this.ownTextures) if (this.scene.textures.exists(k)) this.scene.textures.remove(k);
   }

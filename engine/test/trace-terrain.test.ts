@@ -41,6 +41,7 @@
  * - the snap panels' five scenarios: test/snap-scenarios.ts.
  * - the water's eight: test/water-scenarios.ts.
  * - the copy abilities' eleven: test/ability-scenarios.ts.
+ * - the switches' and the toggles' eight: test/switch-scenarios.ts.
  */
 import { describe, it } from 'vitest';
 import { haveRules, haveRomTest, loadTrace, loadRomHole } from './fixtures';
@@ -48,6 +49,7 @@ import { checkScenario, type Scenario } from './scenarios';
 import { SNAP_SCENARIOS } from './snap-scenarios';
 import { WATER_SCENARIOS } from './water-scenarios';
 import { ABILITY_SCENARIOS } from './ability-scenarios';
+import { SWITCH_SCENARIOS } from './switch-scenarios';
 
 export const TERRAIN_SCENARIOS: Scenario[] = [
   { name: 'web_arrow', hole: 1, offset: 2332, from: 2463, to: 3000, what: 'the arrow $16 turns the ball south; the enemy, the $11 crest, the $05 ramp' },
@@ -65,7 +67,7 @@ export const TERRAIN_SCENARIOS: Scenario[] = [
 ];
 
 describe.skipIf(!haveRules || !haveRomTest)('the terrain and the arrows vs the recorded game', () => {
-  for (const s of [...TERRAIN_SCENARIOS, ...SNAP_SCENARIOS, ...WATER_SCENARIOS, ...ABILITY_SCENARIOS]) {
+  for (const s of [...TERRAIN_SCENARIOS, ...SNAP_SCENARIOS, ...WATER_SCENARIOS, ...ABILITY_SCENARIOS, ...SWITCH_SCENARIOS]) {
     it.skipIf(!loadTrace(s.name) || !loadRomHole(s.hole))(`${s.name}: ${s.what}`, () => checkScenario(s));
   }
 });

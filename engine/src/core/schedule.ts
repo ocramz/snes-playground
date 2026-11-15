@@ -36,6 +36,7 @@ import { runBallStep, resumeBallStep, BALL_STEP } from './systems/ball-step';
 import { Stall, postStepFirst } from './traits/stall';
 import { tickReveal } from './systems/reveal';
 import { tickWarp } from './systems/warp';
+import { tickWaterSwitch } from './systems/switches';
 import { latchPad } from './systems/pad';
 import { updateHoleFlow, setupShot, detectBallOut, ballStepRuns } from './systems/hole-flow';
 import { updateAim, updateShotGuide } from './systems/aim';
@@ -99,7 +100,7 @@ export function runCoreFrame(world: World, ctx?: Ctx): void {
 function sameIteration(world: World): boolean {
   const k = world.get(Stall)!.kind;
   return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'waterWait' || k === 'cupReveal' || k === 'warp'
-    || k === 'transform' || k === 'abilityWait';
+    || k === 'waterSwitch' || k === 'transform' || k === 'abilityWait';
 }
 
 /**
@@ -115,7 +116,7 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   if (!own && stall.framesLeft <= 0) return 'none';
   const hit = stall.kind === 'hitStop' || stall.kind === 'stepStop';
   const threads = hit || stall.kind === 'takeWait' || stall.kind === 'waterWait' || own
-    || stall.kind === 'transform' || stall.kind === 'abilityWait';
+    || stall.kind === 'waterSwitch' || stall.kind === 'transform' || stall.kind === 'abilityWait';
   const after = postStepFirst(stall.kind);
   if (hit) {
     // $81:8CAB-$81:8CBF: OR the pad of every stall frame
@@ -131,6 +132,7 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   } else if (stall.kind === 'warp') {
     if (!tickWarp(world, ctx)) return 'idle';
   } else {
+    if (stall.kind === 'waterSwitch') tickWaterSwitch(world, ctx); // $80:8FB6 1, $80:9208
     const left = stall.framesLeft - 1;
     if (left > 0) {
       world.set(Stall, { ...stall, framesLeft: left, sfx: left === 1 ? -1 : stall.sfx });

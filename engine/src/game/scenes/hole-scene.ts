@@ -26,6 +26,9 @@ import { Course, courseEntity, type CourseState } from '../../core/traits/course
 import { Cell, IsCup } from '../../core/traits/hole';
 import { Time } from '../../core/traits/time';
 import { Warp } from '../../core/traits/warp';
+import { Switches } from '../../core/traits/switches';
+import { BallWork } from '../../core/traits/ball';
+import { findActivePlayer } from '../../core/traits/player';
 import { Pad } from '../../core/traits/pad';
 import { runCoreFrame } from '../../core/schedule';
 import { FrameClock } from '../bridge/tick-time';
@@ -317,6 +320,15 @@ export class HoleScene extends Phaser.Scene {
       putOnCup: (lift = 0): boolean => putOnCup(world, lift),
       placeBall: (p: BallPlacement): void => placeBall(world, p),
       warp: () => ({ ...world.get(Warp)! }),
+      switches: () => {
+        const s = world.get(Switches)!;
+        const w = findActivePlayer(world)?.get(BallWork);
+        return {
+          toggleOn: w?.toggleOn ?? 0, waterOff: w?.waterOff ?? 0,
+          dissolve: { ...s.dissolve }, toggle: s.toggle && { ...s.toggle }, water: s.water && { ...s.water },
+          anims: s.anims.map((a) => ({ ...a })), rippleTicks: s.rippleTicks,
+        };
+      },
       freeze: (on = true): void => {
         this.frozen = on;
       },

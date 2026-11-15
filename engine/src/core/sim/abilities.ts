@@ -113,12 +113,12 @@ export function transform(w: Work): void {
  * ability is Freeze, the still gate cleared, the spin cleared unless Spark.
  * The ability's setup follows.
  */
-export function afterTransform(ctx: Ctx, w: Work): void {
+export function afterTransform(_ctx: Ctx, w: Work): void {
   w.d76c = 0;
   w.poseState = 3;
   w.modifierKind = -1;
   w.modifierWindow = 0;
-  if (w.waterFreeze !== 0 && w.mode !== 9) thaw(ctx, w);
+  if (w.waterFreeze !== 0 && w.mode !== 9) thaw(w);
   w.stillGate = 0;
   if (w.worn !== 7) {
     w.spinPending = 0;
@@ -558,9 +558,9 @@ function freezeGround(ctx: Ctx, w: Work): void {
   w.vz = 0;
   if ((w.vx | w.vy | w.vz) !== 0) return; // 2P also ORs the other ball's ($17FF)
   if (w.waterFreeze === 0) return;
-  thaw(ctx, w);
+  thaw(w);
   if (w.waterWalk === 0) return;
-  if (ctx.course.waterOff) return;
+  if (w.waterOff !== 0) return;
   w.onOverlay = 1;
   w.gravity = ctx.rules.table('ballGravity')[0];
   w.d76c = wrap16(w.d76c + 1);

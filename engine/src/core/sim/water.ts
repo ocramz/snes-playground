@@ -34,9 +34,9 @@ export function isWaterTile(t: number): boolean {
   return t >= 0x60 && t < 0x70;
 }
 
-/** $82:C85F: the probe's test, the water's tile and the water on. */
-export function onWater(ctx: Ctx, tile: number): boolean {
-  return !ctx.course.waterOff && isWaterTile(tile);
+/** $82:C85F: the probe's test, the water's tile and the water on ($69CA clear). */
+export function onWater(w: Work, tile: number): boolean {
+  return w.waterOff === 0 && isWaterTile(tile);
 }
 
 // --- the region ($82:83DD) ---
@@ -262,9 +262,9 @@ function walk(ctx: Ctx, w: Work, rolling: boolean): boolean {
  * Freeze), by Freeze stopping on its ice, by the lost ball's countdown and
  * by the hazard reaction; the hole's start clears $69DA too ($80:C276).
  */
-export function thaw(ctx: Ctx, w: Work): void {
+export function thaw(w: Work): void {
   w.waterFreeze = 0;
-  if (!ctx.course.waterOff) w.abilitySfx.push(0x4d);
+  if (w.waterOff === 0) w.abilitySfx.push(0x4d);
 }
 
 function freeze(w: Work): void {
@@ -292,7 +292,7 @@ function saveGround(w: Work): void {
 export function waterLand(ctx: Ctx, w: Work, mod: RollModifier): DispatchOutcome {
   const rollTB = w.rollTB;
   if (ctx.presentation === false) return guideLand(ctx, w);
-  if (ctx.course.waterOff) return LANDING; // $82:80F6: $69CA
+  if (w.waterOff !== 0) return LANDING; // $82:80F6: $69CA
   saveGround(w);
   if (!isWaterTile(w.pTile)) skipCount(w, rollTB); // $82:8111: entering from dry
   if (w.waterFreeze !== 0) {
@@ -339,7 +339,7 @@ export function waterLand(ctx: Ctx, w: Work, mod: RollModifier): DispatchOutcome
 /** `$82:8000`, the rolling side. */
 export function waterHit(ctx: Ctx, w: Work): DispatchOutcome {
   if (ctx.presentation === false) return guideRoll(ctx, w);
-  if (ctx.course.waterOff) return ROLLING;
+  if (w.waterOff !== 0) return ROLLING;
   saveGround(w);
   let rides = w.waterFreeze !== 0 || w.mode === 6 || (w.mode === 0x0a && w.d77a === 0); // the UFO flying
   if (!rides && w.mode === 9) {
@@ -386,7 +386,7 @@ export function waterHit(ctx: Ctx, w: Work): DispatchOutcome {
  * reached `$82:83B9` (`$81:AF82` zeroes it).
  */
 function guideLand(ctx: Ctx, w: Work): DispatchOutcome {
-  if (ctx.course.waterOff) return LANDING;
+  if (w.waterOff !== 0) return LANDING;
   if (waterRegion(w) === 0) return LANDING;
   waterLevel(ctx, w);
   if (w.onOverlay !== 0) {
@@ -404,7 +404,7 @@ function guideLand(ctx: Ctx, w: Work): DispatchOutcome {
  * it beyond; a dry one rolls on the level as flat ground.
  */
 function guideRoll(ctx: Ctx, w: Work): DispatchOutcome {
-  if (ctx.course.waterOff) return ROLLING;
+  if (w.waterOff !== 0) return ROLLING;
   waterLevel(ctx, w);
   if (w.blockWet !== 0) {
     if (waterRegion(w) !== 0) {

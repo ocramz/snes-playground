@@ -18,21 +18,21 @@ The hole index is course×8 + hole (`$82:B0A4`, [courses.md](../docs/courses.md)
 
 | indices | mode | clean | course-1 level | blocked |
 |---|---|---|---|---|
-| 0-63 | 1P courses 1-8 | 57 | 2 | 5 |
-| 64-127 | extra game: the same terrain, a different layer 2 | 57 | 2 | 5 |
-| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 11 | 0 | 21 |
-| 160-179 | the 20 DEMOPLAY holes (`$88:C880`'s records; demos 10-19 on 160-169, played, [emulation.md](../docs/emulation.md) "The DEMOPLAY demos"). Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 19 | 0 | 1 |
-| 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 7 | 0 | 25 |
+| 0-63 | 1P courses 1-8 | 64 | 0 | 0 |
+| 64-127 | extra game: the same terrain, a different layer 2 | 64 | 0 | 0 |
+| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 13 | 0 | 19 |
+| 160-179 | the 20 DEMOPLAY holes (`$88:C880`'s records; demos 10-19 on 160-169, played, [emulation.md](../docs/emulation.md) "The DEMOPLAY demos"). Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 20 | 0 | 0 |
+| 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 9 | 0 | 23 |
 | 224-243 | stub layer 2: a lone `$0C` and no enemies, so no cup is possible | — | — | 20 |
 | 184 | **unconfirmed**: Dedede's arena. physics.md puts the extra game's Dedede at 184. The slot holds the "shared filler" entry, whose header `$9F:EB41` is a real 16×16 hole named `MAPF0`. Not exported | | | |
 
-The counts are after step 5 (the copy abilities, §8). After step 4 they were 20/39/5, 6/53/5, 4/7/21, 9/10/1 and 2/5/25; after step 3 17/42/5, 5/54/5, 3/8/21, 8/11/1 and 2/5/25; before it, with the snaps blocking, 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
+The counts are after step 6 (the switches and the swirls, §8). After step 5 they were 57/2/5, 57/2/5, 11/0/21, 19/0/1 and 7/0/25; after step 4 20/39/5, 6/53/5, 4/7/21, 9/10/1 and 2/5/25; after step 3 17/42/5, 5/54/5, 3/8/21, 8/11/1 and 2/5/25; before it, with the snaps blocking, 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
 
 The columns:
 - **Clean:** every layer-2 tile goes through a ported handler.
-- **Course-1 level:** the hole also uses what course 1 ships with today: the `unk5c` handler (`$5C`/`$5D`: course 1 hole 8 has a `$5C`).
-  (Until step 4 the water `$60-$6F`, then plain ground, counted here too; until step 5 the ability enemies, whose take was ported but which granted nothing.)
-- **Blocked:** the hole has the toggles, `$58-$5B`, or the roulette `$57` (and, until step 3, the snap tiles).
+- **Course-1 level:** the hole also uses what course 1 shipped with as a stub. Nothing is left since step 6.
+  (Until step 4 the water `$60-$6F`, then plain ground, counted here too; until step 5 the ability enemies, whose take was ported but which granted nothing; until step 6 the water switch `$5C`/`$5D`.)
+- **Blocked:** the hole has the `$58` switch or the roulette `$57` (until step 6 also the swirls `$70-$7B` and `$5A`/`$5B`; until step 3 the snap tiles).
 
 Two things do not affect any hole:
 - the warps' random pick: no ROM hole has a warp list other than 0 or 2 panels;
@@ -45,8 +45,8 @@ Not counted, because they touch every hole: the crest's cross-cell branches (`en
 | feature | 1P holes | engine | RE state |
 |---|---|---|---|
 | ~~snap tiles `$18-$1B`: the gate `$82:A692` and the exact clamps~~ | 14, all with no other blocker: 29, 32, 37, 39, 41, 45, 49, 50, 52, 54, 55, 57, 62, 63 | **ported in step 3**, with the star trail (objects 61/62); 29 and 37 are now clean, the other 12 course-1 level (water or ability enemies) | traced: web_snap* (docs/tiles.md "Snap panels") |
-| toggles `$70-$7B`, always with `$5A`/`$5B` | 5: 10, 19, 25, 26, 43 | stub: plain ground (`dispatch.ts:166-184`) | the direction map `$88:9190`, `$82:A086`/`$A0D9`/`$A0F9` (unread). **Unconfirmed:** `$5B` is the toggle's switch. It occurs in 30 holes, and all 30 have toggles (35 holes have toggles) |
-| `$58-$5D` | `$5A`/`$5B` in the 5 above; `$5C`/`$5D` in 2 (hole 7, which is course 1 hole 8, and 23) | stub | handlers located, not read ([tiles.md](../docs/tiles.md) "Not established") |
+| ~~toggles `$70-$7B`, always with `$5A`/`$5B`~~ | 5: 10, 19, 25, 26, 43 | **ported in step 6**: the swirls and the toggles' switch, with object 127's tiles and object 117's colours | traced: web_sw_* (docs/tiles.md "Swirls", "The toggles' switch"). Settled: `$5A`/`$5B` flip `$6A2A`, which turns `$74-$77` on and `$78-$7B` off |
+| ~~`$5A-$5D`~~; `$58`/`$59` | `$5A`/`$5B` in the 5 above; `$5C`/`$5D` in 2 (hole 7, which is course 1 hole 8, and 23); `$58` on the 2P holes 132-143 and 196-207 only | `$5A-$5D` **ported in step 6**, the water switch with its 64-frame dissolve; `$58` a stub | `$58`/`$59` read, not traced (tiles.md "Not established"), left for step 9 |
 | ~~**water** `$60-$6F`~~ | 17: 6, 7, 12, 20, 22, 23, 27, 31, 32, 33, 35, 50, 52, 55, 57, 62, 63 | **ported in step 4**, with its splashes, bubbles and Kirby's wet palette; 6, 12 and 27 are now clean | traced: web_water_* (docs/tiles.md "Water") |
 | ~~**ability enemies**~~ | 38 of 64. Per course: 3, 3, 3, 5, 6, 5, 7, 6. Course 1 has `$42` Parasol and `$48` Hi-Jump | **ported in step 5**: all ten abilities, the transformation, the HUD's icon, Kirby's colours, the objects | traced: demos 10-19, web_ab_* (§3) |
 
@@ -240,7 +240,17 @@ Ordered by holes unlocked per unit of RE:
    - Found on the way: the rough `$04`'s table offset and sound, the kickers' land and hit, the crest's cross-cell branches `$81:9831`, the rolling step hit's launch, the take's halves, `$80:F445`'s `$D76C`, the outline phase's 41-tick wrap.
    - After it: 1P 57 clean, 2 at course-1 level (the `$5C`/`$5D` holes 7 and 23), 5 blocked (§1).
    - Left: the 2P parts (step 9), the overlays and the frame index, the objects never seen.
-6. **The toggles and `$58-$5D`**, for the last 5 blocked 1P holes, and `$5C`/`$5D` on 2 more.
+6. ~~**The toggles and `$58-$5D`**, for the last 5 blocked 1P holes, and `$5C`/`$5D` on 2 more.~~ **Done 2026-11-15** ([notes/port-v2-phase6-switches.md](../notes/port-v2-phase6-switches.md); docs/tiles.md "Swirls", "The toggles' switch", "The water switch"; docs/courses.md "The switches' objects"; docs/engine.md):
+   - The swirls `$70-$7B` (a push round the cell's centre in a disc), the toggles' switch `$5A`/`$5B` (`$6A2A`) and the water switch `$5C`/`$5D` (`$69CA`, a 64-frame block while the water's tiles dissolve) are ported exactly. Their presentation is ported too: the switch's tiles, objects 117 and 118's colours, object 127's frames (which turn the whole floor on those holes), and the dissolve pixel by pixel. `$69CA` moved from the course into the work copy.
+   - Eight poked scenarios on holes 10, 25, 26, 7 and 23 match frame for frame: the ball states and the sounds; on the iteration clock, the switches' globals, the colours, object 127's frames, Kirby's squash and the block. `tools/check_switch_gfx.py` finds the VRAM model exact. 673 tests pass, and so do the e2e pages, with a new `switch.mjs`.
+   - Found on the way:
+     - the swirls turn the ball round the centre, not along a direction;
+     - the rolling side's magnitude is the disc's bitmap byte, because `$B6` is overwritten (`$80:DDED`/`$DDF1` are dead);
+     - the water switch's two tile records are the same bytes;
+     - a hard landing on the water switch squashes Kirby with no return;
+     - `toggleImpulseBig`/`Small` were misnamed.
+   - After it: 1P 64 clean, the extra game 64 (§1). The random holes' solve rates are unchanged by it (29, 30 and 24 of 30, as at the phase's start).
+   - Left: `$58`/`$59` and the 2P branches (step 9), the objects' phases at the load.
 7. **The shell:** the per-hole card, pause and the overview, the course map, title → map → course, the medals and SRAM.
 8. **The extra game and King Dedede.** The extra game is nearly free after steps 1-6; Dedede needs his own RE.
 9. **Two players:** the turn loop, the HUD, the steal, ball-to-ball hits, the handicap and dice.
@@ -258,7 +268,7 @@ import glob, json, os
 R = 'build/engine/rules/tables.json'; t = json.load(open(R))
 name = {d['id']: d['name'] for d in t['dispatchHandlers']}
 land, abil = t['landDispatch']['values'], t['enemyAbility']['values']
-BLOCK, PARITY = {'toggle', 'unk58', 'unk5a', 'roulette'}, {'ability', 'unk5c'}  # 'snap' left BLOCK at step 3, 'overlay' PARITY at step 4
+BLOCK, PARITY = {'switch58', 'roulette'}, set()  # 'snap' left BLOCK at step 3, 'overlay' PARITY at step 4, 'ability' at step 5, the swirls and switches at step 6
 for d in sorted(glob.glob('build/courses/[0-9][0-9][0-9]_MAP*')):
     m = json.load(open(f'{d}/map.json')); n = m['grid_width'] * m['grid_height']
     l2 = open(glob.glob(f'{d}/t02_*.bin')[0], 'rb').read()

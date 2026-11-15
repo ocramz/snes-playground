@@ -52,6 +52,8 @@ export interface GameIters {
   trigger: Array<[number, number, number]>;
   /** Every vblank wait `$80:845F` (the frame helpers' and others'), where a demo's stream ticks. */
   waits: Array<[number, number]>;
+  /** Every VRAM queue push from bank $84 ($80:8696): [frame, line, A (the record), the caller's return]. */
+  uploads?: Array<[number, number, number, string]>;
 }
 
 export function loadIters(name: string): GameIters | null {

@@ -37,7 +37,7 @@ export function hazardReaction(world: World, ctx: Ctx, w: BallWorkFields): void 
   const code = w.hurt;
   w.hurt = 0;
   // $82:DB9A: the ice gives way ($82:D9C2)
-  if (w.waterFreeze !== 0) thaw(ctx, w);
+  if (w.waterFreeze !== 0) thaw(w);
   // $82:DBBB: the code into the block's mode and worn ability (the next
   // load brings it into the step: Kirby's state code B, sim/abilities.ts
   // codeAir/codeGround, ends it); its work-copy writes of the modifier

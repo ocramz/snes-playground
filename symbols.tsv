@@ -79,7 +79,7 @@ $7E:6860	-	ram	ram_kanim_table	16	Kirby animation threads: address of the state 
 $7E:6870	-	ram	ram_kanim_pc	16	Kirby animation threads: script PC (bank $87)
 $7E:6880	-	ram	ram_kanim_wait	16	Kirby animation threads: frames left to wait
 $7E:699A	-	ram	ram_snap_keep	2	object 61's keep-alive, shared by every live 61: $FFFF at each of its bursts ($85:CF30), cleared by every snap push ($82:A5F7); a 61 that finds it set after its 8 ticks exits
-$7E:69CA	-	ram	ram_water_off	2	the water $60-$6F is plain ground: the load sets it for $5D without $5C ($82:BC59); the handlers, $82:C85F and object 113 test it; docs/tiles.md "Water"
+$7E:69CA	-	ram	ram_water_off	2	the water $60-$6F is plain ground: the load sets it for $5D without $5C ($82:BC59), the water switch $5C/$5D flips it ($82:A45D); the handlers, the guide, $82:C85F, Freeze and object 113 test it; docs/tiles.md "Water"
 $7E:69CC	-	ram	ram_water_region	2	$82:83DD's result: 0 dry, 1 shallow, 2 deep
 $7E:69CE	-	ram	ram_water_level	4	the level over the probe cell, 32-bit ($82:83B9); the guide zeroes it every step ($81:AF82)
 $7E:69D2	-	ram	ram_water_ground	6	the ground (32-bit) and surface code the water handlers found ($82:80FF); the ground projection reads them on water ($81:A4B7)
@@ -91,6 +91,10 @@ $7E:69FE	-	ram	ram_cup_slot	2	thread slot of the last enemy, the one that become
 $7E:6A0A	-	ram	ram_cup_actor	2	actor-record offset of the cup (the last enemy); its cell is ram_actor_cell_x/_y at this offset. $FFFF until then
 $7E:6A10	-	ram	ram_stars	4	enemies taken by player 1, player 2 ($82:8AA0); moved between them when a 2P hit steals one ($82:8B0F)
 $7E:6A28	-	ram	ram_boost_hum	2	a straight boost hit's launch speed ($82:9E6B), cleared by every other exit of the boost handlers; object 112's hum ($84:87D4) runs while it is set and clears it; docs/tiles.md
+$7E:6A2A	-	ram	ram_toggle_on	2	the toggles' switch: the swirls $74-$77 act while it is set, $78-$7B while clear; $82:BBAE clears and $82:BC59 sets it for $5B without $5A; $5A/$5B flip it ($82:A189); docs/tiles.md "Swirls"
+$7E:6A2C	-	ram	ram_switch_latch	2	the toggles' switch's latch: one flip a visit to its cell ($82:A1A0); cleared outside the gate and at the load ($80:C45D)
+$7E:6A2E	-	ram	ram_alt_palette	2	the $58/$59 switch's flag: the alternate palette tables ($80:D82B entry 1, $84:84F1) and $80:D7B5 entry 0; $82:BC59 sets it for $59 without $58, $82:A335 flips it (2P holes only)
+$7E:6A3A	-	ram	ram_switch58_uses	2	the $58 switch's uses left: 3 at the load ($82:BC84), one less a ball in ($82:A2B3)
 $7E:6A5A	-	ram	ram_course_number	2	course number; hole index = course*8 + hole
 $7E:6A5C	-	ram	ram_course_slot	2	2 * course, set on the course map (every snapshot of the map-picked runs game/game2/game4/extra, courses 0-15; two_player 16); a poke of $6A5A alone leaves it 0; indexes the water ripple base $84:84AF and the hole song list $80:C99D; notes/port-v2-phase1-courses.md
 $7E:6A5E	-	ram	ram_hole_in_course	2	hole 0-7 within the course
@@ -206,6 +210,9 @@ $80:903A	0x00103A	code	sub_apply_screen_params_entry	6	prologue that falls into 
 $80:9040	0x001040	code	sub_apply_screen_params	-	apply a screen setup block: byte 0 -> $2105 BGMODE, byte 1 -> $2101 OBSEL, then word pairs to sub_obsel_set. A=bank Y=block. No direct callers; dispatched
 $80:90C8	0x0010C8	code	sub_cgram_partial	20	A = byte count, X = source address, Y = first CGRAM colour index. The MVN at $80:90D4 hardwires the source bank to $98
 $80:90E7	0x0010E7	code	sub_cgram_list	50	runs a list of (bytes, source, CGRAM index) words until $FF through sub_cgram_partial; the list's bank is the caller's; notes/port-v2-phase1-courses.md
+$80:9120	0x001120	code	sub_tile_dissolve_start	-	a dissolve of a record's tiles (X/Y: the record, bank $82 for the water's $82:A538): A = 1 brings them in from a zero buffer ($7E:B746), 0 takes them from a copy; returns a handle (two at once, $0858)
+$80:9208	0x001208	code	sub_tile_dissolve_step	-	X = the handle: one of 64 steps, the pixel $80:9271[step] set or cleared in every tile, all planes ($80:9304), the buffer queued ($80:8696); A = 0 once done
+$80:9271	0x001271	data	tbl_dissolve_order	64	the dissolve's pixel order, v = row * 8 + column (bit $80 >> column)
 $80:93DD	0x0013DD	code	sub_obj_spawn	-	JSL; allocate an object and start its script. A = object type (index into tbl_obj_type_scripts), X = world X, Y = world Y. Returns $FFFF if no slot
 $80:94C7	0x0014C7	code	sub_obj_tick_all	-	JSL; walk the ram_obj_list_head chain, running each object's physics, update and draw vectors. Sets $D0 = $0000 for the script long pointer
 $80:9564	0x001564	code	sub_anim_script_run	82	the animation script interpreter; one thread per call. See docs/animation.md
@@ -334,6 +341,7 @@ $80:D788	0x005788	data	dat_vram_records_backdrop_tiles	9	one record: 3072 bytes 
 $80:D791	0x005791	data	dat_vram_records_backdrop_tiles2	9	second copy of the backdrop tile record, used by the course-indexed path
 $80:D7A3	0x0057A3	data	dat_vram_records_backdrop_alt	9	2048 bytes from $7F:0000 to VRAM word $4C00; the $7E:ED5B non-zero variant
 $80:D7AC	0x0057AC	data	dat_vram_records_backdrop_map	9	one record: 2048 bytes from $7E:DADC to VRAM word $3C00, the backdrop tilemap
+$80:D7B5	0x0057B5	code	sub_switch_tiles	-	A = 0/1/2: the $58, $5A/$5B or $5C/$5D switch's 8 tiles to VRAM $3200/$3280/$3300 by $6A2E/$6A2A/$69CA (records $80:D7D5-$D82A, from $94:E1BB-$E7BB; entry 2's two are the same bytes); docs/courses.md "The switches' objects"
 $80:D82B	0x00582B	code	sub_course_palette	62	A = $6A2E: entry 0 runs the course's list $80:D869[$6A5A] ($80:DA0D with $ED5B) through sub_cgram_list; entry 1 the alternate (not read); docs/courses.md "The palette in play"
 $80:D869	0x005869	tbl	tbl_course_palette_lists	68	by course number: lists of 5 runs into BG palettes 2, 3, 5, 6, 7 from $98:DF64 + $120 * course; docs/courses.md
 $80:DB6D	0x005B6D	tbl	tbl_ball_gravity	176	22 ball modes x 4 classes (flat, ramp, diagonal, shapes $08-$0B), indexed by $6A72: g for the slope acceleration in $81:8A56; entry 0 = $FFC0 is also the airborne gravity copied to $DA38 ($80:C710)
@@ -353,7 +361,7 @@ $80:DD33	0x005D33	tbl	tbl_spin_fly_tb	26	words 120,100,80,60,40,20,0,-16,-32,-64
 $80:DD4D	0x005D4D	tbl	tbl_spin_fly_side	13	signed bytes -60..60 by 10: fly-shot side spin by $6B50 (emulated: 2 -> $D9CE = 707)
 $80:DD7D	0x005D7D	data	tbl_tile_friction	14	coefficients the $20-$24 friction tiles write into $DA3A/$DA3C/$DA3E
 $80:DDE3	0x005DE3	data	tbl_kicker_clamp	4	impulse clamp for the $10-$13 kicker tiles
-$80:DDEF	0x005DEF	data	tbl_tile_impulse	10	impulse magnitudes for the $70-$7B toggled tiles
+$80:DDED	0x005DED	data	tbl_swirl_magnitudes	8	the swirls' push: hit strong 2440, land strong 4912, hit weak 1024, land weak 2456; the hit side's two are never used (it reloads $B6, the disc's byte); docs/tiles.md "Swirls"
 $80:DE4D	0x005E4D	tbl	tbl_arrow_mode_land	44	22 words, one per ball mode: non-zero lets the arrow panels act on landing (2 in mode 0); $82:A6C7/$82:A70B
 $80:DE79	0x005E79	tbl	tbl_arrow_mode_hit	44	22 words, one per ball mode: the same gate for the rolling (hit-side) handlers $82:A74F/$82:A783
 $80:DF29	0x005F29	tbl	tbl_ability_hit_code_air	-	copy ability -> hit code, ball in the air
@@ -474,6 +482,19 @@ $82:9DB3	0x011DB3	code	sub_tile_boost_n	36	tiles $30 $35 $38; vy += -512
 $82:9DD7	0x011DD7	code	sub_tile_boost_e	36	tiles $31 $37 $3A; vx += +512
 $82:9DFB	0x011DFB	code	sub_tile_boost_s	36	tiles $32 $34 $39; vy += +512
 $82:9E1F	0x011E1F	code	sub_tile_boost_w	36	tiles $33 $36 $3B; vx += -512
+$82:9EF9	0x011EF9	code	sub_swirl_hit	-	the swirls $70-$7B rolled through ($82:9EF9-$82:9FCD, one entry a tile): the group's gate by $6A2A, the disc $82:A086, modes 3/6/$0A out, 5 halved, the push $82:A111 by the disc's byte ($B6, not the constant); RTL in modes 1, 2, 4, $10
+$82:9FD1	0x011FD1	code	sub_swirl_land	-	the swirls landed on ($82:9FD1-$82:A082): the gate, z < ground, the disc, modes 3/6 out, 5 halved, the push by $80:DDEF/$DDF3, then $81:892B
+$82:A086	0x012086	code	sub_swirl_disc	-	the disc $88:9190 by the high bytes of |xf - $8000| and |yf - $8000|, halved (row, bit); leaves the bitmap's byte in $B6
+$82:A111	0x012111	code	sub_swirl_push	-	A = the magnitude: k = hi((|dx| + |dy|) x A) ($80:A367), (X, Y) = hi(k x (-sin, cos)) of the heading from the centre ($80:A4C1); $82:A0D9 subtracts it from (vx, vy), $82:A0F9 adds it
+$82:A175	0x012175	code	sub_switch_hit	-	the toggles' switch $5A/$5B rolled onto: the gate $82:A1FD ([$4000, $BFFF]), then the flip unless the same cell with $6A2C set: $6A2A ^= 1, sfx $6B, $80:D7B5 1, INC $6A2C ($82:A20E: 2P)
+$82:A1B1	0x0121B1	code	sub_switch_land	-	the toggles' switch landed on: the gate, z < ground, the flip as $82:A175's
+$82:A25D	0x01225D	code	sub_switch58_land	-	$58/$59 landed on (2P holes only; read, not ported): the window $82:A385, a ball falls in ($6A32) at vz >= $FDC0 or in modes 2/$0A, at most $6A3A times
+$82:A2F5	0x0122F5	code	sub_switch58_hit	-	$58/$59 rolled onto (2P holes only; read, not ported)
+$82:A335	0x012335	code	sub_switch58_flip	-	flips $6A2E: sfx $6A, $80:CBF9 2, object 101 at ($F8, $90) and its wait ($6A30), tileset 1, palette set $14 (not ported)
+$82:A3EB	0x0123EB	code	sub_water_switch_land	-	the water switch $5C/$5D landed on: ground >= z, the window $82:A540 ([$4800, $B800)), the latch $6A68, vz < $FDC0; vz < $F700 in mode 0 or 7 squashes Kirby ($D7D4 = $0C, $6A70 set); then $82:A45D
+$82:A43E	0x01243E	code	sub_water_switch_hit	-	the water switch rolled onto: the window, the latch, $82:A45D
+$82:A45D	0x01245D	code	sub_water_switch	-	$69CA ^= 1, $80:D7B5 2, sfx $6A ($82:A474: the other ball in 2P), sfx $4A off / $4B on, then the water's tiles dissolve over 64 one-frame waits ($80:9120, $80:9208), palette set 3 after 20: the step blocks; docs/tiles.md "The water switch"
+$82:A538	0x012538	data	dat_water_dissolve_record	8	the dissolve's record: 44 tiles of $20 bytes from $91:ED29 to VRAM $1800 (the water's tiles $180-$1AB)
 $82:A5B1	0x0125B1	code	sub_tile_snap	53	tiles $18-$1B on landing: mode != $0A, at or under the surface, sub_snap_gate; $D9EC = 0, z = ground, vz = 0, then sub_snap_push; else JML $81:8905 (emulated: web_snap_land)
 $82:A5E6	0x0125E6	code	sub_tile_snap_hit	17	tiles $18-$1B rolling: mode != $0A, sub_snap_gate, sub_snap_push; else JML $81:8A56 (emulated: web_snap)
 $82:A5F7	0x0125F7	code	sub_snap_push	155	STZ $699A; once a pass ($6A68) sfx $11 and object 61; by tile ($82:A629) +-$300 along the arrow to +-$2000 ($19 skips the store at the cap: BRA $A681 at $A66B); $81:8E60, the spin cleared, JML $81:8A56
@@ -502,6 +523,7 @@ $82:B20C	0x01320C	code	sub_course_load_grids	100	decompress course tables 1-4 (w
 $82:B320	0x013320	code	sub_spawn_course_actors	-	load-time sweep of layer 2; looks each value up in tbl_tile_actor
 $82:B3AF	0x0133AF	code	sub_spawn_actor	-	A = actor id from tbl_tile_actor: spawns thread object type A via sub_thread_spawn_below at the cell ($6A82/$6A86); $8000 records the cell without spawning. Actor id == object type (emulated: all 232 holes)
 $82:B730	0x013730	code	sub_enemy_species_setup	134	once per enemy species on the hole (at most 8): VRAM slot in first-seen order, the part lists copied to the species' WRAM block ($82:B769), its tiles queued ($82:B8B6); docs/tiles.md "Actors"
+$82:BBAE	0x013BAE	code	sub_spawn_swirl_objects	-	at the load: $6A2A = 0, then object 127 for each swirl pair $70/$71 ... $7A/$7B present ($B3B8 counts), $531C = 2 x pair, $539C = 0 for the first and $14 for the rest
 $82:BC59	0x013C59	code	sub_spawn_toggle_objects	126	objects 116-118 for the layer-2 counts of $58/$59, $5A/$5B, $5C/$5D; sets $6A2E, $6A2A, $69CA (the second value without the first); docs/courses.md
 $82:BCD7	0x013CD7	code	sub_hole_surface_gfx	58	at the hole's load: any $30-$3B -> ram_surface_kind 1, spawn object 112; else any $60-$6F -> 2, spawn object 113, gfx set A entry 2 (the water tiles); docs/courses.md
 $82:BD29	0x013D29	code	sub_spawn_panel_cycle	51	object 115 if any snap tile $18-$1B, else object 114 if any warp panel $B0-$B9: the panels' colour cycle; docs/courses.md
@@ -531,10 +553,18 @@ $84:8258	0x020258	code	sub_obj114_warp_panels	59	thread object 114: palette 6 co
 $84:8293	0x020293	code	sub_obj113_water	540	thread object 113, the water: installs the ripple hook $84:8533; while the water is iced ($69DA, Freeze) plays $98:C22E-$C282 to CGRAM $41 instead
 $84:84AF	0x0204AF	tbl	tbl_water_colours	66	33 words by ram_course_slot: bank $98 base of the water's three 7-colour sets (course 1: $98:E030); $84:84F1 is the table used while $7E:6A2E is set
 $84:8533	0x020533	code	sub_water_ripple	67	object 113's per-frame hook: every $84:8576[phase] = 8 frames phase = (phase+1)&3, 7 colours from base + $84:857E[phase] (0, $0E, 0, $1C) to CGRAM $41 (palette 4 colours 1-7); frozen while $7E:69CA is set (emulated: A B A C, 8 frames each, on course 1 hole 7)
+$84:8586	0x020586	code	sub_obj116_switch58_colours	-	object 116: palette 4 colours 8-11, $98:D532/$D542 by $6A2E, until $6A3A is 0 (then $98:D552)
+$84:85FB	0x0205FB	code	sub_obj117_switch_colours	-	object 117: palette 4 colours 12-15 (CGRAM $4C), $98:D55A while $6A2A is set, $98:D56A while clear; a change restarts at set 0
+$84:864C	0x02064C	code	sub_obj118_water_switch_colours	-	object 118: palette 5 colours 12-15 (CGRAM $5C), $98:D57A while $69CA is set, $98:D58A while clear
+$84:869D	0x02069D	code	sub_switch_colour_hook	-	116-118's hook: every 4 ticks the next of two 4-colour sets ($531C) from $541C to CGRAM $549C
 $84:876C	0x02076C	code	sub_obj112_boost_panels	104	thread object 112, the boost panels: palette 4 colours 1-4 from $98:C200, $C208, $C210, $C218 in turn, 4 frames each (waits 3); its hook $84:87D4 hums
 $84:87D4	0x0207D4	code	sub_obj112_hum	81	object 112's per-frame hook: while $6A28 and the probe tile $DA0A is a panel (mode != 5), music volume $82 and sound $15 every 34 frames; otherwise volume $FF, sound 0, $6A28 = 0; docs/courses.md
 $84:99FA	0x0219FA	code	sub_hud_ability_draw	-	the HUD object's draw: Kirby's outline (colour 7, the green flash while B is available), the icon's ground, the icon's upload ($84:9B0F)
 $84:9A38	0x021A38	code	loc_kirby_outline	-	a thread hook's store of Kirby's outline, palette 0 colour 7, every frame: $98:D4A8[$84:9DDB[...]], $0C63 in mode 0 and in the water
+$84:DB6A	0x025B6A	code	sub_obj127_swirl_tiles	-	object 127, a swirl pair's tiles: its hook $84:DB97 by the variant $531C runs while the pair's group is on (always / $6A2A set / clear)
+$84:DB97	0x025B97	code	sub_swirl_tiles_hook	-	object 127's hook: count $549C, the next frame from $84:DC42 (4s) or $84:DC4D (6s), upload $84:DC58[frame x 2 + $539C]
+$84:DC42	0x025C42	data	tbl_swirl_waits	22	object 127's frame waits: ten 4s, $FF; ten 6s, $FF
+$84:DC58	0x025C58	data	tbl_swirl_records	40	object 127's records by frame: list 0 (VRAM $3000) then list 1 ($3100), 14 tiles each from bank $94
 $84:DD34	0x025D34	code	sub_hazard_frame_table	33	objects 76 and 77 at spawn: $5E1C = $84:DD55[tile - $80], $549C = $84:DD85[tile - $80]; docs/tiles.md
 $84:DD55	0x025D55	tbl	tbl_hazard_frame_tables	48	$89 frame tables by tile $80-$97: CCA7 x4, CCAB x4, CCAF x4, CCB3 x4 (76), CC47 CC5F CC77 CC8F twice (77)
 $85:8E5A	0x028E5A	code	sub_obj053_splash	418	objects 53-58 ($8E5A, $8E96, $8EE7, $8F3D, $8F2D, $8F8C): the water splashes, table $89:94DB; docs/animation.md
@@ -559,6 +589,7 @@ $87:EF88	0x03EF88	data	tbl_dedede_damage	16	(lo, hi) height thresholds above the
 $88:8000	0x040000	data	tbl_height_z_lo	200	Z(h) = h * $5A82, low words, indexed by elevation*2
 $88:80C8	0x0400C8	data	tbl_height_z_hi	200	Z(h) = h * $5A82, high words, indexed by elevation*2
 $88:8190	0x040190	data	tbl_slope_ramp	2048	1024-entry linear ramp 22..46316; 0-511 spans one height step, 0-1023 two
+$88:9190	0x041190	data	tbl_swirl_disc	521	the swirls' disc: a 64 x 64 quarter disc of radius about 60, 8 bytes a row, LSB first; a fraction of 0 reads one row or byte past it
 $88:A670	0x042670	tbl	tbl_power_grounder	128	power meter 0-63 -> power factor, grounder
 $88:A6F0	0x0426F0	tbl	tbl_power_fly	128	power meter 0-63 -> power factor, fly shot
 $88:A770	0x042770	ptr	tbl_course_header	768	256 long pointers to 28-byte uncompressed hole headers (8 words + 12-char name)
@@ -604,5 +635,6 @@ $98:9F96	0x0C1F96	music	mus_song_02	7274	song id $80, largest song (7270 bytes t
 $98:C000	0x0C4000	data	pal_course	512	the course scene CGRAM image; BG sub-palettes 0-7, OBJ 8-15. Moved by sub_cgram_course
 $98:C77A	0x0C477A	data	pal_kirby_dry_wet	56	Kirby's palette 0 colours 2-8: P1 dry $C77A, P2 dry $C788, P1 wet $C796, P2 wet $C7A4
 $98:D4C8	0x0C54C8	tbl	tbl_glow_colours	8	object 111's hook $84:81B7: palette 7 colour 1 in the order 1 2 3 2 1 0, 6 frames a step (emulated)
+$98:D532	0x0C5532	data	pal_switch_sets	104	objects 116-118's colour sets, 4 colours each: 116's $D532-$D559, 117's $D55A-$D579, 118's $D57A-$D599
 $98:DF64	0x0C5F64	tbl	tbl_course_palettes	2304	course 1's palette runs (see $80:D869); each course adds $120
 $98:E030	0x0C6030	data	pal_water_course1	42	course 1's water: three sets of 7 colours (A +0, B +$0E, C +$1C) for CGRAM $41

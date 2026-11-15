@@ -100,6 +100,15 @@ WATCH = {
     "hudo10": 0x5B1C + 2 * 10,          # type 14 at $4E30, frame 2169)
     "pad": 0x0067, "padp": 0x006B,      # the pad the game reads: held, pressed
     "darm": 0x00C0, "demo": 0x00C2,     # the demo stream armed, demo mode
+    # the switches and the toggles (port_v2 phase 6)
+    "togon": 0x6A2A,                    # the toggles' switch ($82:A189: $5A/$5B flip it)
+    "swlatch": 0x6A2C,                  # the switch's latch ($82:A1A0)
+    "wateroff": 0x69CA,                 # the water off ($82:A45D: $5C/$5D flip it)
+    "latch68": 0x6A68,                  # the tile latch the water switch shares ($82:A42C)
+    "hsl": 0x6A70,                      # the hit-stop's latch ($82:A429)
+    "sw117": 0x0400 + 2 * 78,           # palette 4 colour 14: object 117's set ($84:869D)
+    "sw118": 0x0400 + 2 * 94,           # palette 5 colour 14: object 118's set
+    "ripple": 0x0400 + 2 * 0x42,        # palette 4 colour 2: object 113's ripple ($84:8533)
 }
 
 

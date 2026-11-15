@@ -163,6 +163,20 @@ export interface LayersJson {
   outline: { source: string; stepFrames: number; cycle: Array<[number, number, number]> };
   /** The hole's palette cycles (absent from older exports). */
   cycles?: PaletteCycle[];
+  /**
+   * The switches (port_v2 phase 6; features/layers/switch-layers.ts): the
+   * load's `$6A2A` and `$69CA` (null: no such switch), how many of object
+   * 127's record lists the swirls use (0-2), and whether the layers are
+   * drawn dry with the water apart, for the water switch's dissolve.
+   */
+  switches?: LayersSwitches;
+}
+
+export interface LayersSwitches {
+  toggle: number | null;
+  water: number | null;
+  swirlLists: number;
+  dissolve: boolean;
 }
 
 /** One exported ROM hole: its index (course * 8 + hole), name and directory under assets/. */

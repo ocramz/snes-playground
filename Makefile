@@ -145,7 +145,7 @@ $(ENGINE_RULES): tools/export_web.py
 # one recipe writes course.json (to --out) and terrain_golden.json (to --test-out)
 $(ENGINE_ROMTEST): tools/export_web.py
 	$(PYTHON) tools/export_web.py --only course,golden --out build/engine/rom-test --test-out build/engine/rom-test
-	for h in 0 1 2 3 4 5 6 7 11 17 29 54 62 160 161 162 163 164 165 166 167 168 169; do \
+	for h in 0 1 2 3 4 5 6 7 10 11 17 23 25 26 29 54 62 160 161 162 163 164 165 166 167 168 169; do \
 	  $(PYTHON) tools/export_web.py --hole $$h --only course --out build/engine/rom-test/holes/$$h || exit; \
 	done
 	@touch $@

@@ -568,6 +568,36 @@ The shot guide in the water draws `$89:8F52` (a rolling dot), `$89:8F39`
 (airborne) and `$89:8F6B` (the end) in palette 0, instead of the dry
 lists' palettes 3 and 1 (`$81:ACDB`, `$81:ACF6`, `$81:ADF6`).
 
+### The switches' objects: 117, 118 and 127
+
+Read 2026-11-15 (notes/port-v2-phase6-switches.md); ported in
+`engine/src/core/systems/switches.ts` and checked against the game's CGRAM
+writes and uploads on the iteration clock (`engine/test/switches.test.ts`).
+None of them draws a sprite. They write the BG's colours and tiles under
+the switches and the swirls ([tiles.md](tiles.md), [courses.md](courses.md)
+"The switches' objects").
+
+**Objects 116, 117 and 118** (`$84:8586`, `$84:85FB`, `$84:864C`) are one
+pattern with three flags: `$6A2E`, `$6A2A` and `$69CA`. The thread sets
+`$531C` = 0, `$539C` = 1 and `$541C` = the flag's base, then yields one
+tick at a time (`$80:E445` with A = 0) until the flag changes, and starts
+over with the other base. The hook `$84:869D` runs every tick:
+
+    DEC $539C; at 0: $539C = 4, write set $531C ($541C + 8 x set, 4 colours
+    to $549C), $531C ^= 1
+
+So a change shows set 0 in the same scheduler pass, and then a new set
+every 4 ticks. 116 also ends once `$6A3A` (the uses) is 0, after writing
+`$98:D552`.
+
+**Object 127** (`$84:DB6A`; hook `$84:DB97`, by its variant `$531C`): one
+per swirl pair. Its init sets `$541C` = `$FFFF` and `$549C` = 1, so the
+first tick uploads frame 0. While the pair's group is on, each tick counts
+`$549C` down. At 0 it steps `$541C` through `$84:DC42` (ten 4s) or
+`$84:DC4D` (ten 6s), back to 0 at the `$FF`, and uploads the record
+`$84:DC58`[`$541C` × 2 + `$539C`] through `$80:8696`. While the group is
+off the hook returns at once, so the tiles keep the last frame.
+
 ## Finding more scripts
 
 `python3 tools/anim.py --scan` walks every `$1C` whose operand is a table in

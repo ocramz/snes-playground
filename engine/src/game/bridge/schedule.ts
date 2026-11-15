@@ -12,6 +12,7 @@ import { playFeedback } from './play-feedback';
 import { syncCupMask } from './sync-cup-mask';
 import { panelState } from '../features/shot-panel/panel-state';
 import type { Presentation } from './presentation';
+import { Switches } from '../../core/traits/switches';
 
 export const PRESENTATION: Array<{ name: string; run: (p: Presentation) => void }> = [
   { name: 'bind-views', run: (p) => bindViews(p.ctx.world, p.views) },
@@ -19,7 +20,7 @@ export const PRESENTATION: Array<{ name: string; run: (p: Presentation) => void 
   { name: 'sync-depth', run: syncDepth },
   { name: 'sync-camera', run: syncCamera },
   { name: 'sync-layers', run: (p) => {
-    p.layers.update(p.ctx.history.ticks);
+    p.layers.update(p.ctx.history.ticks, p.ctx.world.get(Switches));
     p.layers.setNight(p.director.night());
   } },
   { name: 'sync-guide', run: (p) => p.guide.update(p.ctx.world, p.ctx.course) },

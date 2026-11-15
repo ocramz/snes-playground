@@ -18,7 +18,7 @@
 import type { CourseData } from '../course-data';
 import type { RomRules } from '../rules';
 import type { Ctx, Work } from '../sim/context';
-import { kernelCourse } from '../sim/context';
+import { kernelCourse, toggleOnAtLoad, waterOffAtLoad } from '../sim/context';
 import { emptyWork } from '../traits/ball';
 import { probe } from '../sim/probe';
 import { countStill } from '../sim/still';
@@ -65,6 +65,8 @@ export function simContext(rules: RomRules, data: CourseData): Ctx {
 /** The ball on the tee, as `startHole` puts it (core/actions.ts). */
 export function teeWork(ctx: Ctx, tee: { x: number; y: number }): Work {
   const w = emptyWork();
+  w.toggleOn = toggleOnAtLoad(ctx.course.layer2) ? 1 : 0; // $82:BC59
+  w.waterOff = waterOffAtLoad(ctx.course.layer2) ? 1 : 0;
   w.xc = tee.x; w.xf = 0x8000;
   w.yc = tee.y; w.yf = 0x8000;
   w.air = 0;

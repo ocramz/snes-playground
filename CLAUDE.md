@@ -46,7 +46,8 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   terrain shapes, the surface equation, and how gaps work.
 - [docs/tiles.md](docs/tiles.md) — the special-tile layer: the dispatch
   tables, friction overrides, boost panels, kickers, arrow, snap and warp
-  panels, the water (sinking, skims and skips), and hazards.
+  panels, the water (sinking, skims and skips), the swirls and the two
+  switches (the toggles' and the water's, with its dissolve), and hazards.
 - [docs/scenes.md](docs/scenes.md) — the 20 screen setup blocks, the four
   loader jump tables, and which graphics and palette each screen loads.
 - [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,

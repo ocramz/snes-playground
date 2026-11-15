@@ -4,10 +4,9 @@
  * return value routes the step: `landing` / `rolling` continue into the
  * default chain (optionally from its midpoint), `done` ends the dispatch.
  *
- * Some groups are stubbed with the reason in `stubbed`: their ROM helpers
- * reach the thread-object system or undocumented tables. They are excluded
- * from the exact trace tests per plans risk 5 and listed in docs/engine.md.
- * Every other group is a port of the disassembly.
+ * One group is stubbed, with the reason in `stubbed` (`$58`/`$59`, 2P holes
+ * only); it is listed in docs/engine.md. Every other group is a port of the
+ * disassembly.
  */
 import { s16, wrap16, mulFloor, mulQ15s, mul16x8, atan2Deg } from '../fixed';
 import type { Ctx, Work } from './context';
@@ -22,6 +21,7 @@ import { rotateBy, turnToDir } from './turn';
 import { warpLand, warpHit } from './warp';
 import { waterLand, waterHit } from './water';
 import { sparkDestroy } from './abilities';
+import { swirlLand, swirlHit, switchLand, switchHit, waterSwitchLand, waterSwitchHit } from './switches';
 import { LANDING, ROLLING, DONE, type DispatchOutcome } from './types';
 export type { DispatchOutcome };
 
@@ -97,8 +97,15 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
       return warpLand(ctx, w);
     case 'overlay':
       return waterLand(ctx, w, _modifier); // $82:80F6
-    default:
-      return stubbed(ctx.rules.landHandler(w.tile), LANDING);
+    case 'switch':
+      return switchLand(ctx, w); // $82:A1B1
+    case 'waterSwitch':
+      return waterSwitchLand(ctx, w); // $82:A3EB
+    default: {
+      const name = ctx.rules.landHandler(w.tile);
+      if (name.startsWith('toggle')) return swirlLand(ctx, w); // $82:9FD1-$82:A082
+      return stubbed(name, LANDING);
+    }
   }
 }
 
@@ -165,22 +172,25 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
       return warpHit(ctx, w);
     case 'overlayHit':
       return waterHit(ctx, w); // $82:8000
-    default:
-      return stubbed(ctx.rules.hitHandler(w.tile), ROLLING);
+    case 'switchHit':
+      return switchHit(ctx, w); // $82:A175
+    case 'waterSwitchHit':
+      return waterSwitchHit(ctx, w); // $82:A43E
+    default: {
+      const name = ctx.rules.hitHandler(w.tile);
+      if (name.startsWith('toggle')) return swirlHit(ctx, w); // $82:9EF9-$82:9FCD
+      return stubbed(name, ROLLING);
+    }
   }
 }
 
 /**
- * The stubbed groups, with the reason each is out of phase 4's reach:
- * - toggle70-7B (+hits): the gate reads the direction map at $88:9190
- *   ($82:A086) and applies via $82:A0D9/$82:A0F9 — not read.
- * (The water $60-$6F is ported in port_v2 phase 4: water.ts.)
- * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
- * - unk58/unk5a/unk5c (+hits): handlers located, not read
- *   (docs/tiles.md "Not established"). (The warps $B0-$B9 are ported:
- *   warp.ts; the snap panels $18-$1B in port_v2 phase 3, below.)
- * Each returns its group's default routing so an unported tile behaves
- * like plain ground.
+ * The one stubbed group: switch58 (+hit), `$58`/`$59` ($82:A25D/$82:A2F5),
+ * the `$6A2E` switch with its three uses and object 101's sequence. It is
+ * read (notes/port-v2-phase6-switches.md) but only the 2P holes 132-143 and
+ * 196-207 have it, so it waits for step 9; it returns its group's default
+ * routing, so the tile behaves like plain ground. (The swirls and the
+ * switches `$5A-$5D` are switches.ts, port_v2 phase 6; the water water.ts.)
  */
 const stubbedSeen = new Set<string>();
 function stubbed(name: string, fallback: DispatchOutcome): DispatchOutcome {

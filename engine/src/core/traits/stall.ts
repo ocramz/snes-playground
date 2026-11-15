@@ -41,7 +41,7 @@ import { trait } from 'koota';
  * fields (koota traits hold primitives only).
  */
 export type StallKind =
-  | 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'waterWait' | 'warp'
+  | 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'waterWait' | 'waterSwitch' | 'warp'
   | 'transform' | 'abilityWait' | 'guideLag' | 'apuLag';
 
 /** Stalls requested after the post-step systems' place in the roll loop: they run on the request frame, not on resume. */

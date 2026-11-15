@@ -82,7 +82,7 @@ function presentRoll(world: World, ctx: Ctx): void {
     if (w.fallTimer === 0xf0) {
       // $81:A16C-$81:A190: the first frame of the fall: the ice thawed ($82:D9C2)
       if (w.waterFreeze !== 0) {
-        thaw(ctx, w);
+        thaw(w);
         for (const sfx of w.abilitySfx) emitEvent(world, 'ability', sfx);
         w.abilitySfx = [];
       }

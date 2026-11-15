@@ -1,0 +1,17 @@
+# Course 4 hole 2 (index 25, MAP31): a $74 swirl while it is off (port_v2
+# phase 6). $6A2A = 0 at the load ($5A, no $5B), and $74 acts only while it is
+# set ($82:9EF9 / $82:9FD1). At the roll's first frame a poke puts the ball at
+# (7,9) rolling north at vy -$500 through (7,8): plain ground.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

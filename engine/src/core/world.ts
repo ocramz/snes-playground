@@ -17,6 +17,7 @@ import { BoostHum } from './traits/boost';
 import { SnapTrail } from './traits/snap';
 import { WaterFx, GameRng, KirbyPalette } from './traits/water';
 import { AbilityFx } from './traits/ability-fx';
+import { Switches } from './traits/switches';
 import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
 import { Warp } from './traits/warp';
@@ -59,6 +60,7 @@ export function createGameWorld(): World {
   world.add(WaterFx);
   world.add(GameRng);
   world.add(AbilityFx);
+  world.add(Switches);
   return world;
 }
 
