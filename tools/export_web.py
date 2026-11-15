@@ -20,7 +20,8 @@ emulator or other build/ output):
               second atlas; tools/export_web_sprites.py build_objects)
     ui        the shot panel sprites (tools/export_web_ui.py; needs the stepper)
     audio     music (cut at its loop end), the hole-out songs and effects via ffmpeg
-    course    grid layers, tee, enemies, objects, projection origin
+    course    grid layers, tee, enemies, objects, projection origin, and
+              table 10: Kirby's occlusion table (docs/courses.md)
     tables    every ROM constant the TypeScript physics needs, each with its
               $bank:addr so a number in the browser can be traced to the ROM
     layers    the isometric course bitmap as RGBA, split by tile priority,
@@ -33,9 +34,11 @@ Facts used here, and where they come from:
                 first populated BG row in 230 of 232 holes.
     priority    mode 1 with the BG3 priority bit draws, back to front,
                 BG2.0, BG1.0, [OBJ priority 2], BG2.1, BG1.1, [OBJ priority 3]
-                (coursemap.render). The bitmaps keep the two halves apart, but
+                (coursemap.render). The bitmaps keep the two halves apart, and
                 every sprite of play is priority 3 (the OAM of web_hole0 from
-                2185 on), so the sprites go over both layer images.
+                2185 on), so the sprites go over both layer images. Kirby's
+                priority alone is a runtime value: $82:F4FD lowers it to 1
+                or 2 behind the course, from table 10 (course.json occlusion).
 """
 
 import argparse
@@ -48,9 +51,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
-from courses import ENTRIES, default_entries, header  # noqa: E402
+from courses import ENTRIES, default_entries, entry, header  # noqa: E402
 from coursemap import (  # noqa: E402
     EMPTY, backdrop, hole_page, hole_palette, unpack, water_ripple, BG3_MAP_TILES)
+from halcomp import decompress  # noqa: E402
 from lorom import snes_to_file  # noqa: E402
 from romcheck import EXPECTED_SHA1, RomError, load_rom  # noqa: E402
 from terrain import Tables, Z_UNIT, load_hole, tile_table  # noqa: E402
@@ -408,6 +412,34 @@ def build_tables(d):
 # course.json
 # --------------------------------------------------------------------------
 
+def occlusion_table(d, index, w, h):
+    """Table 10 ($88:C570 -> $7E:A3B2), Kirby's occlusion table (docs/courses.md).
+
+    A directory of w + h words indexed by the screen column d = xc + yc (+ the
+    carry of xf + yf): $FFFF, or the offset of a count byte and that many
+    5-byte records [xmin s8, xmax u8, priority u8, cell u16]. Read by
+    $82:F4FD/$82:F593. Returns one list per column, None for $FFFF; each
+    record as [xmin, xmax, prio, cell]. Every one of the 232 holes has this
+    layout (the record lists packed in order after the directory, then 3 bytes
+    that nothing reads).
+    """
+    bank, addr = entry(d, 10, index)
+    t, _ = decompress(d, snes_to_file(bank, addr))
+    out = []
+    for k in range(w + h):
+        off = int.from_bytes(t[2 * k:2 * k + 2], "little")
+        if off == 0xFFFF:
+            out.append(None)
+            continue
+        recs = []
+        for j in range(t[off]):
+            r = t[off + 1 + 5 * j:off + 6 + 5 * j]
+            xmin = r[0] - 256 if r[0] >= 0x80 else r[0]
+            recs.append([xmin, r[1], r[2], r[3] | r[4] << 8])
+        out.append(recs)
+    return out
+
+
 def build_course(d, defaults, index):
     got = load_hole(d, defaults, index)
     if got is None:
@@ -449,6 +481,7 @@ def build_course(d, defaults, index):
         "shape": list(l1[:n]), "elev": list(l3[:n]), "walls": list(l4[:n]),
         "tile": tiles,
         "tee": tee, "enemies": enemies, "objects": objects, "edgeTiles": edges,
+        "occlusion": occlusion_table(d, index, w, h),
     }
 
 

@@ -47,6 +47,7 @@ const PURE = [
   'features/cutscene/replay.ts', 'features/cutscene/director.ts', 'features/shot-panel/panel-layout.ts', 'features/shot-panel/panel-state.ts',
   'features/guide/guide-dots.ts', 'features/hud/hud-state.ts', 'features/text/encoding.ts',
   'features/enemies/cup-mask.ts', 'features/warp/warp-frames.ts',
+  'features/kirby/sprite-rules.ts', 'features/layers/layer-depth.ts',
   'assets/schema.ts', 'config.ts',
 ];
 

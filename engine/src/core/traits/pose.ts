@@ -51,3 +51,16 @@ export const BallScreen = trait({
   x: 0, xf: 0, y: 0, yf: 0,
   px: 0, pxf: 0, py: 0, pyf: 0,
 });
+
+/**
+ * $D96A: Kirby's OAM priority. His frame lists open with the record
+ * `$7E $D96A` (docs/graphics.md "Control records"), so the word supplies
+ * the priority of every part. It is 3 (over both course layers) except
+ * while the roll loop's $82:F4FD (sim/priority.ts) sends him behind the
+ * course: 1 (under both course layers) or 2 (under the front layer only).
+ * Reset to 3 by the set-up ($80:C532) and the lost ball's reset ($80:F5C0).
+ */
+export const BallSprite = trait({ prio: 3 });
+
+/** $D96A's resting value: over both course layers. */
+export const PRIO_OVER = 3;

@@ -24,7 +24,7 @@ import { Shot } from '../src/core/traits/shot';
 import { Camera } from '../src/core/traits/camera';
 import { HoleFlow } from '../src/core/traits/flow';
 import { Course, courseEntity } from '../src/core/traits/course';
-import { Pose, BallScreen } from '../src/core/traits/pose';
+import { Pose, BallScreen, BallSprite } from '../src/core/traits/pose';
 import { BallPos, BallVel, BallAir, BallSpin, BallWork, StillCount, BallHoled } from '../src/core/traits/ball';
 import { Tomatoes, Strokes, Stars, Career, TomatoQueue } from '../src/core/traits/counters';
 import { s16 } from '../src/core/fixed';
@@ -93,6 +93,7 @@ export function sample(world: World): Record<string, number> {
     by: s16(pos.yc),
     air: e.get(BallAir)!.air,
     over: e.get(StillCount)!.over,
+    prio: e.get(BallSprite)!.prio,
     tom: e.get(Tomatoes)!.n,
     lives: world.get(Career)!.lives,
     strokes: e.get(Strokes)!.n,

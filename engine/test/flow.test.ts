@@ -32,6 +32,8 @@ const DISCRETE = [
   'state', 'facing', 'angle', 'aim', 'elev', 'side', 'tb', 'meter', 'over', 'air', 'bx', 'by', 'kx', 'ky',
   // phase 6: the counters, and the score card's first hole
   'tom', 'lives', 'strokes', 'stars', 'holed', 'tqw', 'tqr', 'card0',
+  // Kirby's OAM priority $D96A ($82:F4FD): 1 from the fall below z 0 to the reset
+  'prio',
 ];
 
 const RUNS: Array<{ name: string; from: number; to: number; camTo?: number }> = [

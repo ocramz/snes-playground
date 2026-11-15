@@ -49,7 +49,7 @@ and which count applies depends on the layer you are measuring.
 | 7 | `$88:BC70` | `$7E:8BB0` | 2 * word5 | row directory: word offset of each row in tables 8/9 |
 | 8 | `$88:BF70` | `$7F:3000` | 704-16,880 | BG1 tilemap, row-packed |
 | 9 | `$88:C270` | `$7F:9800` | 704-16,880 | BG2 tilemap, row-packed |
-| 10 | `$88:C570` | `$7E:A3B2` | ~150 | 16-bit table |
+| 10 | `$88:C570` | `$7E:A3B2` | 39-343 | Kirby's occlusion table: which cell hides him over a gap (below) |
 
 Tables 1-4 are four parallel grid layers, one byte per cell. **Courses are
 not all 12x12**: header words 1 and 2 give the dimensions, and word 0 is
@@ -221,6 +221,41 @@ poked at 2050, a snapshot every frame 2280-2344, read 2026-11-15):
 `tools/coursemap.py`'s `hole_page`, `hole_palette` and `water_ripple` apply
 all of this; `tools/export_web.py` bakes set A into the layers and writes
 the B and C overlays.
+
+### Table 10: Kirby's occlusion table
+
+Table 10 tells the roll loop when Kirby, over a gap, is behind the course.
+`$82:F4FD` reads it every roll-loop frame and stores his OAM priority in
+`$D96A` ([graphics.md](graphics.md) "Kirby behind the course"). Read with
+`tools/dis65816.py` at `$82:F4FD`-`$82:F5B9`, 2026-11-15:
+
+- **The directory.** It is w + h words, one per screen column
+  d = xc + yc + carry(xf + yf). The projection draws Kirby at 32 (x + y), so
+  a column is 32 px wide. Each word is an offset into the table, or `$FFFF`
+  when the column has no records.
+- **The records.** At each offset there is a count byte, then that many
+  5-byte records: `[xmin s8, xmax u8, priority u8, cell u16]`. A record
+  covers xmin ≤ xc < xmax on its column. `$82:F593` makes the test on xc's
+  low byte, as `CMP / BMI` against xmin and `CMP / BCC` against xmax.
+- **The cell.** `cell` is a row-major grid index. Kirby is behind it while
+  z ≤ its top, `(elevation + 1)` steps from `$88:80C8`/`$88:8000`. The
+  priority is 1 (under both background layers) or 2 (under the front layer
+  only).
+
+**Across all 232 holes** (2026-11-15):
+- The layout is always the same: the directory, then the record lists
+  packed in order, then 3 bytes that nothing reads.
+- The priority bytes are only 1 and 2.
+- The live `$7E:A3B2` at web_fly 3240 equals hole 1's decompressed table
+  byte for byte.
+
+**How the table was probably made.** One rule reproduces it: a gap position
+is behind the nearest cell in front of it on its screen column. Those cells
+cover the column (cx + cy is d − 1 or d) and have a larger cx − cy, so they
+sit lower on the screen. Over every gap position of the 232 holes, both
+carries included, the rule picks the table's cell, or no record, for
+70,950 of 71,124 positions (99.76 %). The engine builds tables for its
+authored holes this way (`engine/src/core/occlusion.ts`).
 
 ## Header format
 
