@@ -2,9 +2,11 @@
  * The score panel (reference §14 A: a parallel scene that reads the world).
  * hud_panel.png is the game's own BG3 panel with its numbers and tomatoes
  * blanked (tools/export_web.py build_hud); the hole, the shot, the tomatoes
- * and the stars are drawn back where hud.json says. The lives go in the
- * blanked portrait box (the game shows Kirby's face there); the enemies left
- * have no slot on the original panel and are not drawn. World singletons do
+ * and the stars are drawn back where hud.json says. The blanked portrait box
+ * shows the copy ability's icon as the game does (`$84:99FA`: the picture
+ * core's `AbilityFx.hud.icon` names, its ground tinted with `hud.ground`),
+ * the lives beside it; without hud_ability.png the lives fill the box. The
+ * enemies left have no slot on the original panel and are not drawn. World singletons do
  * not appear in queries, so the values are dirty-checked.
  */
 import Phaser from 'phaser';
@@ -12,6 +14,7 @@ import { SceneKeys } from '../scene-keys';
 import { Tex } from '../assets/keys';
 import { addText, setGameText } from '../features/text/font';
 import { hudState, type HudState } from '../features/hud/hud-state';
+import { snesRgb } from '../features/kirby/kirby-recolour';
 import type { Host, SceneData } from '../host';
 
 export class HudScene extends Phaser.Scene {
@@ -22,6 +25,8 @@ export class HudScene extends Phaser.Scene {
   private stars!: Phaser.GameObjects.BitmapText | Phaser.GameObjects.Text;
   private lives!: Phaser.GameObjects.BitmapText | Phaser.GameObjects.Text;
   private tomatoes: Phaser.GameObjects.Image[] = [];
+  private icon: Phaser.GameObjects.Image | null = null;
+  private iconGround: Phaser.GameObjects.Image | null = null;
   private last = '';
 
   constructor() {
@@ -31,6 +36,8 @@ export class HudScene extends Phaser.Scene {
   init(data: SceneData): void {
     this.host = data.host;
     this.tomatoes = [];
+    this.icon = null;
+    this.iconGround = null;
     this.last = '';
   }
 
@@ -51,7 +58,20 @@ export class HudScene extends Phaser.Scene {
     this.shot = addText(this, slots.shot[0] + 1, slots.shot[1] + 3, '');
     this.stars = addText(this, slots.stars[0], slots.stars[1], '');
     const [px0, py0, px1, py1] = slots.portrait;
-    this.lives = addText(this, px0 + Math.floor((px1 - px0) / 2) - 8, py0 + Math.floor((py1 - py0) / 2) - 4, '');
+    const ab = hud?.ability;
+    if (ab && this.textures.exists(Tex.hudAbility)) {
+      const tex = this.textures.get(Tex.hudAbility);
+      for (const [desc, k] of Object.entries(ab.cells)) {
+        tex.add(`p${desc}`, 0, k * ab.cell, 0, ab.cell, ab.cell);
+        tex.add(`g${desc}`, 0, k * ab.cell, ab.cell, ab.cell, ab.cell);
+      }
+      this.iconGround = this.add.image(ab.at[0], ab.at[1], Tex.hudAbility).setOrigin(0, 0).setVisible(false);
+      this.icon = this.add.image(ab.at[0], ab.at[1], Tex.hudAbility).setOrigin(0, 0).setVisible(false);
+      this.root.add([this.iconGround, this.icon]);
+      this.lives = addText(this, ab.at[0] + ab.cell + 2, py1 - 8, '');
+    } else {
+      this.lives = addText(this, px0 + Math.floor((px1 - px0) / 2) - 8, py0 + Math.floor((py1 - py0) / 2) - 4, '');
+    }
     this.root.add([this.hole, this.shot, this.stars, this.lives]);
     this.root.setVisible(false);
   }
@@ -72,5 +92,14 @@ export class HudScene extends Phaser.Scene {
     setGameText(this.stars, String(s.stars).padStart(2, ' '));
     setGameText(this.lives, `x${s.lives}`);
     this.tomatoes.forEach((t, k) => t.setVisible(k < s.tomatoes));
+    const name = s.icon.toString(16).toUpperCase().padStart(4, '0');
+    const tex = this.textures.exists(Tex.hudAbility) ? this.textures.get(Tex.hudAbility) : null;
+    if (this.icon && this.iconGround && tex?.has(`p${name}`)) {
+      this.icon.setFrame(`p${name}`).setVisible(true);
+      this.iconGround.setFrame(`g${name}`).setTint(snesRgb(s.ground)).setVisible(true);
+    } else {
+      this.icon?.setVisible(false);
+      this.iconGround?.setVisible(false);
+    }
   }
 }

@@ -17,6 +17,7 @@ import type { CupMaskClock } from '../features/enemies/cup-mask';
 import type { WarpView } from '../features/warp/warp-view';
 import type { SnapStarsView } from '../features/env/snap-stars-view';
 import type { WaterFxView } from '../features/env/water-fx-view';
+import type { AbilityFxView } from '../features/env/ability-fx-view';
 
 export interface Presentation {
   ctx: ViewCtx;
@@ -30,6 +31,7 @@ export interface Presentation {
   snapStars: SnapStarsView;
   /** The water's splashes and bubbles, objects 53-58 and 67 (sync-water-fx). */
   waterFx: WaterFxView;
+  abilityFx: AbilityFxView;
   director: CutsceneDirector;
   audio: AudioPlayer | null;
   camera: Phaser.Cameras.Scene2D.Camera;

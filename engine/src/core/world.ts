@@ -7,7 +7,7 @@ import { Camera } from './traits/camera';
 import { Guide } from './traits/guide';
 import { Pose, BallScreen, BallSprite, PRIO_OVER } from './traits/pose';
 import {
-  BallPos, BallVel, BallAir, BallWet, BallSpin, BallMode, BallHoled, BallHeading,
+  BallPos, BallVel, BallAir, BallWet, BallSpin, BallMode, BallAbility, BallHoled, BallHeading,
   StillCount, Modifier, BallWork,
 } from './traits/ball';
 import { Tomatoes, Strokes, Stars, StockedAbility, Career, TomatoQueue } from './traits/counters';
@@ -16,6 +16,7 @@ import { Visual } from './traits/visual';
 import { BoostHum } from './traits/boost';
 import { SnapTrail } from './traits/snap';
 import { WaterFx, GameRng, KirbyPalette } from './traits/water';
+import { AbilityFx } from './traits/ability-fx';
 import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
 import { Warp } from './traits/warp';
@@ -57,6 +58,7 @@ export function createGameWorld(): World {
   world.add(SnapTrail);
   world.add(WaterFx);
   world.add(GameRng);
+  world.add(AbilityFx);
   return world;
 }
 
@@ -76,6 +78,7 @@ export function spawnPlayer(world: World): Entity {
     BallWet({ wet: 0 }),
     BallSpin({ sx: 0, sy: 0, pending: 0 }),
     BallMode({ mode: 0 }),
+    BallAbility({ worn: 0, latch: 0 }),
     BallHoled({ holed: 0 }),
     BallHeading({ deg: 0, last: 0 }),
     StillCount({ over: 0, frames: 0 }),
@@ -88,7 +91,7 @@ export function spawnPlayer(world: World): Entity {
     Tomatoes({ n: 4 }),
     Strokes({ n: 1 }),
     Stars({ n: 0 }),
-    StockedAbility({ id: 0 }),
+    StockedAbility({ id: 0, carry: 0 }),
     Visual({ kind: 'ball' }),
   );
   return e;

@@ -22,6 +22,7 @@
  */
 import { s16, wrap16, mulQ15s, hi16, atan2Deg } from '../fixed';
 import type { Ctx, Work } from './context';
+import { sparkDestroy } from './abilities';
 import type { ActorRun } from './actors';
 import { degreeMatrix, reflectWith, updateHeading } from './reflect';
 import { restorePrev } from './wall-step';
@@ -384,6 +385,13 @@ export function volcanoLand(ctx: Ctx, w: Work): DispatchOutcome {
   const lo = (w.ground + 0x4800) | 0;
   const hi = (w.ground + 0xf000) | 0;
   if (!(w.z > lo && w.z <= hi) || !diamond(w.xf, w.yf)) return volcanoBase(ctx, w, 'land');
+  // `$82:86D3` -> `$82:EE9A`: Spark destroys the volcano (the actor
+  // unlinked, the tile cleared; its object told to go, `$579C` = 1, and
+  // object $3C at its place); the still gate cleared, gravity only
+  if (sparkDestroy(w)) {
+    w.stillGate = 0;
+    return GRAVITY_ONLY;
+  }
   // `$82:888C`: the side it came from
   let side: number;
   if (diamond(w.pXf, w.pYf)) side = 0;

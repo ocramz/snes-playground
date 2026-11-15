@@ -199,4 +199,10 @@ export interface HudJson {
     stars: [number, number];
     portrait: [number, number, number, number];
   };
+  /**
+   * The copy ability's icon (tools/export_web_sprites.py build_icons): the
+   * pictures by upload descriptor (hex) in 32 x 32 cells of hud_ability.png,
+   * row 0, their ground (colour 9, white) in row 1; `at` the icon's top-left.
+   */
+  ability?: { image: string; at: [number, number]; cell: number; cells: Record<string, number> };
 }

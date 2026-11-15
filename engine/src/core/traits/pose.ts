@@ -20,12 +20,22 @@ export const Pose = trait({
   /** The state a hit-stop's squash returns to: 13 if it interrupted the
    *  hop, else 14 ($81:8C9E pushes the state, $81:8CC6 tests it). */
   resume: 0,
+  /** $D75A,X / $D75E,X: the copy abilities' poses' switch variables (a
+   *  variant; a direction), mirrored from the work copy (sim/abilities.ts). */
+  abilityVar: 0,
+  abilityDir: 0,
+  /** Kirby's script (systems/pose.ts kirbyScripts): the state it runs and its ticks. */
+  scriptState: -1,
+  scriptT: 0,
+  /** A state a script stored in the thread phase, shown from the next frame on (-1 none). */
+  pending: -1,
 });
 
 /** The pose states the 1-player shot uses (docs/animation.md). */
 export const PoseState = {
   Hold: 0,
   Holed: 1,
+  Hold2: 2,
   Native: 3,
   Aim: 4,
   AimTurn: 5,

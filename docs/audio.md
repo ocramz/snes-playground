@@ -691,6 +691,28 @@ That gives 21 songs at least one fixed caller. Of the other 12 (songs 3,
   `$81:A183`. The scan saw only the second constant. *Emulated*: web_fly
   requests `$90` at 3252 (caller `$81:A187`).
 
+**The copy abilities' effects** (*emulated*: demos 10-19,
+notes/port-v2-phase5-abilities.md; the callers are the JSLs' return
+addresses or the sites):
+
+| effect | site | when |
+|---|---|---|
+| `$2E` | `$82:DA39` | the transformation, before its 48 frames |
+| `$69`, `$08`, `$4E`, `$70`, `$78`, `$59`, `$1B`, `$14` | the setups' tails (logged from `$82:C07A`) | Stone, Fireball (after its set 5), Needle, Tornado, Wheel, Spark, Hi-Jump, Freeze set up |
+| `$09`, `$1A` | `$82:CE83`, `$82:CE52` | Stone lands; its rebound on `$20-$24` |
+| `$44` | Kirby's state-29 script (`$87:8576`) | the parasol opens |
+| `$3B` | `$82:CF09` | the parasol bounces |
+| `$0E` | `$82:CFA7` | Fireball ended by a wall, a step or an object |
+| `$3C` | `$82:D045` | Needle sticks after a bounce |
+| `$3A` | `$82:962A` | Spark breaks a pillar |
+| `$4D` | `$82:D9CD` | the ice thaws (`$82:D9C2`) |
+| `$72` | `$82:D560` | the UFO turns (L/R) |
+| `$75` | object 49 `$85:AE13` | the UFO's hum, every 10 ticks |
+| `$73`, `$74` | object 49 `$85:AE26`, `$85:AE4E` | its phase `$D77A` 1; wearing off |
+| `$42` | `$84:A54F` | each digit of the UFO's countdown on the HUD |
+| 0, `$21` | `$82:D91E`; object 49 `$85:AE88` | the UFO's end; holed while it flies (0, then `$21` 4 ticks later) |
+| `$50`, `$4F` | `$82:8A79`, `$82:8A92` | an ability enemy taken; an ordinary one |
+
 So only song 3 has no known caller. The
 `used_by` column of `songs/summary.tsv` and of `wav/index.tsv` carries the
 call sites per song, and `sfx/index.tsv` does the same for effects. No

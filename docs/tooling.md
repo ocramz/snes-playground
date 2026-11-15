@@ -123,6 +123,19 @@ python3 tools/snesstep/trace_actors.py web_water_drop --types 53,54,55,56,57,58,
 #   state `rnga`/`rngb` ($0079/$007B), which the engine's water tests seed from
 #   (all three read tools/snesstep/inputs/<name>.pokes when it exists; the
 #   engine's fixtures: `make engine-traces`, into build/engine/rom-test/)
+#   The copy abilities (port_v2 phase 5): trace_ball.py records the ability's
+#   block words `stock`/`worn`/`mode`/`latch` ($D852-$D85E) as the store left
+#   them (they never cut a burst), the scanline and the burst's first pc;
+#   web_demoNN starts at frame 850 (START) and runs to FRAMES. trace_flow.py
+#   adds the work copy (`wstock`...`wlatch`), Kirby's switches and index, the
+#   ability's globals $D762-$D77A, Kirby's colours 2-8 (`pal`, `pal3`-`pal6`,
+#   `outline`, `pal8`), the HUD object's phases (`hudo`/`hudi` in slot 8 as in
+#   the demos, `hudo10`/`hudi10` in slot 10 as from the map), the pad
+#   (`pad`/`padp`) and the demo flags; and iters_<name>.json: the frame
+#   helper's calls, the trigger's pad reads, the vblank waits and the VRAM
+#   queue pushes from bank $84 (the HUD's icon)
+python3 tools/snesstep/trace_flow.py web_demo10 --frames 3910   # a DEMOPLAY demo (no pokes)
+python3 tools/snesstep/trace_actors.py web_demo17 --types 21,27,28,29,30,31,32,33,34,35,36,37,38,39,49,50,51,52,65,66 --frames 3960   # the abilities' objects
 python3 tools/snesstep/trace_cutscene.py   # hole 1's intro and hole-outs, every frame -> build/web-test/cutscene_hole0.json
 python3 tools/export_web_ui.py            # the shot panel's sprites from OAM -> build/web/ui.*
 python3 tools/check_web_ui.py             # ... and a pixel check of the browser's panel (npm run dev first)

@@ -26,7 +26,8 @@ export type LandingOutcome =
 /** $81:8C79: the landing hit-stop request, or null. A = the surface code. */
 export function landingHitStop(w: Work): { frames: number; state: number } | null {
   if (w.hitStopLatch !== 0) return null;
-  const mag = w.vz >= 0 ? w.vz : wrap16(-s16(w.vz));
+  // $81:8C80 BPL / EOR / INC: |vz| as a 16-bit word (vz is stored unsigned)
+  const mag = s16(w.vz) >= 0 ? w.vz : wrap16(-s16(w.vz));
   if (mag < 0x0900) return null;
   return { frames: 4, state: w.code };
 }
@@ -34,9 +35,9 @@ export function landingHitStop(w: Work): { frames: number; state: number } | nul
 /** $81:8C48: the step-hit hit-stop request, or null. A = edge + 9. */
 export function stepHitStop(w: Work): { frames: number; state: number } | null {
   if (w.edge >= 2) return null; // CMP #$0002 / BCS: only edges 0 and 1
-  const magX = w.vx >= 0 ? w.vx : wrap16(-s16(w.vx));
-  const magY = w.vy >= 0 ? w.vy : wrap16(-s16(w.vy));
-  if (magX + magY < 0x0300) return null;
+  const magX = s16(w.vx) >= 0 ? w.vx : wrap16(-s16(w.vx));
+  const magY = s16(w.vy) >= 0 ? w.vy : wrap16(-s16(w.vy));
+  if (wrap16(magX + magY) < 0x0300) return null; // the 16-bit ADC, an unsigned CMP
   return { frames: 2, state: w.edge + 9 };
 }
 

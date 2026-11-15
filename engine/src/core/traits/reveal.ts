@@ -29,8 +29,12 @@ export const Reveal = trait({
   panY: 0,
   /** The enemy was on screen at the start (`$82:8D5A`'s window). */
   onScreen: 0,
-  /** The hover drop's length (0 = none). */
+  /** The hover drop's length (0 = none), set as the hover stage begins. */
   hoverFrames: 0,
+  /** The enemy's hover steps ($5B1C) and its draw position ($5F1C / $5F9C). */
+  hover: 0,
+  ex: 0,
+  ey: 0,
   /** The camera panned to the cup (the ring then comes a frame sooner). */
   panned: 0,
 });

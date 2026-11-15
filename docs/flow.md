@@ -163,6 +163,23 @@ The camera's formula is the Camera row of web-demo.md "Measured with the stepper
   The retake reloads the shot's own elevation, because `$80:F3A6` is skipped. In 1P the fall queues no tomato −1: `$82:C085` does so only when `$17FF` is set ([tiles.md](tiles.md) "Hazards").
 - **holed** (`$80:F48C`): the hole-out, below.
 
+The turn's end (`$80:F445`) and the hole-out (`$80:F48C`) each add 1 to
+`$D76C`, which ends the copy ability's objects; the hole-out also loads
+palette set 2 (`$80:F495`), Kirby's colours back to set 3.
+
+**A copy ability in the roll** ([physics.md](physics.md) "Copy abilities").
+B newly pressed while the ball moves, with a stock and the shot's latch
+unused, runs the trigger `$82:C875` in the roll loop: the latch is spent,
+Kirby's state 8 and object 21 come up, sfx `$2E`, and the step waits 48
+frames inside the iteration (`$80:8FB6`), the threads running. Then the
+ability's setup. The game reads the B one frame after the press (the stream
+or the pad writes it at the vblank; demos 10-19: B at 2017, the trigger
+2018). A second B in the same shot is refused (web_ab_c1 3090). The set-up
+`$80:C538` clears worn, mode and latch every shot; the stock is kept across
+shots and holes (`$DA90`), and lost with the ball out of bounds or a life.
+A take of an ability enemy stocks it at once (`$D852`), so it can be used in
+the shot that took it.
+
 ## Tomatoes, lives and strokes
 
 **The tomato queue** (`$83:ABC5` −1, `$83:ABAD` +1, the ring `$68FA`):

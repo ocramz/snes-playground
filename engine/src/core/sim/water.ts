@@ -256,6 +256,17 @@ function walk(ctx: Ctx, w: Work, rolling: boolean): boolean {
 }
 
 /** Freeze, mode 9 ($82:819B / $82:8039). */
+/**
+ * `$82:D9C2`, the thaw: the ice goes ($69DA = 0) with sfx $4D, silent while
+ * the water is off ($69CA). Called by the trigger (a new ability other than
+ * Freeze), by Freeze stopping on its ice, by the lost ball's countdown and
+ * by the hazard reaction; the hole's start clears $69DA too ($80:C276).
+ */
+export function thaw(ctx: Ctx, w: Work): void {
+  w.waterFreeze = 0;
+  if (!ctx.course.waterOff) w.abilitySfx.push(0x4d);
+}
+
 function freeze(w: Work): void {
   w.waterFreeze = 1;
   w.tailSfx = 0x47;
@@ -266,7 +277,7 @@ function freeze(w: Work): void {
 /** The mode-6/9/10 gate of both handlers: true when the ball rides the level. */
 function ridesLevel(w: Work): boolean {
   if (w.mode === 6) return true;
-  if (w.mode === 0x0a) return true; // with $D77A = 0, which the engine does not keep
+  if (w.mode === 0x0a) return w.d77a === 0; // $82:8028 / $82:8135: the UFO flying
   return false;
 }
 
@@ -330,7 +341,7 @@ export function waterHit(ctx: Ctx, w: Work): DispatchOutcome {
   if (ctx.presentation === false) return guideRoll(ctx, w);
   if (ctx.course.waterOff) return ROLLING;
   saveGround(w);
-  let rides = w.waterFreeze !== 0 || w.mode === 6 || w.mode === 0x0a; // mode 10 with $D77A = 0
+  let rides = w.waterFreeze !== 0 || w.mode === 6 || (w.mode === 0x0a && w.d77a === 0); // the UFO flying
   if (!rides && w.mode === 9) {
     freeze(w);
     rides = true;

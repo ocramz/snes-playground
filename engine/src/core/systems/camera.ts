@@ -28,6 +28,7 @@ import { BallScreen } from '../traits/pose';
 import { BallWork, StillCount, BallMode, BallHoled } from '../traits/ball';
 import { Stall } from '../traits/stall';
 import type { Ctx } from '../sim/context';
+import { thaw } from '../sim/water';
 import { panStep, followStep } from '../sim/camera';
 import { project } from '../projection';
 import { emitEvent, phaseNow } from './flow-util';
@@ -79,7 +80,12 @@ function presentRoll(world: World, ctx: Ctx): void {
   const k = { x: p.x, xf: p.xf, y: p.y, yf: p.yf, px: sc.px, pxf: sc.pxf, py: sc.py, pyf: sc.pyf };
   if ((w.lost & 1) !== 0) {
     if (w.fallTimer === 0xf0) {
-      // $81:A16C-$81:A190: the first frame of the fall
+      // $81:A16C-$81:A190: the first frame of the fall: the ice thawed ($82:D9C2)
+      if (w.waterFreeze !== 0) {
+        thaw(ctx, w);
+        for (const sfx of w.abilitySfx) emitEvent(world, 'ability', sfx);
+        w.abilitySfx = [];
+      }
       const mode10 = e.get(BallMode)!.mode === 0x0a;
       emitEvent(world, 'song', (mode10 ? 0x8f : 0x90) - 0x7e);
       w.lost = 1;

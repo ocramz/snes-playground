@@ -1,0 +1,28 @@
+# course 1 hole 3 (index 2): a real take and use of Hi-Jump (port_v2 phase 5), unpoked but the hole.
+# Shot 1 takes the $48 at (6,7) on the way (the stock 8; a B before it, with no stock, does nothing);
+# shot 2 uses it (B in the roll, the relaunch at 65 degrees; a second B is refused by the latch);
+# shot 3 uses it again (the set-up resets the latch; the stock is kept in 1P).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2359 RIGHT 98   # shot 1: the aim from 225 toward the enemy at (6,7)
+2461 A 2        # aim
+2534 A 2        # spin
+2577 A 2        # power
+2650 B 2        # no stock yet: nothing
+2940 A 2        # shot 2: the set-up's aim (225)
+3013 A 2        # spin
+3020 A 2        # power
+3050 B 2        # Hi-Jump
+3090 B 2        # refused: the latch
+3600 A 2        # shot 3: the set-up's aim (90)
+3673 A 2        # spin
+3680 A 2        # power
+3710 B 2        # Hi-Jump again

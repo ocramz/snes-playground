@@ -16,6 +16,8 @@ export interface BallTraceFrame {
   f: number;
   /** The scanline of the record's first write (trace_ball.py; recordings only). */
   ln?: number;
+  /** The pc of the record's first write: the store `$82:F1xx`, or a reaction's or an object's (recordings only). */
+  pc?: string;
   xc: number;
   xf: number;
   yc: number;
@@ -32,6 +34,11 @@ export interface BallTraceFrame {
   elev: number;
   /** $D872, the block's in-the-water flag (trace_ball.py `wet`; absent from older recordings). */
   wet?: number;
+  /** The copy ability's block words $D852, $D856, $D85A, $D85E (trace_ball.py; absent from older recordings). */
+  stock?: number;
+  worn?: number;
+  mode?: number;
+  latch?: number;
 }
 
 /** The fields a frame-exact comparison covers (position, height, velocity, airborne). */
@@ -82,8 +89,8 @@ export function launchSeedIndex(frames: BallTraceFrame[]): number {
   return first - 1;
 }
 
-/** One flow event: [frame, name, value] (tools/snesstep/trace_flow.py). */
-export type FlowEvent = [number, string, number | string];
+/** One flow event: [frame, name, value, line?] (tools/snesstep/trace_flow.py; the line in newer recordings). */
+export type FlowEvent = [number, string, number | string] | [number, string, number | string, number];
 
 export interface FlowTrace {
   name: string;
@@ -144,4 +151,33 @@ export function matchBallStates(
     pairs.push([game[i], engine[j]]);
   }
   return { error: null, matched: game.length, skips, pairs };
+}
+
+/**
+ * The copy ability's block words at the matched ball states (trace_ball.py's
+ * side fields `$D852`-`$D85E`, as the store left them: the stock, the worn,
+ * the mode, the latch; the engine's readBall at the frame's end), the first
+ * ten differences. A hazard's code reaches the block after the store
+ * (`$82:DBBB`), and $14's is gone by the next one (Kirby's state code B ends
+ * it in one step): an engine hit code (12 and up) where the game shows the
+ * value of the engine's frame before is that write.
+ */
+export function compareAbilityFields(
+  pairs: Array<[BallTraceFrame, BallTraceFrame]>,
+  engineAt: (frame: number) => BallTraceFrame | undefined,
+): string[] {
+  const bad: string[] = [];
+  const s16 = (v: number | undefined): number => ((v ?? 0) << 16) >> 16; // the latch is signed ($82:C8A0 BMI)
+  for (const [g, e] of pairs) {
+    for (const k of ['stock', 'worn', 'mode', 'latch'] as const) {
+      if (g[k] === undefined) continue;
+      const want = s16(g[k]);
+      const got = s16(e[k]);
+      if (want === got) continue;
+      if ((k === 'worn' || k === 'mode') && got >= 0x0c && s16(engineAt(e.f - 1)?.[k]) === want) continue;
+      bad.push(`${k} at ${g.f}: the game's ${want}, the engine's ${got}`);
+    }
+    if (bad.length >= 10) break;
+  }
+  return bad;
 }

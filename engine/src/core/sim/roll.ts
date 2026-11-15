@@ -27,27 +27,81 @@ export function classIndex(ctx: Ctx, w: Work): void {
 }
 
 /**
- * $81:980B (the crest test), ported as far as the disassembly documents
- * (plans risk 5): it clears the landing lock-out every rolling frame, and
- * when no edge was crossed but the surface code changed onto a shape with
- * the crest flag, the ball launches ($81:8B7B, A = the old code, carry
- * set). The eight per-crossing-type branches ($81:9831-$81:994F, the
- * quadrant-sample tables at $81:9A0D+) are **unported** and fall through
- * to "no crest" — exact for flat-to-flat and same-shape crossings; flagged
- * in docs/engine.md and excluded from the exact tests (risk 5).
- * Returns the old surface code when the ball launches, else null.
+ * $81:980B, the crest test: does the ground fall away under the rolling
+ * ball? It clears the landing lock-out every rolling frame. Returns the
+ * surface code the ball launches from ($81:8B7B, A = that code, carry set;
+ * `$6A7A` + 1), else null.
+ *
+ * - No edge crossed ($6A78 = $FFFF): the code changed on a shape with the
+ *   crest flag ($81:9B45[$D9FE]) launches from the old code ($DA24).
+ * - An edge crossed ($81:9831, types 0-7, >= 8 hangs): a list of quadrant
+ *   samples along the ball's path — (quadrant, which cell) words from the
+ *   old cell through the corner's ($6A76) to the new — chosen by the
+ *   crossing type and the old and new quadrants ($DA22, $DA02; types 0-3)
+ *   or the corner's pick ($6A74; types 4-7). Each consecutive pair of
+ *   samples ($81:9964) is a crest when, in one cell, the codes differ and
+ *   the shape has the crest flag; across a boundary, when
+ *   $81:9C3D[code1 x 36 + quadrant1 x 9 + code2] is non-zero. The first
+ *   crest launches from the pair's first code.
+ *
+ * A type-0-3 pair of quadrants with no list (0) cannot occur at the ball's
+ * speeds; the ROM would read code bytes as a list ($994F: 0 - $9A0D), the
+ * port reports no crest.
  */
 export function crestTest(ctx: Ctx, w: Work): number | null {
+  const { rules } = ctx;
   w.launchLock = 0; // $81:980B: STZ $6A7A
   if (w.moveDir === 0xffff) {
     // no edge crossed this frame ($6A78 = $FFFF: $980E BPL not taken); the
     // flag is the current shape's ($D9FE), the same cell as the last frame's
-    if (w.code !== w.pCode && (ctx.rules.table('crestShape')[w.shape] & 0xff) !== 0) {
+    if (w.code !== w.pCode && (rules.table('crestShape')[w.shape] & 0xff) !== 0) {
       w.launchLock += 1;
       return w.pCode; // SEC
     }
+    return null;
   }
-  return null;
+  const t = w.moveDir;
+  if (t >= 8) throw new Error(`$81:9834: crossing type ${t} hangs`);
+  let list: number;
+  if (t < 4) {
+    // $81:984B-$81:98E1: ($DA22 x 4 + $DA02) x 2 into the type's table
+    list = rules.table('crestCross')[t * 16 + w.pQuad * 4 + w.quad];
+    if (list === 0) return null;
+  } else {
+    // $81:9913-$81:994B: the corner's pick chooses one of two lists; the
+    // first when $6A74 is 0, 1, 2, 0 for the types 4-7
+    const pick = [0, 1, 2, 0][t - 4];
+    list = rules.table('crestDiag')[(t - 4) * 2 + (w.diagPick === pick ? 0 : 1)];
+  }
+  const lists = rules.table('crestLists');
+  const n = ctx.course.w * ctx.course.h;
+  // $994F: the direct page's cells, by the samples' selector byte
+  const cellOf = (sel: number): number => (sel === 2 ? w.pCell : sel === 4 ? w.cell : sel === 8 ? w.crossAxis : -1);
+  const sample = (word: number): { q: number; sel: number; shape: number; code: number } => {
+    const q = word & 0xff;
+    const sel = (word >> 8) & 0xff;
+    const cell = cellOf(sel);
+    const shape = cell >= 0 && cell < n ? ctx.course.shape[cell] & 0xff : 0; // $6B90,X
+    return { q, sel, shape, code: rules.terrainQuad(shape, q) }; // $81:9D81
+  };
+  for (let i = (list - 0x9a0d) >> 1; ; i++) {
+    const w2 = lists[i + 1];
+    if (w2 & 0x8000) return null; // $9966 BMI: the list's end, CLC
+    const b = sample(w2);
+    const a = sample(lists[i]);
+    let crest: boolean;
+    if ((a.sel & b.sel) !== 0) {
+      // $99C2: one cell: the codes differ on a crest-flagged shape
+      crest = a.code !== b.code && (rules.table('crestShape')[a.shape] & 0xff) !== 0;
+    } else {
+      // $99D8: across a boundary
+      crest = (rules.table('crestStep')[a.code * 36 + a.q * 9 + b.code] & 0xff) !== 0;
+    }
+    if (crest) {
+      w.launchLock += 1; // $9A08: INC $6A7A, SEC
+      return a.code;
+    }
+  }
 }
 
 export interface RollModifier {
@@ -141,7 +195,13 @@ export function slope(ctx: Ctx, w: Work): void {
  * the first landing or a step hit. Wall bounces do not stop it.
  */
 export function curve(w: Work): void {
-  if (w.shotElev !== 0 || w.spinPending === 0 || w.spinX === 0) return;
+  if (w.shotElev !== 0 || w.spinPending === 0) return;
+  curveCore(w);
+}
+
+/** `$81:8D21`, the curve's rotation without the grounder's gates (Tornado's steering calls it). */
+export function curveCore(w: Work): void {
+  if (w.spinX === 0) return;
   const omega = w.spinX;
   w.vx = wrap16(w.vx + hi16(~omega & 0xffff, w.vy));
   w.vy = wrap16(w.vy + hi16(omega, w.vx));

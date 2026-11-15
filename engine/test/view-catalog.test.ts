@@ -124,6 +124,11 @@ describe.skipIf(!haveAssets)('the view catalog vs the atlases', () => {
             const c = poseClip({ state, facing, angle, variant, tomatoes, air });
             if (c !== null && c !== KEEP && !clips[c]) missing.add(`${state}:${c}`);
           }
+      // the copy abilities' switches: the mode ($D85A), $D75A, $D75E
+      for (let mode = 0; mode <= 10; mode++) for (let v = 0; v < 16; v++) for (let d = 0; d < 16; d++) {
+        const c = poseClip({ state, facing: 0, angle: 0, variant: 0, tomatoes: 4, air: 0, mode, abilityVar: v, abilityDir: d });
+        if (c !== null && c !== KEEP && !clips[c]) missing.add(`${state}:${c}`);
+      }
     }
     expect([...missing]).toEqual([]);
     expect(poseClip({ state: 1, facing: 0, angle: 0, variant: 0, tomatoes: 4, air: 0 })).toBeNull();

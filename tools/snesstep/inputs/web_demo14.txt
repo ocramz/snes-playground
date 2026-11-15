@@ -1,0 +1,15 @@
+# DEMOPLAY SELECT demo 14: Tornado on hole 167 (tools/snesstep/demos.py script(14)).
+# Title -> DEMO PLAY -> the cursor to row 2, column 4 -> A at 800. From then
+# the game plays the demo's own input stream ($88:C880[14] -> $83:DAAA), armed
+# at the hole's set-up (about frame 1030); the run ends with the hole-out.
+400 START 2
+450 DOWN 2
+480 DOWN 2
+520 START 2
+700 RIGHT 2
+712 RIGHT 2
+724 RIGHT 2
+736 RIGHT 2
+748 DOWN 2
+760 DOWN 2
+800 A 2

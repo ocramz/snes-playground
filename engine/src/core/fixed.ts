@@ -69,6 +69,15 @@ export function mul16x8(a: number, x: number): number {
 }
 
 /**
+ * $80:A378 (signed 16 x 16 -> $389E-$38A1) read at $389F: bits 8-23 of the
+ * product, for a 16-bit factor (mul16x8 takes X's low byte, signed: wrong
+ * for factors like $83 or $B4).
+ */
+export function mid16(a: number, x: number): number {
+  return wrap16(Math.floor((s16(a) * s16(x)) / 256));
+}
+
+/**
  * $80:A367 with A >= $8000: the high word of the exact product of A, read
  * unsigned, and signed X. It calls sub_mul_16x16 $80:A378 (signed A x
  * signed X -> $389E-$38A1, returning A unchanged) and, A being negative,

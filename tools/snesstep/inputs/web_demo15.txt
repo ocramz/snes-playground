@@ -1,0 +1,12 @@
+# DEMOPLAY SELECT demo 15: Wheel on hole 166 (tools/snesstep/demos.py script(15)).
+# Title -> DEMO PLAY -> the cursor to row 3, column 0 -> A at 800. From then
+# the game plays the demo's own input stream ($88:C880[15] -> $83:DAAA), armed
+# at the hole's set-up (about frame 1030); the run ends with the hole-out.
+400 START 2
+450 DOWN 2
+480 DOWN 2
+520 START 2
+700 DOWN 2
+712 DOWN 2
+724 DOWN 2
+800 A 2

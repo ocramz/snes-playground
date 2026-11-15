@@ -126,6 +126,10 @@ HAZARD_FRAME_TABLES = (0x84, 0xDD55)
 # routine's motion ($80:E97C -> $80:EA26) reads, cos by angle 0-255 plus the
 # quarter turn the sine reads (T[a + 64]).
 SNAP_STAR_DIRS = (0x85, 0xCFF2)
+# DEMOPLAY's records: the pointer table ($83:DB2D reads it by $ED5D x 4) and the
+# header's address list ($83:DA41 copies one record word into each, to $FFFF)
+DEMO_RECORDS = (0x88, 0xC880)
+DEMO_HEADER = (0x83, 0xDA7C)
 POLAR_TRIG = (0x80, 0xEABA)
 # The water's effect objects (docs/animation.md "The water's objects"): the
 # splashes 53-58 (list 6, frame table $89:94DB) by type, from tbl_thread_types
@@ -134,6 +138,39 @@ POLAR_TRIG = (0x80, 0xEABA)
 THREAD_TYPES = (0x80, 0xED3A)
 WATER_SPLASH_TYPES = (53, 54, 55, 56, 57, 58)
 WATER_BUBBLE_RISE = (0x85, 0xE934)
+
+
+def demo_records(d):
+    """The 20 DEMOPLAY records, flat: a directory of 20 offsets into the data
+    that follows it, then each record as its 20 header words (in the order of
+    `demoHeader`, $83:DA7C) and its (pad, count) pairs up to and including the
+    pair whose count is 0, which ends the stream ($83:DAAA: the pad then holds
+    0). $83:DA41 copies the header and starts the stream at the record + 42;
+    $83:DB2D's pointers are long (word address, bank word)."""
+    def w(bank, addr):
+        o = snes_to_file(bank, addr)
+        return d[o] | d[o + 1] << 8
+
+    hb, ha = DEMO_HEADER
+    n_head = 0
+    while w(hb, ha + 2 * n_head) != 0xFFFF:
+        n_head += 1
+    if n_head != 20:
+        raise SystemExit("demo header: {} words, not 20".format(n_head))
+    directory, data = [], []
+    for k in range(20):
+        lo = w(DEMO_RECORDS[0], DEMO_RECORDS[1] + 4 * k)
+        bank = w(DEMO_RECORDS[0], DEMO_RECORDS[1] + 4 * k + 2)
+        directory.append(20 + len(data))
+        data += [w(bank, lo + 2 * i) for i in range(n_head)]
+        y = 2 * n_head + 2   # $83:DA61: INY INY past the header
+        while True:
+            pad, count = w(bank, lo + y), w(bank, lo + y + 2)
+            data += [pad, count]
+            y += 4
+            if count == 0:
+                break
+    return directory + data
 
 
 def snap_star_scripts(d):
@@ -305,6 +342,21 @@ def build_tables(d):
     # per-shape flag: a surface-code change inside the cell throws the ball
     # ($81:980B, the no-edge-crossing case)
     put("crestShape", 0x81, 0x9B45, rom_bytes(d, 0x81, 0x9B45, 28), 1)
+    # the crest test's edge crossings ($81:9831-$81:9A0C; docs/physics.md "The
+    # crest"): per crossing type 0-3, a list address by (old quadrant x 4 + new
+    # quadrant) ($81:985D, $988F, $98C1, $98F3; 0 = none); the corner crossings'
+    # list addresses, two per type 4-7 (the immediates of $81:9913-$81:994B);
+    # the lists themselves, words (quadrant | the cell's selector << 8: 2 the
+    # old cell $DA1C, 4 the new $D9FC, 8 the corner's $6A76), $FFFF-ended,
+    # $81:9A0D-$81:9B44; and the cross-cell crest bytes, by code1 x 36 +
+    # quadrant1 x 9 + code2 ($81:9C3D, through $81:9C23 and $81:9C35)
+    put("crestCross", 0x81, 0x985D,
+        sum((rom_words(d, 0x81, a, 16) for a in (0x985D, 0x988F, 0x98C1, 0x98F3)), []), 2)
+    put("crestDiag", 0x81, 0x9913,
+        [rom_words(d, 0x81, a, 1)[0] for a in (0x9914, 0x991C, 0x9921, 0x992C,
+                                                0x9931, 0x993C, 0x9941, 0x9949)], 2)
+    put("crestLists", 0x81, 0x9A0D, rom_words(d, 0x81, 0x9A0D, (0x9B45 - 0x9A0D) // 2), 2)
+    put("crestStep", 0x81, 0x9C3D, rom_bytes(d, 0x81, 0x9C3D, 9 * 36), 1)
     put("degToDir32", 0x81, 0x8E98, rom_bytes(d, 0x81, 0x8E98, 361), 1)
 
     put("frictionClass", 0x81, 0x8C12, rom_words(d, 0x81, 0x8C12, 13), 2)
@@ -594,6 +646,65 @@ def build_tables(d):
     put("snapStars", SNAP_STAR_DIRS[0], SNAP_STAR_DIRS[1], snap_star_scripts(d), 2)
     put("polarTrig", POLAR_TRIG[0], POLAR_TRIG[1],
         rom_words(d, POLAR_TRIG[0], POLAR_TRIG[1], 320, True), 2)
+    # DEMOPLAY SELECT's 20 records ($88:C880; docs/emulation.md "DEMOPLAY"): the
+    # header's addresses, and the records (demo_records)
+    # --- the copy abilities (port_v2 phase 5; notes/port-v2-phase5-abilities.md) ---
+    # the airborne gravity each ability's setup loads into $DA38, by the
+    # ability ($82:C921 reads $DC1F for 1, ..., word 0 the reverts' $FFC0)
+    put("abilityGravity", 0x80, 0xDC1D, rom_words(d, 0x80, 0xDC1D, 11), 2)
+    # the end of a shot keeps the mode when 0 ($80:C73A, by the mode)
+    put("modeKeep", 0x80, 0xDEFD, rom_words(d, 0x80, 0xDEFD, 22), 2)
+    # Fireball's sprite index by the 16-way heading ($82:CA14)
+    put("fireballIndex", 0x82, 0xCA95, rom_bytes(d, 0x82, 0xCA95, 16), 1)
+    # Tornado's pose by speed ($82:D6E8): the first speed bound under max(|vx|, |vy|),
+    # then (state - $20) << 8 | the script's speed $D776
+    put("tornadoSpeed", 0x82, 0xD790, rom_words(d, 0x82, 0xD790, 6), 2)
+    put("tornadoPose", 0x82, 0xD79C, rom_words(d, 0x82, 0xD79C, 6), 2)
+    # the UFO's sprite index by the 8-way heading ($82:CCF8)
+    put("ufoIndex", 0x82, 0xCDB3, rom_bytes(d, 0x82, 0xCDB3, 8), 1)
+    # the UFO's step climb ($82:D388) by (old shape - 2) x 4 + the old quadrant:
+    # 0 none, $FF z + $200, else the elevation's base + 1
+    put("ufoClimb", 0x82, 0xD3CD, rom_bytes(d, 0x82, 0xD3CD, 56), 1)
+    # --- Kirby's colours (OBJ palette 0, CGRAM 130-136 = colours 2-8; engine
+    # core/sim/kirby-colours.ts), BGR555 words, player 1's sets ---
+    put("kirbyDry", 0x98, 0xC77A, rom_words(d, 0x98, 0xC77A, 7), 2)       # $80:D3AD set 3, dry
+    put("kirbyWet", 0x98, 0xC796, rom_words(d, 0x98, 0xC796, 7), 2)       # ... in the water
+    put("kirbyFire", 0x98, 0xC7B2, rom_words(d, 0x98, 0xC7B2, 6), 2)      # set 5 ($82:CA43), 2-7
+    put("kirbyBurnt", 0x98, 0xC7BE, rom_words(d, 0x98, 0xC7BE, 36), 2)    # object 29's six fades, 2-7
+    put("kirbySpark", 0x98, 0xC86E, rom_words(d, 0x98, 0xC86E, 28), 2)    # object 36's four sets, 2-8
+    put("kirbySparkStand", 0x98, 0xC8A6, rom_words(d, 0x98, 0xC8A6, 28), 2)   # ... once standing
+    put("kirbyFreeze", 0x98, 0xC916, rom_words(d, 0x98, 0xC916, 6), 2)    # state 36's script, 2-7
+    put("kirbyFlash", 0x98, 0xCC26, rom_words(d, 0x98, 0xCC26, 7), 2)     # state 8's script, 2-8
+    put("kirbyUfo", 0x98, 0xCB2E, rom_words(d, 0x98, 0xCB2E, 4), 2)       # object 50, 2-5
+    put("kirbyUfoLight", 0x98, 0xCB3E, rom_words(d, 0x98, 0xCB3E, 3), 2)  # its colour 6, cycling
+    put("kirbyUfoLightEnd", 0x98, 0xCB4A, rom_words(d, 0x98, 0xCB4A, 7), 2)   # ... wearing off
+    # the warning's stages s = 2, 1, 0 ($84:8B4D, player 1; player 2's follow
+    # each): 3, 4, 4 sets ($84:8B4A by s) of colours 2-5
+    put("kirbyUfoWarn2", 0x98, 0xCB66, rom_words(d, 0x98, 0xCB66, 12), 2)
+    put("kirbyUfoWarn1", 0x98, 0xCB96, rom_words(d, 0x98, 0xCB96, 16), 2)
+    put("kirbyUfoWarn0", 0x98, 0xCBD6, rom_words(d, 0x98, 0xCBD6, 16), 2)
+    put("kirbyUfoWarnEnd", 0x98, 0xCC16, rom_words(d, 0x98, 0xCC16, 4), 2)
+    put("ufoWarnTicks", 0x84, 0x8AF8, rom_bytes(d, 0x84, 0x8AF8, 3), 1)  # each stage's length, by s
+    put("ufoWarnPeriod", 0x84, 0x8B47, rom_bytes(d, 0x84, 0x8B47, 3), 1)  # ticks per set, by s
+    put("ufoWarnSets", 0x84, 0x8B4A, rom_bytes(d, 0x84, 0x8B4A, 3), 1)    # sets in the cycle, by s
+    put("ufoLightEndTicks", 0x84, 0x8BEC, rom_bytes(d, 0x84, 0x8BEC, 8), 1)
+    put("ufoLightTicks", 0x84, 0x8BEA, rom_bytes(d, 0x84, 0x8BEA, 2), 1)  # by $D77A
+    # the HUD's draw ($84:99FA): the outline's 42-tick phase table ($FF-ended)
+    # into its four colours, the icon ground's 32-tick one into its colours
+    put("outlinePhase", 0x84, 0x9DDB, rom_bytes(d, 0x84, 0x9DDB, 43), 1)
+    put("outlineColour", 0x98, 0xD4A8, rom_words(d, 0x98, 0xD4A8, 4), 2)
+    put("iconPhase", 0x84, 0x9D97, rom_bytes(d, 0x84, 0x9D97, 33), 1)
+    put("iconGround", 0x98, 0xD4B8, rom_words(d, 0x98, 0xD4B8, 8), 2)
+    # the icon's pictures, as upload descriptors in bank $84 ($84:9B88 -> $80:8696):
+    # by the stock x 2 + 1 when the latch is spent (the pairs are equal up to 11);
+    # the UFO's and its countdown's digits by the seconds left ($84:A4E6), player 1's
+    put("hudIcon", 0x84, 0x9E07, rom_words(d, 0x84, 0x9E07, 24), 2)
+    put("ufoIcon", 0x84, 0xA554, rom_words(d, 0x84, 0xA554, 24)[0::2], 2)
+    put("ufoDigits", 0x84, 0xA584, rom_words(d, 0x84, 0xA584, 20)[0::2], 2)
+    put("ufoCountdown", 0x84, 0xA5AC, rom_bytes(d, 0x84, 0xA5AC, 37), 1)
+    put("demoHeader", DEMO_HEADER[0], DEMO_HEADER[1],
+        rom_words(d, DEMO_HEADER[0], DEMO_HEADER[1], 20), 2)
+    put("demos", DEMO_RECORDS[0], DEMO_RECORDS[1], demo_records(d), 2)
     # --- the water $60-$6F ($82:80F6 land, $82:8000 hit; docs/tiles.md "Water") ---
     # the skips ($82:8256), by the count 0-2: speed along the heading and vz,
     # the selector $6B58 < 7 (topspin) or >= 7 (backspin)
@@ -935,6 +1046,11 @@ def build_hud(outdir):
     info = {"panel": [224, 32], "at": [16, 176], "tomato": list(tom.size),
             "slots": {"hole": [111, 194], "shot": [136, 193], "tomato": [164, 183],
                       "tomatoStep": 16, "stars": [200, 200], "portrait": [24, 184, 48, 208]}}
+    # the copy ability's icon over the portrait window ($84:99FA; the stepper's palette)
+    import export_web_sprites
+    icons = export_web_sprites.build_icons(outdir)
+    if icons:
+        info["ability"] = icons
     # the slots as data, for the engine's HUD (engine/src/game/features/hud)
     write_json(os.path.join(outdir, "hud.json"), dict(info, about=(
         "screen pixels of the 256x224 frame; slots are the top-left of what the "

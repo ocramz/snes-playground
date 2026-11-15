@@ -18,22 +18,20 @@ The hole index is course×8 + hole (`$82:B0A4`, [courses.md](../docs/courses.md)
 
 | indices | mode | clean | course-1 level | blocked |
 |---|---|---|---|---|
-| 0-63 | 1P courses 1-8 | 20 | 39 | 5 |
-| 64-127 | extra game: the same terrain, a different layer 2 | 6 | 53 | 5 |
-| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 4 | 7 | 21 |
-| 160-179 | **unconfirmed**: the 20 DEMOPLAY holes. Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 9 | 10 | 1 |
-| 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 2 | 5 | 25 |
+| 0-63 | 1P courses 1-8 | 57 | 2 | 5 |
+| 64-127 | extra game: the same terrain, a different layer 2 | 57 | 2 | 5 |
+| 128-159 | 2P. Only Whispy Woods (128-135) has been run ([physics.md](../docs/physics.md) "The extra game and two players") | 11 | 0 | 21 |
+| 160-179 | the 20 DEMOPLAY holes (`$88:C880`'s records; demos 10-19 on 160-169, played, [emulation.md](../docs/emulation.md) "The DEMOPLAY demos"). Each of MAPC0-MAPD1 holds exactly one ability species, and together they cover all ten abilities | 19 | 0 | 1 |
+| 192-223 | a second layer 2 for MAP80-MAPB7; what selects it is unknown | 7 | 0 | 25 |
 | 224-243 | stub layer 2: a lone `$0C` and no enemies, so no cup is possible | — | — | 20 |
 | 184 | **unconfirmed**: Dedede's arena. physics.md puts the extra game's Dedede at 184. The slot holds the "shared filler" entry, whose header `$9F:EB41` is a real 16×16 hole named `MAPF0`. Not exported | | | |
 
-The counts are after step 4 (the water, §8). After step 3 they were 17/42/5, 5/54/5, 3/8/21, 8/11/1 and 2/5/25; before it, with the snaps blocking, 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
+The counts are after step 5 (the copy abilities, §8). After step 4 they were 20/39/5, 6/53/5, 4/7/21, 9/10/1 and 2/5/25; after step 3 17/42/5, 5/54/5, 3/8/21, 8/11/1 and 2/5/25; before it, with the snaps blocking, 15/30/19, 5/40/19, 3/6/23, 8/11/1 and 2/3/27.
 
 The columns:
 - **Clean:** every layer-2 tile goes through a ported handler.
-- **Course-1 level:** the hole also uses what course 1 ships with today:
-  - ability enemies, whose take is ported but which grant nothing;
-  - the `unk5c` handler (`$5C`/`$5D`: course 1 hole 8 has a `$5C`).
-  (Until step 4 the water `$60-$6F`, then plain ground, counted here too.)
+- **Course-1 level:** the hole also uses what course 1 ships with today: the `unk5c` handler (`$5C`/`$5D`: course 1 hole 8 has a `$5C`).
+  (Until step 4 the water `$60-$6F`, then plain ground, counted here too; until step 5 the ability enemies, whose take was ported but which granted nothing.)
 - **Blocked:** the hole has the toggles, `$58-$5B`, or the roulette `$57` (and, until step 3, the snap tiles).
 
 Two things do not affect any hole:
@@ -50,7 +48,7 @@ Not counted, because they touch every hole: the crest's cross-cell branches (`en
 | toggles `$70-$7B`, always with `$5A`/`$5B` | 5: 10, 19, 25, 26, 43 | stub: plain ground (`dispatch.ts:166-184`) | the direction map `$88:9190`, `$82:A086`/`$A0D9`/`$A0F9` (unread). **Unconfirmed:** `$5B` is the toggle's switch. It occurs in 30 holes, and all 30 have toggles (35 holes have toggles) |
 | `$58-$5D` | `$5A`/`$5B` in the 5 above; `$5C`/`$5D` in 2 (hole 7, which is course 1 hole 8, and 23) | stub | handlers located, not read ([tiles.md](../docs/tiles.md) "Not established") |
 | ~~**water** `$60-$6F`~~ | 17: 6, 7, 12, 20, 22, 23, 27, 31, 32, 33, 35, 50, 52, 55, 57, 62, 63 | **ported in step 4**, with its splashes, bubbles and Kirby's wet palette; 6, 12 and 27 are now clean | traced: web_water_* (docs/tiles.md "Water") |
-| **ability enemies** | 38 of 64. Per course: 3, 3, 3, 5, 6, 5, 7, 6. Course 1 has `$42` Parasol and `$48` Hi-Jump | the take is ported and the ability stored, but nothing uses it | §3 |
+| ~~**ability enemies**~~ | 38 of 64. Per course: 3, 3, 3, 5, 6, 5, 7, 6. Course 1 has `$42` Parasol and `$48` Hi-Jump | **ported in step 5**: all ten abilities, the transformation, the HUD's icon, Kirby's colours, the objects | traced: demos 10-19, web_ab_* (§3) |
 
 Over all 232 holes, water is on 45 (17 + 17 + 4 + 3 + 4 by the ranges above), which agrees with tiles.md.
 
@@ -104,34 +102,16 @@ The work:
 
 **The traces.** `engine/test/flow-harness.ts:42` pins `GAME_OFFSET` = 2332 to hole 1's scripts. A new script needs its own offset. Tests on another course also need its stepper scripts.
 
-## 3. Copy abilities: mostly RE
+## 3. Copy abilities: done (step 5)
 
-Known:
-- **The ids** in `$7E:D85A`: 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. They are set through the jump table `$82:C90A`, in the order of demos 10-19 ([animation.md](../docs/animation.md)).
-- **Which enemy gives which**, `$82:B6EB` by species (tile − `$40`), already in `tables.json` as `enemyAbility`:
-  - `$41`-`$49` give 1-9;
-  - `$4F` and `$52` give 10;
-  - `$57` is the roulette (11);
-  - the other species give nothing.
-- **The friction and gravity rows** for 22 modes, `$80:DC49` and `$80:DB6D` (physics.md "Rolling friction").
-- **Hi-Jump's relaunch** at 65° (`$82:CC4F`).
-- **Kirby's pose setter for each ability**, from `$82:C95B` on; Spark has none (animation.md).
-- **The swallow** `$82:D9E9`/`$82:DA4D`, and the ability's drop at a shot's end, `$80:C756` unless `$80:DEFD` keeps it.
+Ported and traced (notes/port-v2-phase5-abilities.md; [physics.md](../docs/physics.md) "Copy abilities"):
+- **The ids** in the mode `$D85A` ↔ `$D9C8`: 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO; 12-21 hit codes. The block pairs four words: the stock `$D852`, the worn `$D856`, the mode `$D85A`, the latch `$D85E`.
+- **Which enemy gives which**, `$82:B6EB` by species (tile − `$40`, `tables.json` `enemyAbility`): `$41`-`$49` give 1-9, `$4F` gives 10 (not `$52`, which gives nothing), `$57` is the roulette (11, only on holes 131-159 and 193-223).
+- **The use**: B mid-roll with a stock (`$82:C875`), the transformation's 48 frames, the setup and the per-mode air and ground handlers; the stock kept across shots and holes in 1P, the latch per shot.
+- **The references**: demos 10-19 replayed from the ROM's streams (every ball state, Kirby's states, the sounds, Kirby's colours, the HUD's icon, the drawn objects), eleven poked scenarios and one take-and-use on course 1 (web_ab_c1).
+- **The bugs found on the way**: the rough `$04` read the next table's words, the kickers' axes and signs, the crest's cross-cell branches (now ported), the rolling step hit's launch in modes other than 0 and 7, the take's two halves.
 
-Unknown:
-- how the player triggers an ability;
-- what each ability does to the ball, beyond the table rows and Hi-Jump;
-- the pairing of modes and abilities, which is certain only for Stone (1) and UFO (`$0A`);
-- the meaning of modes 11-21.
-
-The engine:
-- `BallMode` is always 0 (`core/traits/ball.ts:25-26`), but about 33 per-mode branches already exist in the kernels.
-- Missing branches:
-  - mode 5's rescale (`sim/wall-step.ts:80`);
-  - the mode-7 destroy of pillars and hazards (`sim/dispatch.ts:530`);
-  - the Dedede flag in `sim/still.ts`, never passed by `ball-step.ts:358`.
-
-**Lead:** demos 10-19 each show one ability (DEMOPLAY, scene 13). The stepper can record a reference trace for every ability without hand-made input scripts.
+Left for step 9 (2P): the ball-to-ball hit codes 12-17, the contact matrix `$82:C41E`, the stock swap, the roulette `$82:8DD2`, Freeze's `$D780,X` = `$15`. Left in the presentation (docs/engine.md "Not ported"): the UFO's saucer and the parasol's canopy (overlays in Kirby's OAM pass), Kirby's frame index `$D95E`, objects 34, 42-45, 60, the power stage's glow.
 
 ## 4. Two players: a structural refactor plus RE
 
@@ -194,7 +174,7 @@ Every screen below has been rendered from the stepper (`build/screens`).
 | the logo, the title, the attract demo | scenes 16 and 1; the title map `$92:8550` | which hole the attract plays, its input source |
 | the title menu, the hidden items | gates `$7E:EAA9`-`$EAB3` (`$81:C7AF`); MAP SELECT, SOUND ROOM, DANCE SELECT | the menu logic |
 | the name entry (a drawing pad) | scene 2, `$81:DFD9`, the zones `$81:E0C7` | how a drawing is stored |
-| DEMOPLAY | scene 13, 20 demos | the input source; which holes (160-179, unconfirmed) |
+| DEMOPLAY | scene 13, 20 demos | read and played for 10-19: the records `$88:C880`, the stream `$83:DAAA`, holes 160-179 ([emulation.md](../docs/emulation.md)); the menu itself is unported |
 | the ending, the credits | scenes 18 and 19 | the sequence, the credits text |
 
 ## 7. Doc discrepancies to fix
@@ -253,7 +233,13 @@ Ordered by holes unlocked per unit of RE:
      - a splash in Kirby's OAM queue covers him, one queue back is behind him (which may also hold for the snap stars, unconfirmed).
    - After it: 1P 20 clean, 39 at course-1 level, 5 blocked (§1). Course 1 hole 7 is clean; hole 8 keeps its `$5C`.
    - Left: the ability's drop on entering water (`$D9C6`, step 5), `$69CA`'s toggles (step 6), player 2's palette (step 9), and water in the random holes.
-5. **The copy abilities**, recorded from demos 10-19. They gate exact play on 38 of the 64 1P holes, course 1 included.
+5. ~~**The copy abilities**, recorded from demos 10-19.~~ **Done** (notes/port-v2-phase5-abilities.md):
+   - All ten abilities, the trigger and the transformation, the per-mode handlers and their tile branches, the hit codes in the mode, the stock's life in 1P.
+   - The presentation: Kirby's ability poses by their switches, his colours (the flash, the outline's green flash, Fireball's set and fade, Spark, Freeze, the UFO's colours and warning), the HUD's icon and the UFO's countdown, the drawn objects (21, 27, 28, 31, 32, 33, 35, 37, 39, 65, 66), the objects' and the scripts' sounds.
+   - Demos 10-19 play from the ROM's streams in the harness (`test/demo-harness.ts`, `core/demo.ts`) and match end to end; twelve stepper scenarios (`test/ability-scenarios.ts`), web_ab_c1 frame-exact. 654 tests pass, and the e2e pages with a new `ability.mjs`.
+   - Found on the way: the rough `$04`'s table offset and sound, the kickers' land and hit, the crest's cross-cell branches `$81:9831`, the rolling step hit's launch, the take's halves, `$80:F445`'s `$D76C`, the outline phase's 41-tick wrap.
+   - After it: 1P 57 clean, 2 at course-1 level (the `$5C`/`$5D` holes 7 and 23), 5 blocked (§1).
+   - Left: the 2P parts (step 9), the overlays and the frame index, the objects never seen.
 6. **The toggles and `$58-$5D`**, for the last 5 blocked 1P holes, and `$5C`/`$5D` on 2 more.
 7. **The shell:** the per-hole card, pause and the overview, the course map, title → map → course, the medals and SRAM.
 8. **The extra game and King Dedede.** The extra game is nearly free after steps 1-6; Dedede needs his own RE.

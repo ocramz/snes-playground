@@ -29,12 +29,18 @@ const RUNS: Array<{ name: string; from: number; to: number }> = [
 ];
 
 /** Presentation objects (banks $84/$85) and Kirby's animation scripts ($87)
- *  request their own sounds (bridge side), except object 112's hum, which
- *  core runs (systems/boost-hum.ts): $84:87FD sound $15, $84:8818 sound 0
- *  (the callers are the JSLs' return addresses). */
-const CORE_OBJECT_CALLERS = new Set(['$84:8801', '$84:881C']);
-function fromCore(r: SoundRequest): boolean {
-  return !/^\$8[457]:/.test(r[5]) || CORE_OBJECT_CALLERS.has(r[5]);
+ *  request their own sounds (bridge side), except those core runs: object
+ *  112's hum (systems/boost-hum.ts): $84:87FD sound $15, $84:8818 sound 0;
+ *  the UFO countdown's digit $42 on the HUD's icon (systems/ability-fx.ts,
+ *  $84:A54F) (the callers are the JSLs' return addresses). */
+export const CORE_OBJECT_CALLERS = new Set([
+  '$84:8801', '$84:881C', '$84:A553',
+  // object 49's (the UFO's) hum, its phases and its holed sounds; Kirby's state-29 script's $44
+  // (the scripts' sound op returns to $87:8576 for every script: by its id there)
+  '$85:AE17', '$85:AE2A', '$85:AE52', '$85:AE8C', '$87:8576:68',
+]);
+export function fromCore(r: SoundRequest): boolean {
+  return !/^\$8[457]:/.test(r[5]) || CORE_OBJECT_CALLERS.has(r[5]) || CORE_OBJECT_CALLERS.has(`${r[5]}:${r[4]}`);
 }
 
 export function compareSounds(

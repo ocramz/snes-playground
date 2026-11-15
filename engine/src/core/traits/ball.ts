@@ -24,8 +24,21 @@ export const BallAir = trait({ air: 0 });
 export const BallWet = trait({ wet: 0 });
 /** $D9CC/$D9CE/$D9D0: fly-shot impulse, grounder curve rate, pending flag. */
 export const BallSpin = trait({ sx: 0, sy: 0, pending: 0 });
-/** $D9C8: 0 normal, 1-21 the copy-ability modes; always 0 for now. */
+/**
+ * $D85A (block) / $D9C8 (work): the ball mode, 0 normal, 1-10 the copy
+ * ability in use (its number, `$82:C8B6`), 12-21 a hit code a reaction left
+ * (`$82:DBBB`); it selects the per-mode table rows. The block-work pairing
+ * is `$82:EFEA` / `$82:F17A` (notes/port-v2-phase5-abilities.md).
+ */
 export const BallMode = trait({ mode: 0 });
+/**
+ * The copy ability's other block words (work copy in parentheses):
+ * `$D856` (`$D9C6`) the ability worn, or a hit code, which picks the Kirby
+ * state code's handlers and can outlive the mode; `$D85E` (`$D9CA`) the
+ * shot's use latch, 0 at the set-up and at a take, -1 once used. The stock
+ * `$D852` (`$D9C4`) is `StockedAbility` (counters.ts).
+ */
+export const BallAbility = trait({ worn: 0, latch: 0 });
 /** $DA4A: 1 holed (in the cup), 2 once the ball has sunk ($82:AE61). */
 export const BallHoled = trait({ holed: 0 });
 /** $D9DA (heading, degrees 0-359), $D9E2 (last heading while moving). */
@@ -77,7 +90,47 @@ export interface BallWorkFields {
   spinX: number; spinY: number; spinPending: number;
 
   // --- flags ---
-  mode: number; // $D9C8: 0 normal, 1-21 the copy abilities (block $D886)
+  mode: number; // $D9C8: 0 normal, 1-10 the copy abilities, 12-21 hit codes (block $D85A)
+  stock: number; // $D9C4: the stocked ability (block $D852)
+  worn: number; // $D9C6: the ability worn, or a hit code (block $D856)
+  latch: number; // $D9CA: the shot's use latch, 0 or -1 (block $D85E)
+  /** $D75A,X / $D75E,X: Kirby's ability poses' switch variables (a variant:
+   *  the heading's half `$82:EDB5`, the UFO's pose; a direction: the surface
+   *  code or the 16-way heading). Persistent; the view reads them (Pose). */
+  abilityVar: number;
+  abilityDir: number;
+  /**
+   * The abilities' shared words `$D762`-`$D77A`: single words (no player
+   * index), outside the work copy, and kept by the shot's set-up (it clears
+   * only $D768/$D76A); each setup initialises what it reads. By ability:
+   *
+   *   $D762  Fireball full-speed frames (20); Wheel decel frames (3, $FFFF
+   *          stopped); Tornado burst frames (8); Parasol 1; Hi-Jump's flight
+   *          (state 25's script clears it); UFO's timer (615 / 12 / 15 / 60)
+   *   $D764/$D766  Wheel: the velocity along the heading at its speed
+   *   $D770  Stone's first ground iteration done; Needle's one stick on
+   *          $70-$7B; Wheel's hop done; Tornado's held L/R; Parasol closed
+   *   $D772/$D774  Stone's pose count ($D772); Fireball's -$100 and Wheel's
+   *          -200 along the heading; Tornado's saved |vx|, |vy|
+   *   $D776  Stone's rebounds left; Fireball's decel frames (10); Wheel's
+   *          speed; Tornado's pose speed; UFO's HUD countdown (600)
+   *   $D778  Wheel's last $69D8; Parasol's phase (0 rolling, 1 open, 2 slow)
+   *   $D77A  Wheel: $FFFF on the ground last frame; UFO's phase (0 flying,
+   *          1 the B exit, 2 falling)
+   */
+  d762: number; d764: number; d766: number;
+  d770: number; d772: number; d774: number; d776: number; d778: number; d77a: number;
+  /** $D76C,X: counted by the transformation (0 after it), the water drop and the ends (Kirby's scripts and objects read it). */
+  d76c: number;
+  /** $D784,X / $D788,X: a hit code's own counter (19: 1; 15: 40 after the bounce) and code 15's bounce done. */
+  d784: number;
+  d788: number;
+  /** $D79A,X: cleared by a hit code's water drop ($82:E1A7; its reader is 2P). */
+  d79a: number;
+  /** The trigger's transformation ran: the setup follows the 48 frames. */
+  setupPending: number;
+  /** The setup waited: its tail follows the wait (sim/abilities.ts abilitySetupTail). */
+  setupTail: number;
   /** Mirrors of the Shot trait ($D9B4/$D9B6), set by load-ball-work; the
    *  ROM keeps them outside the work copy but every kernel that needs them
    *  sits in this step. */
@@ -159,6 +212,26 @@ export interface BallWorkFields {
   modifierWindow: number; // $DA78
   modifierTimer: number; // $DA7A
 
+  // --- the copy abilities' facts (sim/abilities.ts; cleared per step) ---
+  /** $D7D4: Kirby's state the ability code wrote last, -1 none. */
+  poseState: number;
+  /** Inline sound requests ($80:B542), in order. */
+  abilitySfx: number[];
+  /** Thread objects spawned ($80:DFBA / $80:E4F2), by type. */
+  abilitySpawn: number[];
+  /** Spark's `$82:EE9A`: the cell whose actor it destroyed, -1 none. */
+  destroyCell: number;
+  /** Hi-Jump's relaunch: the shot's aim and elevation become w.shotAim / w.shotElev, the grounder flag 0. */
+  relaunch: number;
+  /** Spark's setup with a spin pending: the roll pose by the spin ($82:C808). */
+  rollPoseFromSpin: number;
+  /** A palette set loaded ($80:D2FE: Fireball's 5), -1 none. */
+  paletteSet: number;
+  /** Object 49 (the UFO's body) runs its per-frame code: its $531C cleared by the setup's tail. */
+  ufoLive: number;
+  /** Object 51 (the parasol): its variant 0-2 (Parasol's phase $D778), 3 falling, -2 just spawned, -1 none. */
+  parasol: number;
+
   /** A fact for update-pose: the A arming asked for the hop pose ($82:DAAE). */
   hopRequest: number;
   /** A fact for update-pose: an airborne bounce shows the roll pose ($82:CE24). */
@@ -176,6 +249,8 @@ export interface BallWorkFields {
   /** A fact: the enemy hit test passed with the latch clear; the cell + 1
    *  ($D9FC), for the take ($82:8A2E) that follows the tile dispatch. */
   enemyHit: number;
+  /** The ability enemy's take waiting out its 4 frames: its cell + 1, 0 none ($82:8A83). */
+  takePending: number;
   /** A fact: the hole-out test passed this step ($82:AE2E, holed 0 -> 1). */
   holedIn: number;
   /** A fact: the sink ended this step ($82:AEC1, holed 1 -> 2). */
@@ -252,7 +327,11 @@ export const emptyWork = (): BallWorkFields => ({
   scratch: 0,
   deg: 0xffff, dir16: 0, dir32: 0, lastDeg: 0,
   spinX: 0, spinY: 0, spinPending: 0,
-  mode: 0, shotAim: 0, shotElev: 0, rollTB: 6,
+  mode: 0, stock: 0, worn: 0, latch: 0,
+  abilityVar: 0, abilityDir: 0, d76c: 0, d784: 0, d788: 0, d79a: 0, setupPending: 0, setupTail: 0,
+  d762: 0, d764: 0, d766: 0, d770: 0, d772: 0, d774: 0, d776: 0, d778: 0, d77a: 0,
+  poseState: -1, abilitySfx: [], abilitySpawn: [], destroyCell: -1, relaunch: 0, rollPoseFromSpin: 0, paletteSet: -1, ufoLive: 0, parasol: -1,
+  shotAim: 0, shotElev: 0, rollTB: 6,
   lost: 0, lodgeTimer: 0, wallCode: 0, wallVariant: 0, wallTileRef: 0,
   request: null,
   bounceSrcX: 0x7d6f, bounceSrcZ: 0x5332,
@@ -267,7 +346,7 @@ export const emptyWork = (): BallWorkFields => ({
   screenX: 0, screenY: 0,
   block6a: 0, block6c: 0xffff, block6e: 0, ecdd: 0,
   cupDepthScratch: 0, cupGround: 0,
-  enemyLatch: 0, enemyHitMark: 0, enemyHit: 0, holedIn: 0, sunk: 0, sfxNow: 0xffff,
+  enemyLatch: 0, enemyHitMark: 0, enemyHit: 0, takePending: 0, holedIn: 0, sunk: 0, sfxNow: 0xffff,
   warpLatch: 0, warpPending: 0, warpSquash: 0,
   hazLatch: 0, hazAxes: 0, volLatch: 0, hurt: 0, tomatoLoss: 0, hazardHit: 0,
   snapKeep: 0, snapSpawn: 0,

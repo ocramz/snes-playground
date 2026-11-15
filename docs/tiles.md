@@ -500,6 +500,38 @@ landing vz through the multiply routine `$80:A342`, clamps it against
 `$80:DDE3`/`$80:DDE5`, and converts the result into a vx/vy impulse whose
 direction comes from the tile value. Landing harder throws you further.
 
+*Emulated* (web_kicker_roll / _land / _side, course 3 hole 2;
+notes/port-v2-phase5-abilities.md "The kickers"):
+- **Land**: X = 0, or 2 in mode 6 (Wheel), a byte offset into the bounds
+  (25 / 200, or 200 / 6). The kick is vz × the signed low byte of the first
+  (`$C8` is −56); at or over the second, it is the first. The push is v +
+  kick or v − kick − 1 (the tile's jump leaves the carry clear): `$10` vy −,
+  `$11` vx +, `$12` vy +, `$13` vx −.
+- **Hit** (`$82:A88C`): with the ball moving, the angle between the heading
+  and the kicker's (`$10` 270, `$11` 0, `$12` 90, `$13` 180) folded to
+  0-180 (`$82:A90F`); the push is angle × `$58` >> 8 with the friction
+  `$1000`, or `$1800` and the push capped at `$70` for an angle in [`$17`,
+  `$9D`); Wheel angle × `$18` >> 8 and `$0100`; Parasol adds the old
+  friction. Halved when the ball runs against the kicker.
+
+**The rough `$04`** (`$82:8EFB` land, `$82:8F30` hit; web_rough_roll /
+_land / _soft / _hard, course 2 hole 4): X = `$80:DDF5`/`$80:DE21`[mode] is
+a byte offset into three 2-word tables (`$80:DD71` friction, `$DD75`
+dampXY, `$DD79` dampZ); mode 0 reads `$6800`/`$6665`/`$20C4`. Neither side
+tests the mode. The land side's tail sound is `$5F` at vz 0, none for vz in
+[`$FC00`, `$FFFF`], else `$60`. The halving at `$82:8F53` compares the
+friction just loaded, never 5: it never runs.
+
+**The copy abilities' branches** in the tile handlers (the mode `$D9C8`;
+[physics.md](physics.md) "Copy abilities"): Stone ignores the volcano's
+landing (`$82:86B9`) and rebounds once on `$20-$24`; Spark is immune to the
+volcano's base (`$82:8681`) and destroys a pillar (`$82:961B`) or a volcano
+(`$82:86B9`, `$82:EE9A`: the layer-2 cell cleared, the actor freed, object
+`$3C`); Needle does not stick on a boost panel's live band; Wheel and the UFO
+ride the water and Freeze ices it (`$82:8191`); the UFO has its own cup code
+(`$82:AD39`-`$AE01`, `$B02E`). Each is traced on a poked scenario
+(engine/test/ability-scenarios.ts) or a demo.
+
 ### Hazards
 
 The hazards are **bumpers**. A hit bounces the ball, costs one tomato and

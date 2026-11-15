@@ -48,6 +48,7 @@ import { IsPlayer, activePlayer } from './traits/player';
 import { BoostHum } from './traits/boost';
 import { SnapTrail } from './traits/snap';
 import { WaterFx, KirbyPalette } from './traits/water';
+import { resetAbilityFx } from './systems/ability-fx';
 
 export interface BallPlacement {
   xc: number; xf: number; yc: number; yf: number; z: number;
@@ -118,6 +119,7 @@ export function startCourse(world: World, rules: RomRules, courses: CourseData[]
   q.entries = []; q.pending = null; q.timer = 0; q.hold = 0;
   if (world.queryFirst(IsPlayer) === undefined) spawnPlayer(world);
   activePlayer(world).set(Tomatoes, { n: TOMATO_MAX });
+  activePlayer(world).set(StockedAbility, { id: 0, carry: 0 }); // $80:C128: STZ $DA90
   return startHole(world, 0);
 }
 
@@ -167,7 +169,8 @@ export function startHole(world: World, i: number): Ctx {
   e.set(Pose, { state: 0, facing: 0, angle: 0, variant: 0, timer: 0, resume: 0 });
   e.set(Strokes, { n: 1 });
   e.set(Stars, { n: 0 });
-  e.set(StockedAbility, { id: 0 });
+  // $80:C22E: the stock the last hole-out carried
+  e.set(StockedAbility, { ...e.get(StockedAbility)!, id: e.get(StockedAbility)!.carry });
   const p = project(ctx.course, w.xc, w.xf, w.yc, w.yf, w.z);
   e.set(BallScreen, { x: p.x, xf: 0, y: p.y, yf: 0, px: p.x, pxf: 0, py: p.y, pyf: 0 });
   e.set(BallSprite, { prio: PRIO_OVER });
@@ -199,6 +202,7 @@ export function startHole(world: World, i: number): Ctx {
   const fx = world.get(WaterFx)!;
   fx.splashes = []; fx.bubbles = [];
   e.set(KirbyPalette, { wet: 0 });
+  resetAbilityFx(world, ctx); // Kirby's set 3, no palette object
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;

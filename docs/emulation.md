@@ -329,6 +329,30 @@ Two options change WRAM so a script can reach states its inputs cannot:
   mid-frame (`$4B` set, `$80:81B8`). The course-end screens are reached
   instead by real hole-outs (tools/snesstep/autoplay.py, physics.md).
 
+## The DEMOPLAY demos
+
+DEMO PLAY (title → DEMO PLAY, `$ED5B` = 1) plays a record from `$88:C880`
+[k × 4]: `$83:DA41` copies a 20-word header (the course and hole, the
+random state, the lives, the tomatoes, the stocks carried in) to the
+addresses of `$83:DA7C`, then the stream: (pad, count) word pairs, a count
+of 0 ending it. Demos 10-19 are the copy abilities on holes 160-169, each
+taking its enemy on the first shot. `$83:DAAA`, called only from the vblank
+wait `$80:845F` (`$80:8491`), ticks the stream once per wait while it is
+armed (`$C0`, set by `$82:B2E7` just before the hole's first aim): every
+call of the frame helper `$80:8F78`, every frame of a nested wait (the
+hit-stops, the take's 4 frames, the transformation's 48), and the lighter
+`$80:8F5B`'s. A lag frame does not tick it. It writes held `$0067` and
+pressed `$006B` (the edge against the last pair); a real A, B or START
+ends the demo. The help texts (`$82:F7EE`, from the frame helper while
+`$ED5B` is set) stop everything but the vblank: no thread, no physics, no
+tick (demo 10: 1091-1693). tools/export_web.py exports the records
+(`tables.json` `demos`, `demoHeader`); the engine's
+`test/trace-demos.test.ts` gets the game's pad on every tick of the ten
+streams (notes/port-v2-phase5-abilities.md "The demo clock").
+
+The scripts `tools/snesstep/inputs/web_demo10.txt`-`web_demo19.txt` reach
+them from power-on with no pokes.
+
 ## Progress and the ending
 
 `$7E:D7BE` (courses cleared, 0-8) is recomputed on the course map by

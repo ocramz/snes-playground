@@ -12,6 +12,8 @@ $7E:0057	-	ram	ram_joy_repeat	2	joypad 1 with auto-repeat (emulated)
 $7E:005F	-	ram	ram_joy_pressed	2	joypad 1 newly pressed this frame (emulated)
 $7E:0079	-	ram	ram_rng_a	2	the random state, word ($80:87DD); with ram_rng_b. Power-on 0701 ($80:BF9E)
 $7E:007B	-	ram	ram_rng_b	2	the random state, its low byte feeds back ($80:87DD); power-on 01 ($80:BF98)
+$7E:00C0	-	ram	ram_demo_armed	2	the DEMOPLAY stream is armed ($82:B2E7); $83:DAAA ticks it in every vblank wait
+$7E:00C2	-	ram	ram_demo_mode	2	demo mode (a real A, B or START ends it with $C0)
 $7E:0400	-	ram	ram_cgram_stage	512	CGRAM staging image; BG palettes at +$000, OBJ (sprite) palettes at +$100. DMA'd by sub_dma_cgram
 $7E:0600	-	ram	ram_oam_buffer	544	OAM buffer (low table $0600, high $0800); DMA'd to OAM by $80:82CA in NMI
 $7E:086C	-	ram	ram_obj_list_head	2	head of the active object linked list; negative = empty. Read by sub_obj_tick_all
@@ -113,6 +115,12 @@ $7E:B4F8	-	ram	ram_actor_slot	64	actor records: thread slot of the spawned objec
 $7E:B538	-	ram	ram_actor_cell_x	64	actor records: spawn cell column
 $7E:B578	-	ram	ram_actor_cell_y	64	actor records: spawn cell row
 $7E:B6FA	-	ram	ram_surface_kind	2	set by sub_hole_surface_gfx: 0 none, 1 boost panels (object 112), 2 water (object 113); gfx set A entry 1 reloads the water tiles when 2
+$7E:D75A	-	ram	ram_kirby_ability_var	2	the ability poses' variant switch ($82:D9FF at the transformation; the handlers)
+$7E:D75E	-	ram	ram_kirby_ability_dir	2	the ability poses' direction switch ($D9DE or $DA04)
+$7E:D762	-	ram	ram_ability_timer	2	a copy ability's timer (Tornado's burst, the UFO's 615 iterations, Fireball's stages); a single word outside the work copy
+$7E:D76C	-	ram	ram_ability_end_count	2	counts the ability's ends (the transformation, a water drop, the UFO's end, the turn's end $80:F445, the hole-out $80:F48C); the ability's objects end on it; cleared by the trigger and after the 48 frames
+$7E:D776	-	ram	ram_ufo_countdown	2	the UFO's countdown, 600 at its setup; the HUD shows it / 60 ($84:A4E6)
+$7E:D77A	-	ram	ram_ufo_phase	2	the UFO's phase: 0 flying, 1 ending, 2 wearing off; objects 49 and 50 follow it
 $7E:D78C	-	ram	ram_hit_code	2	hit reaction code for Kirby animation state 40 (burn / electrocuted) and the other hit states, from the other ball's ability
 $7E:D7BE	-	ram	ram_courses_cleared	2	0-8, set on the course map by $81:FBCD from SRAM. 8 in 1-player mode sends the main flow to the final stage ($80:F20E -> sub_final_stage)
 $7E:D7C4	-	ram	ram_kirby_facing8	2	Kirby's facing, 8 directions; switched on by the standing and aiming scripts
@@ -121,10 +129,13 @@ $7E:D7D4	-	ram	ram_kirby_anim_state	2	player 1 animation state, 0-50: the Kirby 
 $7E:D7D6	-	ram	ram_kirby2_anim_state	2	player 2 animation state, table $87:B990
 $7E:D7F0	-	ram	ram_kirby_health	2	Kirby's health (the tomatoes): 4 at the start of a hole, -1 per shot ($83:AC12), +1 per enemy taken ($83:AC01); after a shot 1-2 -> animation state 11 (tired), 0 -> state 10 (asleep). Emulated
 $7E:D7F4	-	ram	ram_lives	2	lives; at 0 after a hole the main flow takes the game-over path ($80:F387): GAME OVER and CONTINUE / GAME END, scene 9
-$7E:D85A	-	ram	ram_copy_ability	2	player 1's copy ability, 0 none, 1-10; Kirby animation state 8 switches on it
+$7E:D852	-	ram	ram_ability_stock	2	the copy ability stocked (taken, not yet lost), per player; work copy $D9C4 ($82:EFEA / $82:F17A); written at a take ($82:8A70) and from $DA90 at the hole's start ($80:C22E). Emulated (demos 10-19)
+$7E:D856	-	ram	ram_ability_worn	2	the copy ability worn, or a hit code ($82:DBBB); work copy $D9C6; keys the per-ability jump tables $82:C90A, $82:CDE8, $82:D572
+$7E:D85A	-	ram	ram_ball_mode	2	the ball mode's block copy (work copy $D9C8): the copy ability's number while one is on (1-10), a hit code (12-21), else 0; Kirby animation state 8 switches on it
+$7E:D85E	-	ram	ram_ability_latch	2	the shot's use latch: 0, $FFFF once B was used ($82:C8AD DEC on the work copy $D9CA); the trigger needs it >= 0; reset at the set-up ($80:C541) and a take ($82:8A6A)
 $7E:D866	-	ram	ram_p_spin	12	per player, interleaved by $1803: spin x $D866, spin y $D86A, pending $D86E, saved at $81:C2C4
 $7E:D872	-	ram	ram_ball_wet	2	in the water, per player (X = $1803); the work copy is $D9EE ($82:F020 / $82:F1B0); set by the water handlers, cleared off $60-$6F by $81:87FB
-$7E:D95E	-	ram	ram_kirby_anim_index	2	Kirby's frame index as the animation scripts set it (player 2 $D960); copied to the script object's $0B7E by $82:F0F8 while the ball is in play
+$7E:D95E	-	ram	ram_kirby_anim_index	2	Kirby's frame index as the animation scripts set it (player 2 $D960); loaded into $DA6A by $82:F0F8 and written to the script object's $0B7E by the camera's tail $81:A231 while the ball is in play
 $7E:D9B4	-	ram	ram_shot_aim	2	aim direction, degrees 0-359 (0 = +x, 90 = +y)
 $7E:D9B6	-	ram	ram_shot_elevation	2	launch elevation, degrees: 0 grounder ($81:B6BC), 60 fly shot ($81:B656), 65 Hi-Jump ($82:CC4F); non-zero also selects the fly-shot spin rules (emulated)
 $7E:D9B8	-	ram	ram_guide_spin_side	2	side-spin selector seen by the shot guide; reset to 6 when the shot kind changes
@@ -159,6 +170,7 @@ $7E:DA4A	-	ram	ram_ball_holed	2	1 = holed (set by $82:AE2E), 2 after the hole-ou
 $7E:DA4C	-	ram	ram_edge_step	2	step height at a cell edge crossed this frame, half steps: > 0 a step up (bounce), < 0 a drop (launch)
 $7E:DA4E	-	ram	ram_ball_events	6	this frame: $DA4E bounced, $DA50 hit a step, $DA52 hit a wall
 $7E:DA76	-	ram	ram_button_mod	6	A/Y pressed while moving: kind $DA76 (0 A, 2 Y, $FFFF none), window $DA78 (22), timer $DA7A (15 air / 3 ground) (emulated)
+$7E:DA90	-	ram	ram_ability_carry	2	the stock carried into the next hole (copied to $D852 at the hole's start, $80:C22E; cleared with a lost ball, $80:F5B7)
 $7E:EAA9	-	ram	ram_medal_flags	12	six words set by sub_medal_flags: every normal course has a medal value >= 1, >= 2, >= 3 ($EAA9/$EAAB/$EAAD), then the same for the extra courses ($EAAF/$EAB1/$EAB3). Gate the title menu's MAP SELECT ($EAAD), SOUND ROOM ($EAAF), DANCE SELECT ($EAB1) and the 1P/2P extra-course items
 $7E:EAB9	-	ram	ram_extra_game	2	0 normal courses, 1 the extra game: set from the 1PLAY GAME and MAP SELECT menus ($83:B7EF, $83:B967); halves King Dedede's damage ($87:878E)
 $7E:ED2D	-	ram	ram_dedede_hp	2	King Dedede's hit points: 24 at the start ($87:E6B4); each hit subtracts ram_dedede_damage (halved in the extra game, $87:878E); 0 ends the fight (emulated: 4 hits of 6)
@@ -496,7 +508,9 @@ $82:BD29	0x013D29	code	sub_spawn_panel_cycle	51	object 115 if any snap tile $18-
 $82:BD5C	0x013D5C	code	sub_sweep_warp	96	sub_spawn_course_actors' handler for a tile with no actor: a warp $B0-$B9 appends its cell to one of four lists, $B6FC/$B70E/$B720/$B732 (x) and +10 (y)
 $82:BDBC	0x013DBC	data	tbl_tile_actor	512	256 words, layer-2 byte -> actor id; $FFFF means no actor
 $82:C84E	0x01484E	code	loc_roll_state_by_spin	-	picks Kirby's rolling animation state 14, 16 or 15 from how far $6B54/$6B58 (0-12, centre 6) are from 6
+$82:C875	0x014875	code	sub_ability_trigger	-	B with a stock mid-roll: the latch, worn = mode = stock, the transformation $82:D9D2 (48 frames), then the setup $82:C90A[worn]
 $82:C90A	0x01490A	tbl	tbl_ability_states	-	copy ability -> Kirby animation state
+$82:D9D2	0x0159D2	code	sub_ability_transform	-	object $15 at Kirby, state 8, $D76C + 1, the poses' switches ($82:D9FF), sfx $2E, 48 frames ($80:8FB6), state 3
 $82:DA51	0x015A51	code	sub_shot_buttons	-	JSR, from $82:CDFF; A or Y pressed while the ball moves arms $DA76/$DA78/$DA7A
 $82:DB20	0x015B20	code	sub_shot_buttons_apply	85	JSR; on a bounce/step/wall event: vx, vy, vz += v*k/256, k = +39 (A) or -25 (Y) from $82:DB75 (emulated)
 $82:DB9A	0x015B9A	code	sub_kirby_hit_dispatch	-	a ball hit by another ball's ability: Kirby animation states 40-50 via tbl_hit_reactions
@@ -508,6 +522,7 @@ $83:B406	0x01B406	code	sub_text_draw	-	walk a string, OR $3C00 (palette 7, prior
 $83:B46A	0x01B46A	ptr	tbl_text_control	32	16 word targets for control codes $F0-$FF; $FE is the newline at $83:B44C
 $83:B9A5	0x01B9A5	code	sub_sound_room	266	SOUND ROOM handler. Loads song 0 on entry ($83:B9BB); FGM path $83:BA11 loads song 0 then triggers effect $B0; BGM path $83:BA20 plays song $B2 as id $7E+n
 $83:BAAF	0x01BAAF	data	tbl_sound_room_limits	4	two words compared at $83:BA6A: $007E FGM numbers (0-125), $0021 BGM numbers (0-32)
+$83:DAAA	0x01DAAA	code	sub_demo_stream_tick	-	the DEMOPLAY stream's tick from the vblank wait $80:8491: held $0067 and pressed $006B from the record's (pad, count) pairs
 $83:F985	0x01F985	code	sub_medal_award	-	after a 1P course result ($80:F528): if the medal flags rose (sub_medal_flags before/after), scene 15 with one of six congratulation texts ($83:FB02-$83:FD4F) and song $83
 $83:FADA	0x01FADA	tbl	tbl_medal_award_text	12	six text pointers for scene 15: a medal / silver or gold / gold for all courses, then the same for the extra courses ($83:FB02-$83:FD4F)
 $84:8160	0x020160	code	sub_obj111_outline	85	thread object 111: the outline walk ($84:81A3, palette 7 colour 15, $98:D3E6, 3 frames) and its hook $84:81B7 (palette 7 colour 1, $98:D4C8, 6 frames); docs/courses.md
@@ -518,6 +533,7 @@ $84:84AF	0x0204AF	tbl	tbl_water_colours	66	33 words by ram_course_slot: bank $98
 $84:8533	0x020533	code	sub_water_ripple	67	object 113's per-frame hook: every $84:8576[phase] = 8 frames phase = (phase+1)&3, 7 colours from base + $84:857E[phase] (0, $0E, 0, $1C) to CGRAM $41 (palette 4 colours 1-7); frozen while $7E:69CA is set (emulated: A B A C, 8 frames each, on course 1 hole 7)
 $84:876C	0x02076C	code	sub_obj112_boost_panels	104	thread object 112, the boost panels: palette 4 colours 1-4 from $98:C200, $C208, $C210, $C218 in turn, 4 frames each (waits 3); its hook $84:87D4 hums
 $84:87D4	0x0207D4	code	sub_obj112_hum	81	object 112's per-frame hook: while $6A28 and the probe tile $DA0A is a panel (mode != 5), music volume $82 and sound $15 every 34 frames; otherwise volume $FF, sound 0, $6A28 = 0; docs/courses.md
+$84:99FA	0x0219FA	code	sub_hud_ability_draw	-	the HUD object's draw: Kirby's outline (colour 7, the green flash while B is available), the icon's ground, the icon's upload ($84:9B0F)
 $84:9A38	0x021A38	code	loc_kirby_outline	-	a thread hook's store of Kirby's outline, palette 0 colour 7, every frame: $98:D4A8[$84:9DDB[...]], $0C63 in mode 0 and in the water
 $84:DD34	0x025D34	code	sub_hazard_frame_table	33	objects 76 and 77 at spawn: $5E1C = $84:DD55[tile - $80], $549C = $84:DD85[tile - $80]; docs/tiles.md
 $84:DD55	0x025D55	tbl	tbl_hazard_frame_tables	48	$89 frame tables by tile $80-$97: CCA7 x4, CCAB x4, CCAF x4, CCB3 x4 (76), CC47 CC5F CC77 CC8F twice (77)

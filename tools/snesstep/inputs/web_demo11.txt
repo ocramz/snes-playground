@@ -1,0 +1,12 @@
+# DEMOPLAY SELECT demo 11: Parasol on hole 164 (tools/snesstep/demos.py script(11)).
+# Title -> DEMO PLAY -> the cursor to row 2, column 1 -> A at 800. From then
+# the game plays the demo's own input stream ($88:C880[11] -> $83:DAAA), armed
+# at the hole's set-up (about frame 1030); the run ends with the hole-out.
+400 START 2
+450 DOWN 2
+480 DOWN 2
+520 START 2
+700 RIGHT 2
+712 DOWN 2
+724 DOWN 2
+800 A 2

@@ -8,6 +8,7 @@ import { Session } from '../../../core/traits/session';
 import { findActivePlayer } from '../../../core/traits/player';
 import { Career, Stars, Strokes, Tomatoes } from '../../../core/traits/counters';
 import { HoleFlow, type FlowPhase } from '../../../core/traits/flow';
+import { AbilityFx } from '../../../core/traits/ability-fx';
 
 export interface HudState {
   hole: number;
@@ -15,6 +16,9 @@ export interface HudState {
   tomatoes: number;
   stars: number;
   lives: number;
+  /** The copy ability's icon: its picture (the upload descriptor), its ground's colour (BGR555). */
+  icon: number;
+  ground: number;
 }
 
 export function hudState(world: World): HudState | null {
@@ -27,6 +31,8 @@ export function hudState(world: World): HudState | null {
     tomatoes: ball.get(Tomatoes)!.n,
     stars: ball.get(Stars)!.n,
     lives: world.get(Career)!.lives,
+    icon: world.get(AbilityFx)?.hud.icon ?? -1,
+    ground: world.get(AbilityFx)?.hud.ground ?? 0x001f,
   };
 }
 

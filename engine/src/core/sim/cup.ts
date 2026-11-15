@@ -72,6 +72,14 @@ function ringLatch(w: Work): void {
 export function cupLand(ctx: Ctx, w: Work): DispatchOutcome {
   ringLatch(w);
   if (w.holed !== 0) return cupSinking(ctx, w); // $82:AD96
+  if (w.mode === 0x0a) {
+    // $82:AD99: the UFO flying ($D77A 0) passes over the cup
+    w.cupDepthScratch = 0;
+    if (w.d77a === 0) {
+      w.holed = 0; // $82:ADB2
+      return LANDING;
+    }
+  }
   const depth = cupDepth(ctx, w);
   w.cupDepthScratch = depth; // $6B7E
   if (depth === 0) {
@@ -95,11 +103,20 @@ export function cupLand(ctx: Ctx, w: Work): DispatchOutcome {
   rimDamp(w); // $82:AF09 (+ $82:AF51)
   rimPull(ctx, w);
   w.z = w.ground;
+  if (w.mode === 0x0a) {
+    // $82:ADDD: the UFO's mode ends on the dish's wall
+    w.gravity = ctx.rules.table('ballGravity')[0];
+    w.d76c = wrap16(w.d76c + 1);
+    w.poseState = 0x0e;
+    w.block6a = 0;
+    w.mode = 0;
+  }
   return { next: 'landing', entry: 'gravityOnly' }; // $82:AE04 -> $81:899F
 }
 
 export function cupHit(ctx: Ctx, w: Work): DispatchOutcome {
   ringLatch(w);
+  if (w.mode === 0x0a && w.d77a === 0) return ROLLING; // $82:AD39: the UFO flying passes over
   const depth = cupDepth(ctx, w);
   if (depth === 0) {
     w.cupDepthScratch = 0; // $82:AD4C
@@ -153,6 +170,12 @@ function holeOut(w: Work): void {
   w.spinY = 0;
   w.spinPending = 0;
   w.gravity = 0xffc0; // $82:B027: $80:DB6D
+  // $82:B02E: Parasol (or the 2P hit code $10) holed: Kirby's state 1, the
+  // ability no longer worn (the mode is kept)
+  if (w.worn === 2 || w.worn === 0x10) {
+    w.poseState = 1;
+    w.worn = 0;
+  }
 }
 
 /** $82:AE61: the sink, one iteration per step (see the header). */

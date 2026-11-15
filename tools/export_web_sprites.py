@@ -58,7 +58,11 @@ KIRBY_CLIP_NAMES = (
     "tired_health",
     # the engine's asleep (pose 3, object $BE stands in) and hazard poses
     # (49 dizzy after a bumper, 40 the volcano's throw), engine/ phase 7
-    "fall_asleep", "dizzy", "hit_burn_")
+    "fall_asleep", "dizzy", "hit_burn_",
+    # the copy abilities (port_v2 phase 5): the transformation (state 8, by
+    # the ability), the ability's poses (20-39) and the plain ball (50)
+    "ability_gained_", "stone_", "fireball_", "needle_", "hijump_", "wheel_",
+    "parasol_", "tornado_", "freeze_", "ufo", "ball_plain")
 
 
 # --------------------------------------------------------------------------
@@ -289,7 +293,15 @@ OBJECT_SHEETS = os.path.join(ROOT, "build", "sprites", "emu")
 # bursts, $85:CF4E; engine/src/core/sim/snap-stars.ts): table $89:9485,
 # indices 0-4. (obj_061.json is no picture of 61's: it never draws, and the
 # sheet caught a stale $5E1C in its slot.)
-OBJECT_TYPES = (62, 63, 64, 76, 77, 81, 82, 83)
+# The copy abilities' drawn objects (port_v2 phase 5; engine/src/core/sim/
+# ability-fx.ts), from the DEMOPLAY demos' sheets (docs/tooling.md, the
+# demos' pickle): 21 the transformation ($89:93BF), 27 Freeze's frost
+# ($89:93AB), 28 Stone's dust ($89:9475), 31 Fireball's smoke ($89:942D),
+# 32 its flames ($89:93E9), 33 Tornado's whirl ($89:938B), 35 Hi-Jump's
+# trail ($89:9485), 37 Spark's aura ($89:948F), 39 its sparks ($89:94AF),
+# 49 the UFO's body ($89:94C7), 52 the parasol's puff ($89:9381), 65 and 66
+# Wheel's water ($89:951F). 34, 42-45 and 60 were never seen on screen.
+OBJECT_TYPES = (21, 27, 28, 31, 32, 33, 35, 37, 39, 49, 52, 62, 63, 64, 65, 66, 76, 77, 81, 82, 83)
 
 
 # The water (port_v2 phase 4; docs/animation.md "The water's objects"): the
@@ -549,3 +561,89 @@ if __name__ == "__main__":
     out = os.path.join(ROOT, "build", "web")
     os.makedirs(out, exist_ok=True)
     print(build(out))
+
+
+# --------------------------------------------------------------------------
+# The HUD's ability icon (port_v2 phase 5; engine core/systems/ability-fx.ts
+# `hudIcon`, game/features/hud): the HUD object's draw ($84:99FA) uploads a
+# picture's 16 tiles to OBJ tiles $1A0-$1A7/$1B0-$1B7 ($84:9B88 -> $80:8696,
+# a descriptor in bank $84: [flag][size][source, 3 bytes][VRAM word]..., $FF)
+# and draws the frame list $89:9092 at screen (36, 195): four 16x16 parts,
+# $1A0 at (-16, -16), $1A2 (0, -16), $1A4 (-16, 0), $1A6 (0, 0), OBJ palette
+# 1. Its colour 9 is the icon's ground, which the draw cycles (`iconGround`):
+# each picture is cut in two, the picture without colour 9 and colour 9 alone
+# in white for the view to tint. The palette is a snapshot's: web_demo12 at
+# 2120, the Fireball icon up with B available.
+ICON_REF = os.path.join(ROOT, "build", "emu", "icon_ref")
+ICON_REF_FRAME = 2120
+ICON_AT = (20, 179)  # the 32 x 32 icon's top-left on the 256 x 224 screen
+ICON_GROUND = 9
+
+
+def icon_descriptors(d):
+    """{descriptor: [(source file offset, VRAM word)]} of every picture the icon shows:
+    the stock's ($84:9E07, 0-11), Kirby standing ($84:9E67), the face ($84:9E78), the
+    UFO countdown's digits ($84:A584, player 1's)."""
+    def words(addr, n):
+        o = snes_to_file(0x84, addr)
+        return [d[o + 2 * i] | d[o + 2 * i + 1] << 8 for i in range(n)]
+    descs = sorted(set(words(0x9E07, 24)) | {0x9E67, 0x9E78} | set(words(0xA584, 20)[0::2]))
+    out = {}
+    for desc in descs:
+        o = snes_to_file(0x84, desc)
+        parts = []
+        while d[o] != 0xFF:
+            size = d[o + 1] | d[o + 2] << 8
+            src = d[o + 3] | d[o + 4] << 8 | d[o + 5] << 16
+            dest = d[o + 6] | d[o + 7] << 8
+            assert size == 0x100 and dest in (0x7A00, 0x7B00), "icon descriptor ${:04X}".format(desc)
+            parts.append((snes_to_file(src >> 16, src & 0xFFFF), dest))
+            o += 8
+        out[desc] = parts
+    return out
+
+
+def build_icons(outdir):
+    """hud_ability.png + the `ability` entry of hud.json: every icon picture
+    and its ground, in 32 x 32 cells (row 0 the pictures, row 1 the grounds),
+    by descriptor."""
+    import emusheets
+    from PIL import Image
+    from romcheck import load_rom
+    from tiles import decode_tiles, snes_color
+    if not os.path.exists(STEPPER):
+        return None
+    path = os.path.join(ICON_REF, "f%06d" % ICON_REF_FRAME)
+    if not os.path.isdir(path):
+        inputs = os.path.join(HERE, "snesstep", "inputs")
+        subprocess.run([STEPPER, "--frames", str(ICON_REF_FRAME + 1),
+                        "--input", os.path.join(inputs, "web_demo12.txt"),
+                        "--snap-at", str(ICON_REF_FRAME), "--no-dsp", "--quiet", "--out", ICON_REF], check=True)
+    cg = emusheets.load_snapshot(path)["cgram"]
+    pal = [snes_color(cg[2 * (144 + i)] | cg[2 * (144 + i) + 1] << 8) for i in range(16)]
+    d = load_rom()
+    d = d.d if hasattr(d, "d") else d
+    descs = icon_descriptors(d)
+    sheet = Image.new("RGBA", (32 * len(descs), 64), (0, 0, 0, 0))
+    cells = {}
+    for k, (desc, parts) in enumerate(sorted(descs.items())):
+        rows = {dest: decode_tiles(d[off:off + 0x100], 4) for off, dest in parts}
+        top, bottom = rows[0x7A00], rows[0x7B00]
+        for p, (n, ox, oy) in enumerate(((0, 0, 0), (2, 16, 0), (4, 0, 16), (6, 16, 16))):
+            for t, (tiles, tx, ty) in enumerate(((top, 0, 0), (top, 8, 0), (bottom, 0, 8), (bottom, 8, 8))):
+                tile = tiles[n + (t & 1)]
+                for y in range(8):
+                    for x in range(8):
+                        i = tile[y][x]
+                        if i == 0:
+                            continue
+                        X, Y = 32 * k + ox + tx + x, oy + ty + y
+                        if i == ICON_GROUND:
+                            sheet.putpixel((X, 32 + Y), (255, 255, 255, 255))
+                        else:
+                            sheet.putpixel((X, Y), pal[i] + (255,))
+        cells["{:04X}".format(desc)] = k
+    sheet.save(os.path.join(outdir, "hud_ability.png"))
+    return {"image": "hud_ability.png", "at": list(ICON_AT), "cell": 32, "cells": cells,
+            "about": "the icon's pictures by upload descriptor (hex): column k of row 0, "
+                     "and its ground (colour 9, white: the view tints it) in row 1"}

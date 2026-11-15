@@ -63,6 +63,7 @@ export class PreloadScene extends Phaser.Scene {
     if (files.has('hud.json')) load.json(Json.hud, AssetUrl.hud);
     if (files.has('hud_panel.png')) load.image(Tex.hudPanel, AssetUrl.hudPanel);
     if (files.has('hud_tomato.png')) load.image(Tex.hudTomato, AssetUrl.hudTomato);
+    if (files.has('hud_ability.png')) load.image(Tex.hudAbility, AssetUrl.hudAbility);
     if (files.has('font.png')) load.image(Tex.font, AssetUrl.font);
     if (files.has('cutscenes.json')) load.json(Json.cutscenes, AssetUrl.cutscenes);
     if (files.has('terrain_style.json') && files.has('terrain_style.png')) {

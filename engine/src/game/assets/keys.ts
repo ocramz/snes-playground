@@ -37,6 +37,7 @@ export const Tex = {
   font: 'tex:font',
   hudPanel: 'tex:hud-panel',
   hudTomato: 'tex:hud-tomato',
+  hudAbility: 'tex:hud-ability',
   terrainStyle: 'tex:terrain-style',
   /** Course 1's BG3 scenery (holes/000/layer_bg3.png), behind the holes without bitmaps. */
   scenery: 'tex:scenery',
@@ -58,6 +59,7 @@ export const AssetUrl = {
   hud: `${BASE}assets/hud.json`,
   hudPanel: `${BASE}assets/hud_panel.png`,
   hudTomato: `${BASE}assets/hud_tomato.png`,
+  hudAbility: `${BASE}assets/hud_ability.png`,
   font: `${BASE}assets/font.png`,
   audio: `${BASE}assets/audio.json`,
   terrainStyle: `${BASE}assets/terrain_style.json`,

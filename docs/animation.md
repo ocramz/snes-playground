@@ -633,7 +633,7 @@ same tile slots under the same layout. The variables:
 |---|---|---|
 | `$7E:D7C4` | 8 | Kirby's facing: aiming, waiting (states 4, 5, 9). From the aim phi: `$81:BB4A` stores `(472 - phi) mod 360` in `$6ABE`, `$81:BCA0` reads `$81:8E98[$6ABE]` (32 sectors of 11.25°; the table is also the heading → 32 directions table) and keeps `>> 2`. phi 0 (+x) gives 2, phi 90 gives 0, 180 gives 6, 270 gives 4. Screen direction `45 - 45·v` degrees (0 = right, counter-clockwise): 0 up-right, 1 right, 2 down-right, 3 down (faces the camera), 7 up. *Emulated*: 340 frames of an aim sweep match the table exactly |
 | `$7E:D7CC` | 16 | the shot's angle: the curl and the unroll (6, 7). The same 32-sector value `>> 1` (phi 0 gives 5, phi 90 gives 1, 180 gives 13, 270 gives 9), so `k` is the facing `k >> 1` refined to half octants; screen direction about `45 - 22.5·k` degrees. *Emulated*, same sweep |
-| `$7E:D85A` | 11 | the copy ability (state 8): 0 none, 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. The order is `$82:C90A`'s jump table, which sets each ability's state, and matches demos 10-19. Values 12-21 are hit codes (below) |
+| `$7E:D85A` | 11 | the ball mode's block copy (`$D9C8`'s, `$82:F17A`), which is the copy ability's number while one is on (state 8): 0 none, 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. The order is `$82:C90A`'s jump table, which sets each ability's state, and matches demos 10-19. Values 12-21 are hit codes (below) |
 | `$7E:D7F0` | 3 | Kirby's health (state 11): 4 at a hole's start, -1 per shot (`$83:AC12`), +1 per enemy (`$83:AC01`) -- *emulated*, hole1long |
 | `$7E:D8A6` | 2 | 0 on the ground, 1 airborne (state 13) |
 | `$7E:D78C` | 5 | hit code - 12 (state 40): 0 Fireball, 3 Spark reach it |
@@ -675,7 +675,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 5 | aim, turning | play | `$7E:D7C4` (8) | 8 script | `$81:A804` while the d-pad or L/R is held (`$67` & `$0F00`, `$6B` & `$30`); alternates with 4 in d01-d04 |
 | 6 | curl into the ball at the shot | play | `$7E:D7CC` (16) | 16 live | `$81:BEF1` at the shot (hole 1 frame 2823); switch on the shot angle `$7E:D7CC`; drawn by object type 26 while it runs |
 | 7 | unroll after the ball stops | play | `$7E:D7CC` (16) | 16 script | `$81:C08F` when the ball comes to rest (d00 frame 1876, d05 2912): squash, Kirby unrolls, stands; then 4. **Not reached in a normal 1P shot** (web_flow, hole 1: state 14 until `$81:A804` sets 4, 35 frames after the shot is over; only the DEMOPLAY demos go through 7) |
-| 8 | copy ability gained | play | `$7E:D85A` (11) | 11 live | `$82:D9E9` on swallowing an enemy (demos 10-19); switch on the ability `$7E:D85A`; flashes and the ability's first pose; ends in 2 |
+| 8 | copy ability gained | play | `$7E:D85A` (11) | 11 live | `$82:D9E9` in the transformation `$82:D9D2`, which the B trigger `$82:C875` runs when the stocked ability is used mid-roll (demos 10-19; a take only stocks it, `$82:8A4F`); switch on the mode `$7E:D85A`; flashes (black at its ticks 4 and 12, the second set from 36, Spark's 28, the UFO's 24) and the ability's first pose; ends in 2 |
 | 9 | stand and wait for the next turn | play | `$7E:D7C4` (8) | 8 script | `$80:C756` at the end of a shot, dropping the copy ability unless `$80:DEFD` keeps it; 2P run frame 2744 (player 1 waits while player 2 shoots), held 183+ frames; switch on the facing `$7E:D7C4` |
 | 10 | fall asleep | forced | - | 1 script | `$80:C7E6` at the end of a shot when health `$7E:D7F0` is 0 and `$6932` is 0; not reached in play; forced: eyes closed, slow breathing 48/8/64/8 frames, sfx 51 three times |
 | 11 | tired, panting (low health) | play | `$7E:D7F0` (3) | 3 script | `$80:C7AE` at the end of a shot when health `$7E:D7F0` is 1 or 2; hole1long 5598 (health 2: one pant) and 6356 (health 1: four pants); switch on `$7E:D7F0` |
@@ -747,8 +747,10 @@ Notes on what the table rests on:
   21 (`$82:A4DB`) gives 50. 41, 47 and 48 are the attacker's side, from
   `$82:DE54` (Fireball/Spark) and `$82:E00D` (Stone).
 * **The scripts store the frame index too**: `store $7E:D95E, n` (player 2:
-  `$D960`) is a show, because `$82:F0F8` copies that word into the drawing
-  slot's `$0B7E` each frame while the ball is in play. 50 stores and 10
+  `$D960`) is a show: `$82:F0F8` loads that word into the work copy's
+  `$DA6A` each roll iteration and the camera's tail `$81:A231` writes `$DA6A`
+  to the drawing slot's `$0B7E` (not `$82:F0F8` itself, as read first),
+  each frame while the ball is in play. 50 stores and 10
   store-switches do this. A `store $7E:D7D4, n` is a state change, taken
   on the next frame (19, 35, 13 and 49 hand over to 14; 8 and 20 to 2).
 

@@ -19,6 +19,13 @@ import { trait } from 'koota';
  *   step; its own list is systems/reveal.ts (`tickReveal`), and the step
  *   resumes when it is over.
  * - `takeWait`: $82:8A83's 4 frames after an ability enemy's take.
+ * - `transform`: the copy ability's transformation, `$82:D9D2`: 48 frames
+ *   of `$80:8FB6` inside the trigger `$82:C875`, which the roll loop runs
+ *   after the camera, the shadow, the sprite and the still count. So the
+ *   post-step systems run on the frame that requests it, and not on the
+ *   one that resumes the step (the ability's setup, the store).
+ * - `abilityWait`: a wait inside an ability's setup (Parasol's 9 frames,
+ *   the UFO's 24 on the ground), the same way.
  * - `waterWait`: the water's entry ($82:81F5 / $82:80D0) jumps to the frame
  *   helper $80:8F78 once inside the step, then returns from the handler
  *   (sim/water.ts): one frozen frame.
@@ -33,7 +40,14 @@ import { trait } from 'koota';
  * resumes on frame F+N. The suspended ball step's state rides as plain
  * fields (koota traits hold primitives only).
  */
-export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'waterWait' | 'warp' | 'guideLag' | 'apuLag';
+export type StallKind =
+  | 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'waterWait' | 'warp'
+  | 'transform' | 'abilityWait' | 'guideLag' | 'apuLag';
+
+/** Stalls requested after the post-step systems' place in the roll loop: they run on the request frame, not on resume. */
+export function postStepFirst(kind: StallKind): boolean {
+  return kind === 'transform' || kind === 'abilityWait';
+}
 
 export const Stall = trait({
   kind: 'none' as StallKind,

@@ -33,14 +33,16 @@
  *                 the RESULT card (see HOLEOUT_*)
  */
 import type { World } from 'koota';
+import { restoreKirbyColours } from './ability-fx';
 import { HoleFlow } from '../traits/flow';
 import { Shot, METER_TOP } from '../traits/shot';
 import { Camera } from '../traits/camera';
 import { Pose, PoseState, BallScreen, BallSprite, PRIO_OVER } from '../traits/pose';
 import {
-  BallPos, BallVel, BallAir, BallHoled, StillCount, Modifier, BallWork, emptyWork, type BallWorkFields,
+  BallPos, BallVel, BallAir, BallHoled, BallWet, StillCount, Modifier, BallWork, emptyWork, type BallWorkFields,
+  BallMode, BallAbility,
 } from '../traits/ball';
-import { Strokes, Career, STROKES_MAX, TomatoQueue } from '../traits/counters';
+import { Strokes, Career, STROKES_MAX, TomatoQueue, StockedAbility } from '../traits/counters';
 import { Session } from '../traits/session';
 import { Cell } from '../traits/hole';
 import type { Ctx } from '../sim/context';
@@ -142,7 +144,7 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   switch (phase) {
     case 'RollEnd':
-      if (t >= ROLL_END_MIN && !world.get(TomatoQueue)!.visible) rollOutcome(world);
+      if (t >= ROLL_END_MIN && !world.get(TomatoQueue)!.visible) rollOutcome(world, ctx);
       return;
     case 'SettleWait':
       if (t === SETTLE_WAIT && tomatoes(world) === 0) {
@@ -151,7 +153,13 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
         outOfTomatoes(world, 0); // its first frame is this one (web_tomatoes 3606)
         return;
       }
-      if (t >= SETTLE_FRAMES) enterPhase(world, 'ShotSetup'); // the turn top, $80:F278
+      if (t >= SETTLE_FRAMES) {
+        // $80:F445: $D76C + 1 (the ability's objects end: Freeze's frost
+        // restores Kirby's colours, demo 18 2512), then the turn top $80:F278
+        const w = activePlayer(world).get(BallWork)!;
+        w.d76c = (w.d76c + 1) & 0xffff;
+        enterPhase(world, 'ShotSetup');
+      }
       return;
     case 'Tired':
       tired(world, t);
@@ -167,6 +175,8 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
       if (t === LOST_SFX_AT) emitEvent(world, 'ball-lost', 0x54);
       if (t >= LOST_RESET_AT) {
         resetToOrigin(world, ctx);
+        // $80:F5B7 STZ $DA90, $82:F48D $D852 = $DA90: the stock is lost
+        activePlayer(world).set(StockedAbility, { id: 0, carry: 0 });
         enterPhase(world, 'Respawn');
       }
       return;
@@ -248,7 +258,11 @@ function outOfTomatoes(world: World, t: number): void {
       return;
     }
   }
-  if (t === OOT_LIFE_AT) loseLife(world);
+  if (t === OOT_LIFE_AT) {
+    loseLife(world);
+    // $80:F3C1: the stock goes with the life
+    activePlayer(world).set(StockedAbility, { ...activePlayer(world).get(StockedAbility)!, id: 0 });
+  }
   if (t === OOT_OBJECT_AT) emitEvent(world, 'life-object', 0x77); // $80:F89B
   if (t >= OOT_REFILL_FIRST && t < OOT_REFILL_FIRST + REFILL_STEP * REFILL_TRIES && (t - OOT_REFILL_FIRST) % REFILL_STEP === 0) {
     changeTomatoes(world, 1);
@@ -272,6 +286,10 @@ function holeOut(world: World, t: number): void {
     const c = world.get(Career)!;
     const strokes = activePlayer(world).get(Strokes)!.n;
     c.card[s.holeIndex] = strokes >= STROKES_MAX ? STROKES_MAX : strokes - 1;
+    // $80:F5EF: the stock carried into the next hole (then $80:F63F and the
+    // HUD thread write display codes 12, 15-17 into $D852: not kept)
+    const sa = activePlayer(world).get(StockedAbility)!;
+    activePlayer(world).set(StockedAbility, { ...sa, carry: sa.id });
     world.set(HoleFlow, { ...flow, length: t });
     return;
   }
@@ -321,7 +339,19 @@ export function setupShot(world: World, ctx: Ctx): void {
     w.lost &= ~0x8000;
     e.set(BallSprite, { prio: PRIO_OVER }); // $80:C52F-$80:C535: $D96A = 3
     e.set(StillCount, { over: e.get(StillCount)!.over, frames: 0 }); // $80:C589
-    e.set(Modifier, { kind: -1, window: 0, timer: 0 });
+    // $80:C553: the modifier's kind only; its window and timer ($D9AA/$D9AE)
+    // are kept across shots
+    e.set(Modifier, { ...e.get(Modifier)!, kind: -1 });
+    // $80:C538-$80:C54A: the ability worn, the mode and the shot's latch, in
+    // the block and the work copy (only the stock outlives the shot); $80:C54D
+    // $D768/$D76A; $80:C55C: the enemy latch $6A68, $6A6A, $693E, the water's
+    // ride $69D8, the launch lock-out $6A7A, the enemy mark $6A0C; $80:C511
+    // ($80:C8C0): the ball's sprite index $D95E/$DA6A
+    e.set(BallMode, { mode: 0 });
+    e.set(BallAbility, { ...e.get(BallAbility)!, worn: 0, latch: 0 });
+    w.mode = 0; w.worn = 0; w.latch = 0;
+    w.enemyLatch = 0; w.waterWalk = 0; w.launchLock = 0; w.enemyHitMark = 0;
+    w.block6a = 0;
     const cam = world.get(Camera)!;
     world.set(Camera, { ...cam, mode: 2, wantX: 0, wantY: 0, lagX: 0, lagY: 0 }); // $80:C574-$80:C586
     // $82:8E41: the free enemy nearest the ball (owner 2, kind $40-$57); once
@@ -393,9 +423,13 @@ export function detectBallOut(world: World): void {
  * `$80:F37A`: the roll loop has exited. Holed ($D956: the sink's end set the
  * shot over, $81:A612), lost ($D876 bit 0) or settled.
  */
-function rollOutcome(world: World): void {
+function rollOutcome(world: World, ctx: Ctx): void {
   const e = activePlayer(world);
   if (e.get(BallHoled)!.holed !== 0) {
+    // $80:F48C: $D76C + 1 (the ability's objects end), palette set 2 ($80:D2FE: Kirby's set 3)
+    const w = e.get(BallWork)!;
+    w.d76c = (w.d76c + 1) & 0xffff;
+    restoreKirbyColours(world, ctx, e.get(BallWet)!.wet);
     const hio = e.get(Strokes)!.n === 2 ? 1 : 0; // $83:D2AB tests $D82A == 2
     enterPhase(world, 'HoleOut');
     world.set(HoleFlow, { ...world.get(HoleFlow)!, holeInOne: hio, length: 0 });

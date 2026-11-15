@@ -125,26 +125,32 @@ The rules that go with it:
 | 16 | hit-step | `$81:93D1` (via `$81:88C4` / `$81:8A19`) | `sim/wall-step.ts` |
 | 17 | drop-off-edge | `$81:8B78` | `sim/wall-step.ts` |
 | 18 | dispatch-tile | `$81:811B` / `$81:8436` and the tile handlers | `sim/dispatch.ts`, `sim/outline.ts`, `sim/cup.ts`, `sim/enemy.ts`, `sim/hazards.ts`, `sim/water.ts` |
-| 19 | take-enemy | `$82:8A2E`, `$82:8A98`; the reveal `$82:8B5C` | `systems/take.ts`, `systems/reveal.ts` |
+| 19 | take-enemy, take-enemy-finish | `$82:8A2E`; an ability enemy's stock (`$D9C4` and the block's `$D852` at once, `$82:8A70`), its 4 frames (`takeWait`), then `$82:8A98`; the reveal `$82:8B5C` | `systems/take.ts`, `systems/reveal.ts` |
 | 20 | warp | `$82:AA02`, inside the warp panels' handlers: the move to the other panel, the turn to its arrow; the step blocks for the warp | `systems/warp.ts`, `sim/warp.ts` |
 | 20a | water-effects | inside the water's handlers: the splash, the bubbles, Kirby's palette (`$82:8604`), effect 0, Kirby's state 14 after a skip; then an entry's `JML $80:8F78`, one frozen frame (`waterWait`) | `systems/water-fx.ts` |
 | 21 | dispatch-landing | `$81:8905`'s first half (the hit-stop splits it) | `sim/landing.ts` |
 | 22 | finish-landing-or-roll | `$81:895B`-`$81:89A9` / `$81:8A56` | `sim/landing.ts`, `sim/roll.ts` |
 | 23 | emit-step-effects | the tail `$81:9BE5`: facts become events | |
-| 24 | arm-shot-modifier | `$82:DA51`, `$82:DB20` (from `$82:CDFF`) | |
-| 25 | store-ball-work | `$82:F1E3` | |
+| 24 | kirby-state | Kirby's state code A `$82:CDBB`: by the mode `$D9C8` the copy ability's air (`$82:CDE8`) or ground (`$82:D572`) handler, else the A/Y arming `$82:DA51`/`$82:DB20` and the bounce pose; the water drop `$82:D923` | `sim/abilities.ts`, `systems/ability.ts` |
+| 25 | kirby-state-2 | state code B `$82:DE32`: a hit code in the mode (15, 19, 20 in 1P) ended; its water drop `$82:E1A7` | `sim/abilities.ts` |
 | 26 | count-still-frames | `$81:A5CD` | `sim/still.ts` |
-| 27 | hazard-reaction | `$82:C0A8` → `$82:DB9A` | `systems/hazard-reaction.ts` |
+| 27 | ability-trigger | `$82:C875`: B with a stock, the gates, the latch spent, worn = mode = stock (and the block's), the transformation `$82:D9D2` (object 21, state 8, sfx `$2E`) and its 48 frames (`transform`) | `sim/abilities.ts` |
+| 28 | ability-setup, ability-setup-tail | the 48 frames' end `$82:DA44` and `$82:C8D2`; the ability's setup `$82:C90A`[worn] (Parasol's 9 frames, the UFO's 24 on the ground: `abilityWait`) | `sim/abilities.ts` |
+| 29 | wall-star | `$81:A406` → `$81:A2FE`: a layer-4 wall edge crossed, its star (object 70) and sfx 7 | `systems/ball-step.ts` |
+| 30 | store-ball-work | `$82:F1E3` | |
+| 31 | hazard-reaction | `$82:C0A8` → `$82:DB9A`: the hit code into the block's mode and worn | `systems/hazard-reaction.ts` |
 | | **after the step** | | |
-| 28 | detect-ball-out | `$D956`, `$D9D2`, the hazards | `systems/hole-flow.ts` |
-| 29 | update-camera | the pans `$81:BA8A`, the follow `$80:BA35`, the roll loop's `$81:A121` | `systems/camera.ts`, `sim/camera.ts` |
-| 30 | update-ball-sprite | the roll loop's `$82:F4FD`: Kirby's OAM priority `$D96A`, behind the course over a gap (table 10) or below z 0 | `systems/ball-sprite.ts`, `sim/priority.ts` |
-| 31 | update-pose | the hop's return, the squash `$81:8C95`-`$81:8CD2`, the bounce pose `$82:CE07` | `systems/pose.ts` |
-| 32 | the thread tick | the scheduler in `$80:8F78`: the HUD's tomato queue `$84:98EC` → `$83:ABDD`, the hazard actors `$80:E0C0`, object 112's hum `$84:87D4`, the snap panels' stars (objects 61 `$85:CF2D` and 62 `$85:CFE1`), the water's splashes and bubbles (objects 53-58 `$85:8E5A`-, 67 `$85:E76B`) | `systems/counters.ts`, `systems/actors.ts`, `sim/actors.ts`, `systems/boost-hum.ts`, `systems/snap-trail.ts`, `sim/snap-stars.ts`, `systems/water-fx.ts`, `sim/water-fx.ts`, `sim/rng.ts` |
+| 32 | detect-ball-out | `$D956`, `$D9D2`, the hazards | `systems/hole-flow.ts` |
+| 33 | update-camera | the pans `$81:BA8A`, the follow `$80:BA35`, the roll loop's `$81:A121` | `systems/camera.ts`, `sim/camera.ts` |
+| 34 | update-ball-sprite | the roll loop's `$82:F4FD`: Kirby's OAM priority `$D96A`, behind the course over a gap (table 10) or below z 0 | `systems/ball-sprite.ts`, `sim/priority.ts` |
+| 35 | update-pose | the hop's return, the squash `$81:8C95`-`$81:8CD2`, the bounce pose `$82:CE07` | `systems/pose.ts` |
+| 36 | the thread tick | the scheduler in `$80:8F78`: the HUD's tomato queue `$84:98EC` → `$83:ABDD`; the HUD's draw `$84:99FA` (Kirby's outline, the ability icon and its ground); the copy abilities' logic objects (51, the parasol `$85:B2FC`; 49, the UFO `$85:ADA0`: its zeroed speeds, its hum and phases, the icon's countdown); their drawn objects of list 4 (21, 27, 28, 30/31, 32, 33, 37/38/39, 52) and the palette objects (29, 36, 50); list 6's (35, 65, 66); Kirby's script (`$87:808E`: the stores, the transformation's flash, Freeze's set, Parasol's `$44`); the hazard actors `$80:E0C0`, object 112's hum `$84:87D4`, the snap panels' stars (objects 61 `$85:CF2D` and 62 `$85:CFE1`), the water's splashes and bubbles (objects 53-58 `$85:8E5A`-, 67 `$85:E76B`) | `systems/counters.ts`, `systems/ability.ts`, `systems/ability-fx.ts`, `sim/ability-objects.ts`, `sim/kirby-colours.ts`, `systems/pose.ts`, `systems/actors.ts`, `sim/actors.ts`, `systems/boost-hum.ts`, `systems/snap-trail.ts`, `sim/snap-stars.ts`, `systems/water-fx.ts`, `sim/water-fx.ts`, `sim/rng.ts` |
 
 The ball step's order is the game's. It differs from the plan's in two places:
-- the A/Y arming (the plan's item 12) runs after the physics, together with the bonus, as the Kirby state code does;
+- the A/Y arming (the plan's item 12) runs after the physics, in Kirby's state code A, as the game does;
 - the hazard reaction is an addition.
+
+A thread's store of Kirby's state (`store $7E:D7D4`, a script's or object 51's) lands at the next frame's start (`Pose.pending`, `applyScriptStore`), as the scheduler runs before the step in the game's iteration.
 
 Systems 12-22, except take-enemy, warp and water-effects, are marked `kernel`. The shot guide runs them on a cloned work copy with no buttons, no stalls and no events (`runKernelStep`).
 
@@ -155,6 +161,8 @@ Systems 12-22, except take-enemy, warp and water-effects, are marked `kernel`. T
 | `hitStop` / `stepStop` | `$81:8C95` waits 4 (a landing, `$81:8C79`) or 2 (a step hit, `$81:8C48`) frames inside the step | the squash pose; the pad ORed into a latch | yes |
 | `cupReveal` | `$82:8B5C`, the last enemy becomes the cup inside the step | `tickReveal` (`systems/reveal.ts`) | yes |
 | `takeWait` | `$82:8A83`'s 4 frames after an ability enemy's take | — | yes |
+| `transform` | the transformation's 48 frames (`$82:D9D2` → `$80:8FB6`); the post-step systems run on the frame that asks for it | — | yes |
+| `abilityWait` | a setup's nested wait: Parasol's 9 frames (`$82:C99E`), the UFO's 24 on the ground (`$82:CD3B`) | — | yes |
 | `waterWait` | the water's entry jumps to the frame helper `$80:8F78` once inside the step (`$82:81F5` / `$82:80D0`), then returns from the handler | — | yes |
 | `warp` | `$82:AA02`, a warp panel takes the ball to the other one inside the step | `tickWarp` (`systems/warp.ts`) | yes |
 | `guideLag` | the aim loop's guide simulation outlasts the frame | — | no |
@@ -186,15 +194,16 @@ World singletons (`world.add` at creation, `core/world.ts`):
 | `BoostHum` | active (object 112 lives: the hole has a boost panel), its counter | object 112's `$531C` | `traits/boost.ts` |
 | `SnapTrail` (AoS) | the live objects 61 (spawners) and 62 (stars, with their slot fields), and the flag they share | `$699A`, the thread slots | `traits/snap.ts` |
 | `WaterFx` (AoS) | the live splashes (53-58) and bubble emitters (67), with their slot fields | the thread slots | `traits/water.ts` |
-| `GameRng` | the random state; in a 1P hole only the bubbles draw on it. Not reset per hole; the tests seed it from the recording at the set-up | `$0079`, `$007B` (`$80:87DD`) | `traits/water.ts` |
+| `GameRng` | the random state; in a 1P hole the bubbles and the abilities' objects (Stone's dust, Fireball's smoke, Hi-Jump's trail, Spark's sparks) draw on it. Not reset per hole; the tests seed it from the recording at the set-up | `$0079`, `$007B` (`$80:87DD`) | `traits/water.ts` |
+| `AbilityFx` (AoS) | Kirby's colours 2-8; the HUD's ability state (the outline's and the icon's phases, the ground's colour, the icon's picture as its upload descriptor, the face's countdown, the UFO's countdown); the palette objects 29, 36, 50 and the frost; the drawn objects; object 49's sounds. The colours and objects are reset per hole, the HUD's phases are not | `$0504`-`$0510`, the HUD object's `$5B1C`/`$551C`/`$531C`-`$569C`, `$D862`, the thread slots | `traits/ability-fx.ts` |
 
 The player: one entity per player (`spawnPlayer`, `core/world.ts`), tagged `IsPlayer`. The one whose turn it is carries `IsActivePlayer`, which stands for `$7E:1803`: `$82:F030` loads the per-player block at X = `$1803`, 0 or 2 ([physics.md](physics.md) "The ball's state"). In 1P the first `startCourse` spawns the one player, and it is the active player from then on. It is not under the hole root, so it outlives the holes and GAME END. Everything finds it with `activePlayer` / `findActivePlayer` (`traits/player.ts`), so a 2P turn change has only to move the tag. The entity carries `Visual {kind: 'ball'}` and:
-- the block, SoA: `BallPos`, `BallVel`, `BallAir`, `BallWet` (`$D872`, in the water), `BallSpin`, `BallMode` (always 0), `BallHoled`, `BallHeading`;
-- persistent, SoA: `StillCount` (`$D9BE/C0`), `Modifier` (`$DA76/78/7A`), `Tomatoes` (`$D7F0`), `Strokes` (`$D82A`), `Stars` (`$6A10`), `StockedAbility` (`$D852`);
-- `Pose` (`$D7D4`, `$D7C4`, `$D7CC`, `$6A6E`), the semantic state only, never a clip;
+- the block, SoA: `BallPos`, `BallVel`, `BallAir`, `BallWet` (`$D872`, in the water), `BallSpin`, `BallMode` (`$D85A` ↔ `$D9C8`: the copy ability's number while one is on, or a hit code 12-21), `BallAbility` (`$D856` ↔ `$D9C6` the ability worn, `$D85E` ↔ `$D9CA` the shot's use latch), `BallHoled`, `BallHeading`;
+- persistent, SoA: `StillCount` (`$D9BE/C0`), `Modifier` (`$DA76/78/7A`), `Tomatoes` (`$D7F0`), `Strokes` (`$D82A`), `Stars` (`$6A10`), `StockedAbility` (`$D852` ↔ `$D9C4`, the stock, and `carry`, `$DA90`: the stock carried into the next hole);
+- `Pose` (`$D7D4`, `$D7C4`, `$D7CC`, `$6A6E`, and the ability poses' switches `$D75A`/`$D75E`), the semantic state only, never a clip; `pending` holds a thread's store until the next frame;
 - `BallScreen` (`$DA56`-`$DA64`);
 - `BallSprite` (`$D96A`): Kirby's OAM priority, 3 except behind the course (1 or 2);
-- `KirbyPalette`: OBJ palette 0's colours 2-6 wet or dry (`$82:8604`);
+- `KirbyPalette`: OBJ palette 0's colours 2-6 wet or dry (`$82:8604`); the colours themselves, all of 2-8, are `AbilityFx.colours`;
 - `BallWork` (AoS): the work copy with its facts, and `$6A28` (`boostFlash`, a straight boost hit's speed; a global the guide writes too) and the probe tile the aim's guide left (`guideTile`, `guideLeft`), which only the hum and object 61 read. It also keeps the water's globals `$69CC`-`$69DC` (region, level, saved ground, ride, ice, skips), the block's `$D872` as loaded (`blockWet`, the guide's start) and the latched `$6B58` (`rollTB`). `$69CA`, the water off, is the hole's (`KernelCourse.waterOff`, from the load's counts).
 
 The hole's entities, spawned from the load-time sweep (`sweep.ts`, `$82:B320`; `traits/hole.ts`):
@@ -328,6 +337,10 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | tile | `$1A`, `$5F`, `$60`, `$6F`, `$11`, `$7C`, `$0C`, `$47`, `$48`, `$49`, `$4C` | the tail: friction, rough, `$05`, snaps, a cone, an arrow panel (`$82:A7D6`); the water: Freeze `$47`, a skip, skim or bounce `$48`, in slowly or out `$49`, in fast `$4C` | `sim/dispatch.ts`, `sim/hazards.ts`, `sim/water.ts` → the tail | effect |
 | pillar | `$71` | `$82:956C` / `$82:95F8` | `systems/ball-step.ts` | effect |
 | hazard | `$6F` | `$82:9C9D`, a bumper | `systems/ball-step.ts` | effect |
+| ability | `$2E` and the abilities' (the setups' `$69`, `$08`, `$4E`, `$70`, `$78`, `$59`, `$1B`, `$14`; `$09`, `$1A`, `$3B`, `$0E`, `$3C`, `$3A`, `$4D`, `$72`, …); the UFO's hum `$75`, `$73`, `$74`, `$21`, the countdown's `$42`, the parasol's `$44` | the trigger `$82:DA39`, the handlers, object 49 `$85:AE13`-`$AE88`, `$84:A54F`, Kirby's state-29 script | `systems/ability.ts`, `systems/ability-fx.ts`, `systems/hazard-reaction.ts` | effect |
+| ability-fx | — | an ability object spawned (its type) | `systems/ability.ts` | none (the view reads `AbilityFx`) |
+| palette-set | — | `$80:D2FE` (Fireball's set 5) | `systems/ability.ts` | none (the view reads `AbilityFx.colours`) |
+| wall-star | 7 | `$81:A3A8`, a layer-4 wall's star | `systems/ball-step.ts` | effect |
 | hazard-hit | — | `$82:EED8`, object `$2F` | `systems/ball-step.ts` | nothing (not drawn) |
 | snap-trail | — | `$82:A60E`, object 61: a snap panel's pass | `systems/snap-trail.ts` (from `systems/ball-step.ts`) | nothing: the stars are drawn from `SnapTrail` |
 | water-splash | — | `$82:8604`, `$82:82A3`, `$82:8303`, `$82:8515`: a splash, objects 53-57 | `systems/water-fx.ts` (from `systems/ball-step.ts`) | nothing: drawn from `WaterFx` |
@@ -358,7 +371,10 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | asset | ROM source | exporter step | output | engine consumer |
 |---|---|---|---|---|
 | physics constants and tables | the ROM tables, each with its `$bank:addr` (the outline walk `$98:D3E6` included) | `tables` | `rules/tables.json` | `RomRules` (`core/rules.ts`) |
-| Kirby's clips | the `$87` script engine plus live captures (`tools/kirbyanim.py --clips`; [animation.md](animation.md)); each frame also drawn with the wet colours 2-6 of `$98:C796` (`png_wet`) | `sprites` | `sprites.png/json` frames and clips; the wet twins `k_<hash>_w` | Preload's `addAtlasFrames` / `addAtlasClips`; `KirbyView` |
+| Kirby's clips | the `$87` script engine plus live captures (`tools/kirbyanim.py --clips`; [animation.md](animation.md)); each frame also drawn with the wet colours 2-6 of `$98:C796` (`png_wet`); the copy abilities' (states 8, 19-39, 50 by their switches) | `sprites` | `sprites.png/json` frames and clips; the wet twins `k_<hash>_w` | Preload's `addAtlasFrames` / `addAtlasClips`; `KirbyView` (other colours: the dry frame repainted, `kirby-recolour.ts`) |
+| Kirby's colour sets, the HUD's phases and icon tables | `$98:C77A`-`$98:CC26` (set 3 dry and wet, Fireball's set 5 and its fades, Spark's, Freeze's, the flash, the UFO's and its warning), `$98:D4A8`/`$D4B8`, `$84:9DDB`/`$9D97`, `$84:9E07`, `$84:A554`/`$A584`/`$A5AC`, `$84:8AF8`-`$8BEC` | `tables` | `tables.json` `kirby*`, `outline*`, `icon*`, `hudIcon`, `ufo*` | `sim/kirby-colours.ts`, `systems/ability-fx.ts` |
+| the copy abilities' objects 21, 27, 28, 31, 32, 33, 35, 37, 39, 49, 52, 65, 66 | the DEMOPLAY demos' emulated sheets (`build/sprites/emu/obj_NNN`) | `objects` | frames `oNNN_0_II` | `AbilityFxView` |
+| the HUD's ability icon | each picture's 16 tiles from its upload descriptor (`$84:9E07` → `$8C:CC78` + `$200`·stock, `$93:9000`, `$93:9200`, the countdown's digits), OBJ palette 1 of web_demo12 at 2120 (`export_web_sprites.py` `build_icons`) | `hud` | `hud_ability.png` (the pictures without colour 9, and colour 9 alone in white), `hud.json` `ability` | the Hud scene (the ground tinted with `AbilityFx.hud.ground`) |
 | enemy, star, cup, tee pad, tree, shadow, guide | live VRAM/CGRAM of the c1n replay; snapshots for the guide (`export_web_sprites.py`, `emusheets.py`) | `sprites` | the same atlas | the views |
 | every enemy species' idle clip | every frame of an idle window on the first hole with the species (`tools/snesstep/trace_enemies.py` → `build/sprites/enemies`) | `sprites` | frames `enemy_XX_i`, clips `enemy_XX_idle` | `EnemyView`, `CupView` (`catalog-data.ts` `enemyClip`) |
 | the hazards' frame tables by spawn tile | `$84:DD55` (`$84:DD34`) | `tables` | `tables.json` `hazardFrameTables` | `HazardView` (`hazardFrame`) |
@@ -513,7 +529,7 @@ The bridge:
 
 ## Verification
 
-`make engine-test` runs 39 vitest files (565 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 43 vitest files (654 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -526,7 +542,11 @@ The bridge:
 | `stalls`, `reveal` | the hit-stops and the reveal's edges, frame-exact; the reveal's stages on course 1's holes 1-4 |
 | `hole-entities`, `hazards`, `hazard-actors`, `trace-hazards` | the sweep on all 8 holes; the one player entity, active from `startCourse` through `nextHole`, GAME END and CONTINUE; the five hazard scenarios (ball states, sounds, the actors' state sequences); `$A2` and the auto-tiling on t7 |
 | `trace-warp` | two poked scenarios on course 1 hole 4 (`web_warp`, `web_warp_fly`): the warp `$B4` → `$B5` rolled onto and landed on; ball states and sounds, the stall's frames, Kirby's sprite and the camera's pan every frame from the warp's start |
-| `trace-terrain` | three poked scenarios on course 1 holes 2 and 3 (`web_arrow`, `web_ramps`, `web_step`): the arrow panel's turn, the in-cell crest, flush ramp edges along ±y, a step hit by the N edge and its hit-stop; two on course 3 hole 2 (`web_boost`, `web_boost_side`): the N boost panel hit straight and askew (the small push, the launch), object 112's hum and its end; five on the snap panels (`test/snap-scenarios.ts`; course 7 hole 7, course 4 hole 6, course 8 hole 7): `web_snap` (rolled onto, to the floor `$E000`, the latch the enemy beyond shares), `web_snap_land` (landed on), `web_snap_back` (against the push), `web_snap_fast` (the cap `$2000`), `web_snap_east` (`$19`'s skipped store); eight on the water (`test/water-scenarios.ts`; course 1 hole 7): rolled in, dropped deep, a shallow corner, skims, out over the rim, two skips with top and back spin, the modifier's bounce; ball states and sounds (`test/scenarios.ts`, shared with `trace-hazards`) |
+| `trace-terrain` | three poked scenarios on course 1 holes 2 and 3 (`web_arrow`, `web_ramps`, `web_step`): the arrow panel's turn, the in-cell crest, flush ramp edges along ±y, a step hit by the N edge and its hit-stop; two on course 3 hole 2 (`web_boost`, `web_boost_side`): the N boost panel hit straight and askew (the small push, the launch), object 112's hum and its end; five on the snap panels (`test/snap-scenarios.ts`; course 7 hole 7, course 4 hole 6, course 8 hole 7): `web_snap` (rolled onto, to the floor `$E000`, the latch the enemy beyond shares), `web_snap_land` (landed on), `web_snap_back` (against the push), `web_snap_fast` (the cap `$2000`), `web_snap_east` (`$19`'s skipped store); eight on the water (`test/water-scenarios.ts`; course 1 hole 7): rolled in, dropped deep, a shallow corner, skims, out over the rim, two skips with top and back spin, the modifier's bounce; four on the rough `$04` and three on the kickers `$10-$13`; twelve on the copy abilities (`test/ability-scenarios.ts`): eleven poked (a stock and B at the roll's first frame: Tornado, Fireball, Wheel, the UFO into a step; Parasol off a ledge; Spark into a tree and onto a volcano; the UFO into a bumper; Needle onto a boost panel; Freeze and Stone into the pond; their sounds on the game's iterations) and web_ab_c1 unpoked (course 1 hole 3: the Hi-Jump enemy taken, used on the next two shots, a second B refused by the latch; frame-exact); ball states, the ability's block words and sounds (`test/scenarios.ts`, shared with `trace-hazards`) |
+| `trace-demos` | the DEMOPLAY demos 10-19 on holes 160-169, played from their set-ups with the pad the game read (`test/demo-harness.ts`: video frames from each shot's first aim to its launch, the game's iterations in the roll, re-anchored every shot; `core/demo.ts`): every tick of the ROM's streams (`$83:DAAA`); every ball state in order with the ability's block words (`$D852`-`$D85E`) at each, Kirby's states at the game's frames ±1, every sound request ±1, to the hole-out |
+| `ability-colours` | Kirby's colours 2-8 frame by frame on the demos and web_ab_c1 (the flash, the outline's green flash, Fireball's set and fades, Spark's cycle, Freeze, the UFO's colours, light and warning, the restores; the power stage's glow skipped); the HUD's icon at every change of picture (the stock's, the face, the ball, the UFO's countdown) within 2 frames |
+| `ability-objects` | the abilities' drawn objects on the demos against their recorded slots (`trace_actors.py --types 21,27,...`): each object in order, its frame index and point at each change within a frame, its end; the followers over their first 120 frames |
+| `kirby-recolour` | the BGR555 → RGB conversion and a repaint |
 | `water-fx` | the water's scenarios and web_water_shot: per matched ball state the block's `$D872` and Kirby's palette (the CGRAM shadow `$0504`); every splash (53-58) and bubble emitter (67) in spawn order, its states (x, y, frame) in the game's, the random state seeded at the set-up; the region at its edges, the level, the skip count, the mode branches, `$80:87DD` |
 | `snap-stars` | objects 61 and 62 on the five snap scenarios against their recorded slots (`trace_actors.py --types 61,62`, with the slots' exits): the spawners, the bursts, each star's states (x, y, frame) in order, taken twice a tick; the polar step, a script's life, the burst's sign test |
 | `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
@@ -540,11 +560,13 @@ The bridge:
 | `no-phaser-in-core` | the dependency rules above, the player's handle included: no `queryFirst` on a player trait anywhere in `src/` or `test/` |
 
 In the browser:
-- `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs`, `test/e2e/random.mjs` and `test/e2e/water.mjs` (Playwright with the cached Chromium). `water.mjs` plays web_water_shot's input on course 1 hole 7 frame by frame through the debug hook's `step`, with screenshots at the entry, on the bed, in the aim from the water and on the way out (`build/engine-test/water/`). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
+- `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs`, `test/e2e/random.mjs`, `test/e2e/water.mjs` and `test/e2e/ability.mjs` (Playwright with the cached Chromium). `ability.mjs` plays web_ab_c1's input on course 1 hole 3 frame by frame, checks Kirby's clips in the transformation and the jump, and saves screenshots at the take, the transformation, the jump and the third shot's aim (`build/engine-test/ability/`). `water.mjs` plays web_water_shot's input on course 1 hole 7 frame by frame through the debug hook's `step`, with screenshots at the entry, on the bed, in the aim from the water and on the way out (`build/engine-test/water/`). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
 - `python3 tools/check_web_ui.py --target engine` renders the panel for 20 recorded states. All 20 are pixel-identical to the game's OAM sprites.
 
 The harness's conventions:
 - **`GAME_OFFSET` = 2332**: engine frame f is game frame f + 2332. It is pinned on web_flow's set-up, and every script starts hole 1 with `2100 A`. The poked scenarios carry their hole's own offset (2338 on hole 17).
+- **The demos have no offset**: `playRecording` (`test/demo-harness.ts`) re-anchors each shot on the game's recording, as above. The help texts of demo mode (`$82:F7EE`, the threads stopped) are not played; the HUD's free-running phases are put back where the game's are after them.
+- **The poked ability scenarios compare their sounds on the game's iterations** (`Scenario.clock = 'iteration'`, `iters_<name>.json`), the game lagging about 5 frames after a poke; web_ab_c1 on its frames (`'frame'`).
 - **A poked hole needs `$6A5C` too.** `$6A5A`/`$6A5E` pick the hole, but the course slot `$6A5C` (2 × course; the song list, the ripple's colours) is set on the map, so a poke of `$6A5A` alone plays course 1's song and ripple ([emulation.md](emulation.md)).
 - **A stamp below scanline 112 belongs to the previous iteration** ([emulation.md](emulation.md) "Frames, iterations and snapshots").
 - **The trace comparison aligns distinct states**, allowing the game's lag bursts, and the hazard actors are aligned to the recording before each poke.
@@ -556,12 +578,11 @@ The harness's conventions:
 The physics:
 - `$81:980B`'s crest branches across cells: the eight per-crossing quadrant samples fall through to "no crest", which is exact for flat and same-shape crossings. The game launches the ball rolling from a flat cell onto a ramp that falls away from it. Two recordings show it: web_haz98 at 2497, and web_ramps' first draft at 2473 (course 1 hole 2, the flat (4,15) onto the `$06` ramp). The engine rolls on instead. The in-cell branch (no edge crossed) is ported and recorded: web_arrow at 2541.
 - The toggle tiles `$70`-`$7B`: their direction map at `$88:9190` is not exported.
-- The water's ability branches (Wheel and UFO ride the level, Freeze ices it; `sim/water.ts`) are ported as read and untraced, with `$D77A` taken as 0. The ability's drop on entering water (`$82:CDC5`, `$82:DE3B`: state 19) is not: the engine keeps no `$D9C6`.
+- The copy abilities' 2P parts (step 9): the ball-to-ball hit codes 12-17 (`$82:C693`, `$80:DF29`/`$DF55`), the contact matrix `$82:C41E`, the stock swap, the roulette `$82:8DD2` (the 1P holes have no `$57`), Freeze's `$D780,X` = `$15`; a 2P code in the reaction throws.
 - The water's `$69CA` is set at the load only; the `$5C`/`$5D` tiles that toggle it in play are stubs. Player 2's wet palette (`$98:C7A4` at CGRAM `$92`) is not used.
 - The tiles `$58`-`$5D` ([tiles.md](tiles.md) "Not established"). The warps `$B0`-`$B9` are ported, except the random pick among 3 or 4.
-- The pillar's mode-7 branch `$82:EE9A`, and the hazards' mode-7 destroy.
 - The rough tiles' `$80:A453` arithmetic: ported, but no trace exercises it.
-- `$68F0` outside the fly shot's first bounce.
+- `$68F0` outside the fly shot's first bounce (the spin streak's end on a spin of 0 or a lost ball is ported).
 - The game's lag frames: the engine has no cycle counts, so course 1 hole 4's reveal and the volcano holes are a few frames off where the game lags. So is the HUD's tomato after course 7 hole 7's reveal (web_snap: 4 frames later in the game), so the snap scenarios there end before it.
 
 The flow:
@@ -577,10 +598,12 @@ The presentation:
   - the hop object `$78`, the outline-wall effect `$47`, the hazard flash `$2F`;
   - the ring stage's 78/97/79, `$BE` (the `fall_asleep` clip stands in), `$40` after the out-of-tomatoes sleep (the warp's 64 is drawn), 110;
   - the eruption's projectiles (object 84);
-  - the score panel's toggles and the portrait's face, the tee changing colour during the curl, the fly shot's shrinking dot tiles.
+  - the score panel's toggles, the tee changing colour during the curl, the fly shot's shrinking dot tiles;
+  - the copy abilities' overlays drawn in Kirby's OAM pass (`$6A98`-`$6AA4`): the UFO's saucer (object 49, its poses' VRAM blocks `$85:AFE6` not decoded) and the parasol's canopy (object 51, `$89:A144`/`$A165`), so Kirby shows without them; his frame index `$D95E`/`$0B7E` (the parasol's 6/7, the UFO's set-up), the clips' own frames standing in; objects 34 and 42-45 (tile `$04`'s dust), 44, 60 (Spark's volcano), the parasol's end puff 52, never seen in the demos;
+  - the power stage's glow on Kirby (an object of bank $84, `$84:CBBE`: colours 2-6 darken, colour 7 blinks `$0018`).
 - The guide's dots march in four steps of 5 frames toward the next point; the game's order of the march is not traced.
 - The game's random state (`$80:87DD`) starts at its power-on value in the engine and only the bubbles advance it; the game's carries the menus, the attract and the holes' openings. In play the bubbles' positions and waits are the game's kind, not its draws; the tests seed the state from the recording.
-- Kirby's outline colour (palette 0 colour 7) is `$0C63` throughout: the hook `$84:9A38` that sets it every frame has a green flash under an ability that is not ported. Its wet twins take the wet set's colours 2-6 only, as the screen shows them.
+- Kirby's colours other than dry and wet are his dry frames repainted in the browser (`kirby-recolour.ts`): a pixel takes a palette colour by its exact RGB, so a colour of another palette with the same RGB would change too (none in the atlas's Kirby frames). The HUD's outline and icon phases start at 0 on the course's first hole; the game's run from its panel set-up.
 - The snap panels' stars have no OAM queue: they draw just behind Kirby. Their queue is Kirby's, +1 when the heading is < 3 or ≥ 11 (`$85:CFB9`). That put them behind him in the stepper's snapshots of web_snap (2502-2508), but other sprites' order around them is not checked. A star's frames 0-2 take Kirby's current priority, where the game's `$DA74` is read when the star is drawn; the two are the same here.
 - The outline pulse starts at the hole's first frame; its phase in the game is not known.
 - The palette cycles (the ripple, the boost and warp/snap panels', the glow) start at their set 0 on the hole's first frame. The objects start them at the load, so the phase is not known, and the game's lag frames, which stretch a step (10 frames once in a recording), are not modelled. The ripple's other variants are not ported: the iced water's colours (`$69DA`, Freeze), the freeze while `$69CA` (the water off) is set, and the `$6A2E`/`$ED5B` tables ([courses.md](courses.md)).
@@ -591,7 +614,7 @@ The presentation:
 
 ## Deferred
 
-- Copy abilities: the modes 1-21 (`$D9C8`), the swallow, the ability's use. An ability enemy's take is ported (`$50`, the 4 frames, the stocked id); the roulette `$57` counts as none; the test holes reject ability enemies.
+- The test holes and the random holes place no ability enemies (the ROM holes do: all ten abilities are ported).
 - Two players: the second player entity and the turn change (the handle, `IsActivePlayer` for `$1803`, is in place), pad 2, the tomato queue's per-player entries, the follow's catch-up states, stolen stars (`$82:8B0F`), ball-to-ball hits, the 2P HUD, the asleep turn-skip.
 - King Dedede, the course result's medals, the map (the plan's stretch goal), the scoreboard, player names, the menus, SRAM.
 - The extra game (holes 64-127): the same loading with `ENGINE_HOLES` (its songs and ripples are courses 1-8's), but not offered.
@@ -625,5 +648,5 @@ Read from code but not seen in a run:
 - `$6A8C`, the reveal's hold on objects 76 and 77;
 - the −y step clamp ([physics.md](physics.md) "Cell edges, walls and steps");
 - state 40's arm on a volcano (`$D78C` = 3);
-- the water's ability branches: Wheel and UFO riding the level, Freeze's ice and `$47` (`sim/water.ts`; `test/water-fx.test.ts` checks them on hand-made work copies);
+- the water's ability branches beyond the demos and web_ab_freeze_pond / web_ab_stone_pond: the UFO riding the level (`sim/water.ts`);
 - the splashes' and bubbles' depth one OAM queue back (behind Kirby), and in his queue (in front) beyond the one snapshot of web_water_shot 2763.

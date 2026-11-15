@@ -23,6 +23,9 @@ import { tickHazards } from './actors';
 import { tickBoostHum } from './boost-hum';
 import { tickSnapTrail } from './snap-trail';
 import { tickWaterFx } from './water-fx';
+import { kirbyScripts } from './pose';
+import { abilityThreads } from './ability';
+import { tickAbilityHud, tickAbilityColours, tickAbilityObjects, tickKirbyScriptColours } from './ability-fx';
 
 /** `$83:ABC5` (delta -1) / `$83:ABAD` (+1): queue a tomato change. */
 export function pushTomato(world: World, delta: 1 | -1): void {
@@ -61,6 +64,13 @@ export function threadTick(world: World, ctx: import('../sim/context').Ctx): voi
     return;
   }
   applyTomatoQueue(world);
+  tickAbilityHud(world, ctx); // the HUD object's draw ($84:99FA): list 4's first
+  abilityThreads(world);
+  tickAbilityObjects(world, ctx, 4);
+  tickAbilityColours(world, ctx);
+  tickAbilityObjects(world, ctx, 6);
+  kirbyScripts(world);
+  tickKirbyScriptColours(world, ctx);
   tickHazards(world, ctx);
   tickBoostHum(world);
   tickSnapTrail(world, ctx);

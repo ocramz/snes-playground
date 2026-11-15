@@ -23,6 +23,7 @@ import { HoleFlow, type FlowPhase } from '../traits/flow';
 import { WaterFx, GameRng, KirbyPalette } from '../traits/water';
 import { spawnSplash, spawnBubbles, tickSplash, tickBubble, type FxSource, type SplashRun } from '../sim/water-fx';
 import { emitEvent } from './flow-util';
+import { restoreKirbyColours } from './ability-fx';
 
 /** `$D842` is set by the set-up ($80:C679) and cleared as the roll starts ($82:C282). */
 const STANDING: ReadonlySet<FlowPhase> = new Set(['ShotSetup', 'Aim', 'PanToShot', 'Spin', 'Power', 'LaunchDelay']);
@@ -35,7 +36,10 @@ export function noteWater(world: World, ctx: Ctx, w: BallWorkFields): void {
   }
   if (w.waterBubbles !== 0) world.get(WaterFx)!.bubbles.push(...spawnBubbles());
   const e = activePlayer(world);
-  if (w.waterPalette >= 0) e.set(KirbyPalette, { wet: w.waterPalette });
+  if (w.waterPalette >= 0) {
+    e.set(KirbyPalette, { wet: w.waterPalette });
+    restoreKirbyColours(world, ctx, w.waterPalette); // $82:8604: colours 2-8, wet or dry
+  }
   if (w.waterSilence !== 0) emitEvent(world, 'silence', 0); // $80:B542 with A = 0
   if (w.kirbyRoll !== 0) e.set(Pose, { ...e.get(Pose)!, state: PoseState.Roll, timer: 0 });
 }
