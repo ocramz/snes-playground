@@ -206,6 +206,13 @@ def build(outdir):
 
     ring = sheet_frames(os.path.join(SHEET_DIR, "obj_074"))
     atlas.add("cupring", *ring[0])
+    # Object 75, spawned at the hole-out ($82:AD13): four 16x16 sprites at OAM
+    # priority 0 and a lower OAM index than Kirby (web_hole0 f003124), so
+    # where it is opaque the course shows through and Kirby is hidden: the
+    # cup's near rim. Only its alpha is used (the engine's cup-mask.ts); the
+    # notch in rows 0-1 is the ring's opening.
+    mask = sheet_frames(os.path.join(SHEET_DIR, "obj_075"))
+    atlas.add("cupmask", *mask[0])
     tee = sheet_frames(os.path.join(SHEET_DIR, "obj_108"))
     atlas.add("tee", *tee[3])
     shadow = sheet_frames(os.path.join(SHEET_DIR, "obj_121"))
@@ -249,8 +256,10 @@ def build(outdir):
 OBJECT_SHEETS = os.path.join(ROOT, "build", "sprites", "emu")
 # The bumpers 76 (rides its track) and 77 (bobs), the volcanoes 81-83
 # (docs/tiles.md; engine/src/core/sim/actors.ts). actors.tsv rates all five
-# actor ids a "match" for these types.
-OBJECT_TYPES = (76, 77, 81, 82, 83)
+# actor ids a "match" for these types. 63 and 64 are the warp's: Kirby curls
+# up and bursts into stars at the warp he went into, stars and a flash where
+# he comes out ($82:AAE5, $82:AB6E; engine/src/core/systems/warp.ts).
+OBJECT_TYPES = (63, 64, 76, 77, 81, 82, 83)
 
 
 def build_objects(outdir):

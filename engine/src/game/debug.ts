@@ -40,12 +40,16 @@ export function hitNextEnemy(world: World): boolean {
   return true;
 }
 
-/** Put the rolling ball still on the cup's centre. False when not rolling or there is no cup. */
-export function putOnCup(world: World): boolean {
+/**
+ * Put the rolling ball still on the cup's centre, or `lift` (16.16 Z) above
+ * it, falling (a longer sink, as web_hole's). False when not rolling or there
+ * is no cup.
+ */
+export function putOnCup(world: World, lift = 0): boolean {
   if (world.get(HoleFlow)!.phase !== 'Rolling') return false;
   const cup = world.queryFirst(IsCup);
   if (cup === undefined) return false;
   const { x, y } = cup.get(Cell)!;
-  placeBall(world, { xc: x, xf: 0x8000, yc: y, yf: 0x8000, z: top(world, x, y), vx: 0, vy: 0, vz: 0, air: 0 });
+  placeBall(world, { xc: x, xf: 0x8000, yc: y, yf: 0x8000, z: top(world, x, y) + lift, vx: 0, vy: 0, vz: 0, air: lift > 0 ? 1 : 0 });
   return true;
 }

@@ -63,7 +63,7 @@ export interface BallWorkFields {
   pCode: number; // $DA24
   pGround: number; // $DA28:$DA26
   pTile: number; // $DA2A
-  scratch: number; // $DA2C (loaded from block $D886, no reader found)
+  scratch: number; // $DA2C: block $D886, the heading stored by the last step ($82:F1CE); the warp's $82:AC4C reads it
 
   // --- heading ($81:8E60) ---
   deg: number; // $D9DA ($FFFF = invalid, recomputed)
@@ -176,6 +176,14 @@ export interface BallWorkFields {
    *  through the step's tail (the pillar's $71, a bumper's $6F); $FFFF none. */
   sfxNow: number;
 
+  // --- the warps (sim/warp.ts) ---
+  /** $6A42: one warp per visit (per player). */
+  warpLatch: number;
+  /** A fact: a warp's handler passed, the `warp` entry moves the ball ($82:AA02). */
+  warpPending: number;
+  /** A fact: the warp was landed on at |vz| >= $900 (Kirby's state $0C, $82:A9C9). */
+  warpSquash: number;
+
   // --- the hazards (sim/hazards.ts) ---
   /** $6A22: one hit per pass, shared by the bumper families. */
   hazLatch: number;
@@ -216,6 +224,7 @@ export const emptyWork = (): BallWorkFields => ({
   block6a: 0, block6c: 0xffff, block6e: 0, ecdd: 0,
   cupDepthScratch: 0, cupGround: 0,
   enemyLatch: 0, enemyHitMark: 0, enemyHit: 0, holedIn: 0, sunk: 0, sfxNow: 0xffff,
+  warpLatch: 0, warpPending: 0, warpSquash: 0,
   hazLatch: 0, hazAxes: 0, volLatch: 0, hurt: 0, tomatoLoss: 0, hazardHit: 0,
   hopRequest: 0,
   bouncePose: 0,

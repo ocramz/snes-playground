@@ -43,7 +43,7 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/terrain.md](docs/terrain.md) — the playfield: elevation, the 28
   terrain shapes, the surface equation, and how gaps work.
 - [docs/tiles.md](docs/tiles.md) — the special-tile layer: the dispatch
-  tables, friction overrides, boost panels, kickers and hazards.
+  tables, friction overrides, boost panels, kickers, warp panels and hazards.
 - [docs/scenes.md](docs/scenes.md) — the 20 screen setup blocks, the four
   loader jump tables, and which graphics and palette each screen loads.
 - [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,

@@ -32,8 +32,10 @@ Facts used here, and where they come from:
                 word7 is header word 7 (docs/courses.md); checked against the
                 first populated BG row in 230 of 232 holes.
     priority    mode 1 with the BG3 priority bit draws, back to front,
-                BG2.0, BG1.0, [OBJ priority 2], BG2.1, BG1.1 (coursemap.render).
-                Sprites go between the two layer images.
+                BG2.0, BG1.0, [OBJ priority 2], BG2.1, BG1.1, [OBJ priority 3]
+                (coursemap.render). The bitmaps keep the two halves apart, but
+                every sprite of play is priority 3 (the OAM of web_hole0 from
+                2185 on), so the sprites go over both layer images.
 """
 
 import argparse
@@ -268,7 +270,7 @@ def build_tables(d):
         (0x82, 0x9653): "hazard90",         (0x82, 0x9693): "hazard90Hit",    # $90-$97
         (0x82, 0x9858): "hazardA2",         (0x82, 0x987B): "hazardA2Hit",    # $A2
         (0x82, 0x86B9): "hazardAC",         (0x82, 0x8656): "hazardACHit",    # $AC-$AE
-        (0x82, 0xA980): "unkB0",            (0x82, 0xA9DB): "unkB0Hit",       # $B0-$B9 (undocumented)
+        (0x82, 0xA980): "warp",             (0x82, 0xA9DB): "warpHit",        # $B0-$B9: the warp panels
     }
 
     def dispatch_ids(bank, addr):

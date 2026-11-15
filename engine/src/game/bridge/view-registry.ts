@@ -40,6 +40,10 @@ export class ViewRegistry {
     return this.views.entries();
   }
 
+  values(): IterableIterator<View> {
+    return this.views.values();
+  }
+
   release(e: Entity): void {
     const v = this.views.get(e);
     if (v) v.destroy();

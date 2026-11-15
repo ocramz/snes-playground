@@ -6,6 +6,7 @@
 import type { RomRules } from '../rules';
 import type { CourseData } from '../course-data';
 import type { BallWorkFields } from '../traits/ball';
+import { sweepWarps } from './warp';
 
 export interface KernelCourse {
   w: number;
@@ -19,6 +20,8 @@ export interface KernelCourse {
   screenBase: number;
   /** The hole's hazard actors, shared with the world (absent: no hazards). */
   hazards?: import('./hazards').HazardField;
+  /** The warp lists ($82:BD5C; absent: none). */
+  warps?: import('./warp').WarpLists;
 }
 
 export function kernelCourse(data: CourseData): KernelCourse {
@@ -31,6 +34,7 @@ export function kernelCourse(data: CourseData): KernelCourse {
     layer2: data.tile,
     originY: data.originY,
     screenBase: data.screenBase,
+    warps: sweepWarps(data),
   };
 }
 

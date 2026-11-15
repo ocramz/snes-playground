@@ -9,7 +9,9 @@
  *   (the cup_open clip, which stops on the open hole) and the ring
  *   (object 74) appears around it.
  * The ring and the hole sit on the ground (the decal band), under Kirby
- * (web/test/e2e/depth.mjs's rule). The hole-out's replay draws its own ring,
+ * (web/test/e2e/depth.mjs's rule), except while the cup's rim mask is up
+ * (object 75, cup-mask.ts): then the ring draws over Kirby (`setRingOver`),
+ * as the game's OAM order has it. The hole-out's replay draws its own ring,
  * so the cutscene hides this one ('ring').
  */
 import Phaser from 'phaser';
@@ -29,6 +31,7 @@ export class CupView implements View {
   private readonly sprite: Phaser.GameObjects.Sprite;
   private readonly ring: Phaser.GameObjects.Image;
   private opened = false;
+  private ringOver: number | null = null;
 
   constructor(scene: Phaser.Scene, private readonly host: Host) {
     this.sprite = scene.add.sprite(0, 0, Tex.atlas);
@@ -72,7 +75,13 @@ export class CupView implements View {
 
   setDepth(depth: number): void {
     this.sprite.setDepth(depth);
-    this.ring.setDepth(depth + 0.0001);
+    this.ring.setDepth(this.ringOver ?? depth + 0.0001);
+  }
+
+  /** The ring's depth while the rim mask is up (over Kirby), or null for its own. */
+  setRingOver(depth: number | null): void {
+    this.ringOver = depth;
+    this.ring.setDepth(depth ?? this.sprite.depth + 0.0001);
   }
 
   destroy(): void {

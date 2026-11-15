@@ -14,6 +14,7 @@
  *             handler writes tile $08 into it at run time, so it is mutable
  */
 import { isEnemyTile, ENEMY_LIST_MAX, TEE_TILE } from './sweep';
+import { sweepWarps } from './sim/warp';
 
 export interface CourseData {
   /** The hole's name (the ROM's MAPnn, or the authored file's). */
@@ -182,7 +183,10 @@ function parseLayer(rows: string[] | undefined, w: number, h: number, layer: str
  *   212 ROM layouts); the tee is derived from it;
  * - at least two enemies (one is taken, the last becomes the cup), none
  *   with a copy ability (deferred) and no roulette $57;
- * - no actor tile on a gap.
+ * - no actor tile on a gap;
+ * - the warps ($B0-$B9) in pairs: each of the four lists ($B0-$B3, $B4-$B7,
+ *   $B8, $B9) empty or two (with 3 or 4 the game picks at random, which is
+ *   not ported; one alone hangs the game, sim/warp.ts), each on the ground.
  * `originY` defaults so that every cell projects below the top of the
  * bitmap: 16 x (h + the highest elevation + 2) + 32.
  */
@@ -219,6 +223,14 @@ export function fromAuthoredCourse(json: AuthoredCourseJson, checks: AuthoredChe
       throw new Error(`${at} actor tile $${t.toString(16)} on a gap`);
     }
   }
+  const warps = sweepWarps({ w, h, tile });
+  warps.forEach((list, g) => {
+    const at = list.map((c) => `(${c.x},${c.y})`).join(' ');
+    if (list.length !== 0 && list.length !== 2) {
+      throw new Error(`${name}: warp list ${g} has ${list.length} warps (${at}); warps come in pairs`);
+    }
+    for (const c of list) if (shape[c.y * w + c.x] === 0) throw new Error(`${name}: (${c.x},${c.y}) a warp on a gap`);
+  });
   if (!tee) throw new Error(`${name}: no tee (tile 0C)`);
   if (enemies < 2) throw new Error(`${name}: ${enemies} enemies; a hole needs at least 2`);
   const maxElev = elev.reduce((m, v) => Math.max(m, v), 0);

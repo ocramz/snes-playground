@@ -19,12 +19,13 @@
 import Phaser from 'phaser';
 import type { World } from 'koota';
 import { SceneKeys } from '../scene-keys';
-import { nextHole, pause, resume } from '../../core/actions';
+import { nextHole, pause, resume, placeBall, type BallPlacement } from '../../core/actions';
 import { HoleFlow } from '../../core/traits/flow';
 import { Session, IsPaused } from '../../core/traits/session';
 import { Course, courseEntity, type CourseState } from '../../core/traits/course';
 import { Cell, IsCup } from '../../core/traits/hole';
 import { Time } from '../../core/traits/time';
+import { Warp } from '../../core/traits/warp';
 import { Pad } from '../../core/traits/pad';
 import { runCoreFrame } from '../../core/schedule';
 import { FrameClock } from '../bridge/tick-time';
@@ -35,6 +36,8 @@ import { Disposables } from '../bridge/disposables';
 import { ViewRegistry } from '../bridge/view-registry';
 import { primeBindings } from '../bridge/bind-views';
 import { runPresentation } from '../bridge/schedule';
+import { CupMaskClock } from '../features/enemies/cup-mask';
+import { drainEvents } from '../../core/events';
 import { DEPTH, type Presentation } from '../bridge/presentation';
 import { cellCorner, teePad } from '../bridge/placement';
 import type { ViewCtx } from '../bridge/view';
@@ -43,6 +46,7 @@ import { LayersView } from '../features/layers/layers-view';
 import { GuideView } from '../features/guide/guide-view';
 import { PanelView } from '../features/shot-panel/panel-view';
 import { CutsceneView } from '../features/cutscene/cutscene-view';
+import { WarpView } from '../features/warp/warp-view';
 import { CutsceneDirector } from '../features/cutscene/director';
 import type { Anchors } from '../features/cutscene/replay';
 import { hudHidden } from '../features/hud/hud-state';
@@ -113,10 +117,13 @@ export class HoleScene extends Phaser.Scene {
       guide: new GuideView(this, host.assets.ui, DEPTH.guide),
       panel: new PanelView(this, host.assets.ui, DEPTH.panel),
       cutscene: new CutsceneView(this, { ground: DEPTH.decal - 1, sprites: DEPTH.cutsceneSprites, fade: DEPTH.fade }),
+      warp: new WarpView(this, DEPTH.actor),
       director: this.director,
       audio: host.audio,
       camera: this.cameras.main,
       events: [],
+      cupMask: new CupMaskClock(),
+      groundOver: null,
     };
     this.bindKeys(world, layers);
     this.bindFocus(world);
@@ -271,6 +278,7 @@ export class HoleScene extends Phaser.Scene {
       director: this.director,
       phase: (): string => world.get(HoleFlow)!.phase,
       frame: (): number => world.get(Time)!.frame,
+      scroll: (): { x: number; y: number } => ({ x: this.cameras.main.scrollX, y: this.cameras.main.scrollY }),
       kirby: () => {
         const k = kirby();
         return k ? { ...k.position, clip: k.current } : null;
@@ -286,7 +294,9 @@ export class HoleScene extends Phaser.Scene {
       },
       freeEnemies: () => freeEnemies(world),
       hitNextEnemy: (): boolean => hitNextEnemy(world),
-      putOnCup: (): boolean => putOnCup(world),
+      putOnCup: (lift = 0): boolean => putOnCup(world, lift),
+      placeBall: (p: BallPlacement): void => placeBall(world, p),
+      warp: () => ({ ...world.get(Warp)! }),
       freeze: (on = true): void => {
         this.frozen = on;
       },
@@ -296,6 +306,7 @@ export class HoleScene extends Phaser.Scene {
           runCoreFrame(world);
           this.history.sample(world, true);
         }
+        this.p.events = drainEvents(world);
         this.present(world);
       },
       isolatePanel: (): void => {

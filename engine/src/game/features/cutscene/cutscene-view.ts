@@ -22,7 +22,8 @@ export class CutsceneView {
       .setOrigin(0, 0).setScrollFactor(0).setDepth(depth.fade).setAlpha(0);
   }
 
-  update(frame: ReplayFrame | null): void {
+  /** `groundOver`: a depth for the world types while the cup's rim mask is up (the ring over Kirby). */
+  update(frame: ReplayFrame | null, groundOver: number | null = null): void {
     const sprites = frame?.sprites ?? [];
     while (this.pool.length < sprites.length) this.pool.push(this.scene.add.image(0, 0, Tex.atlas));
     this.pool.forEach((img, i) => {
@@ -32,7 +33,7 @@ export class CutsceneView {
         return;
       }
       img.setFrame(s.key).setPosition(s.x, s.y).setVisible(true)
-        .setDepth(s.depth < 0 ? this.depth.ground : this.depth.sprites + s.depth * 0.01);
+        .setDepth(s.depth < 0 ? groundOver ?? this.depth.ground : this.depth.sprites + s.depth * 0.01);
     });
     this.fade.setAlpha(frame ? 1 - Math.max(0, Math.min(15, frame.brightness)) / 15 : 0);
   }

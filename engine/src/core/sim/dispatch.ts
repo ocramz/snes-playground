@@ -4,7 +4,7 @@
  * return value routes the step: `landing` / `rolling` continue into the
  * default chain (optionally from its midpoint), `done` ends the dispatch.
  *
- * Six groups are stubbed with the reason in `stubbed`: their ROM helpers
+ * Five groups are stubbed with the reason in `stubbed`: their ROM helpers
  * reach the thread-object system or undocumented tables. They are excluded
  * from the exact trace tests per plans risk 5 and listed in docs/engine.md.
  * Every other group is a port of the disassembly.
@@ -18,7 +18,8 @@ import { outlineWall } from './outline';
 import { cupLand, cupHit } from './cup';
 import { enemyDispatch } from './enemy';
 import { bumperLand, bumperHitSide, bobLand, bobHitSide, volcanoLand, volcanoHitSide, hazard05 } from './hazards';
-import { cosSinDeg } from './trig';
+import { rotateBy, turnToDir } from './turn';
+import { warpLand, warpHit } from './warp';
 import { LANDING, ROLLING, DONE, type DispatchOutcome } from './types';
 export type { DispatchOutcome };
 
@@ -43,9 +44,10 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
     case 'land':
       return LANDING;
     case 'landClear':
-      // $81:88F9: STZ $6A68 (the enemy/pillar latch), $6A42, $69D8; then the
-      // default landing handler
+      // $81:88F9: STZ $6A68 (the enemy/pillar latch), $6A42 (the warp's),
+      // $69D8; then the default landing handler
       w.enemyLatch = 0;
+      w.warpLatch = 0;
       return LANDING;
     case 'pillar':
       return pillarShared(ctx, w, LANDING);
@@ -89,6 +91,8 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
       return boostLand(ctx, w, 'vx-');
     case 'enemy':
       return enemyDispatch(ctx, w);
+    case 'warp':
+      return warpLand(ctx, w);
     default:
       return stubbed(ctx.rules.landHandler(w.tile), LANDING);
   }
@@ -101,8 +105,10 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
     case 'roll':
       return ROLLING;
     case 'rollClear':
-      // $81:8A47: STZ $6A68, $6A36, $6A42, $69D8; then the default roll
+      // $81:8A47: STZ $6A68, $6A36, $6A42 (the warp's latch), $69D8; then
+      // the default roll
       w.enemyLatch = 0;
+      w.warpLatch = 0;
       return ROLLING;
     case 'pillarHit':
       return pillarShared(ctx, w, ROLLING);
@@ -151,6 +157,8 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
       // $82:8963: JML $81:8A56 - tiles $4D-$52 (the hovering enemies) are
       // never tested from the rolling path
       return ROLLING;
+    case 'warpHit':
+      return warpHit(ctx, w);
     default:
       return stubbed(ctx.rules.hitHandler(w.tile), ROLLING);
   }
@@ -163,8 +171,9 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
  * - overlay ($60-$6F, +hits): enter/leave tracking ($82:80F6) — not read;
  *   the $D9EE flag itself IS ported (the $82:C85F probe wrapper).
  * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
- * - unk58/unk5a/unk5c/unkB0 (+hits): handlers located, not read
- *   (docs/tiles.md "Not established").
+ * - unk58/unk5a/unk5c (+hits): handlers located, not read
+ *   (docs/tiles.md "Not established"). (The warps $B0-$B9 are ported:
+ *   warp.ts.)
  * Each returns its group's default routing so an unported tile behaves
  * like plain ground.
  */
@@ -377,9 +386,6 @@ function kickerApply(ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome {
 
 // --- arrow panels ($14-$17: land $82:A6C7/$82:A70B, hit $82:A74F/$82:A783) ---
 
-/** $82:ECFC's jump table ($82:ED06): the heading each arrow turns the ball to, N E S W. */
-const ARROW_HEADING = [270, 0, 90, 180];
-
 /**
  * The handlers' position window: the long axis in [$2800, $DFFF), the narrow
  * one in [$4800, $B7FF) on landing, [$6000, $9FFF) from the side. The N/S
@@ -423,12 +429,7 @@ function arrowHit(ctx: Ctx, w: Work): DispatchOutcome {
 function arrowTurn(ctx: Ctx, w: Work): void {
   if (w.enemyLatch !== 0) return;
   w.enemyLatch += 1;
-  const dir = (w.tile - 0x14) & 3;
-  const delta = s16(wrap16(ARROW_HEADING[dir] - w.deg)); // SEC / SBC $D9DA
-  const [vx, vy] = rotateBy(ctx, w.vx, w.vy, delta);
-  w.vx = (dir & 1) === 0 ? 0 : vx; // $82:ED1E: STZ $D9D4
-  w.vy = (dir & 1) === 0 ? vy : 0; // $82:ED33: STZ $D9D6
-  updateHeading(ctx.rules, w); // $82:ED36
+  turnToDir(ctx, w, (w.tile - 0x14) & 3); // $82:ECFC
   w.spinX = 0;
   w.spinY = 0;
   w.spinPending = 0;
@@ -580,19 +581,3 @@ function reflectImpl(ctx: Ctx, w: Work, index: number): void {
   reflect(ctx.rules, w, index);
 }
 
-function mulFactor(v: number, factor: number): number {
-  return wrap16(Math.floor((s16(factor) * s16(v)) / 0x8000));
-}
-
-/** $82:ED4C: rotate (vx, vy) by delta degrees, products floor(Q15). */
-function rotateBy(ctx: Ctx, vx: number, vy: number, delta: number): [number, number] {
-  const neg = delta < 0;
-  const mag = Math.abs(delta);
-  const { cos, sin } = cosSinDeg(ctx.rules, mag);
-  const c1 = mulFactor(vx, cos);
-  const s1 = mulFactor(vy, sin);
-  const c2 = mulFactor(vx, sin);
-  const s2 = mulFactor(vy, cos);
-  if (!neg) return [wrap16(c1 - s1), wrap16(c2 + s2)];
-  return [wrap16(c1 + s1), wrap16(s2 - c2)];
-}

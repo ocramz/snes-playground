@@ -33,6 +33,7 @@ import { countStill } from '../sim/still';
 import { s16, wrap16, mul16x8 } from '../fixed';
 import { emit } from '../events';
 import { Stall } from '../traits/stall';
+import { startWarp } from './warp';
 import { Pose, PoseState } from '../traits/pose';
 import { takeEnemy } from './take';
 import { pushTomato } from './counters';
@@ -61,7 +62,7 @@ interface StepState {
 
 /** A stall the step asks for: the runner suspends the list after the entry. */
 interface StallRequest {
-  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait';
+  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp';
   frames: number;
   state: number;
 }
@@ -102,6 +103,8 @@ export const BALL_STEP: StepEntry[] = [
       w.enemyHit = 0;
       w.holedIn = 0;
       w.sunk = 0;
+      w.warpPending = 0;
+      w.warpSquash = 0;
       w.sfxNow = 0xffff;
       w.hurt = 0;
       w.tomatoLoss = 0;
@@ -249,6 +252,15 @@ export const BALL_STEP: StepEntry[] = [
     name: 'take-enemy',
     kernel: false,
     run: (world, s) => takeEnemy(world, s.ctx, s.w),
+  },
+  {
+    // $82:AA02, inside the warp's handler: the ball moved to the other warp
+    // and turned to its arrow; the step blocks for the warp's presentation
+    // (systems/warp.ts) and then goes on into the default landing or roll.
+    // Not a kernel: the guide never warps.
+    name: 'warp',
+    kernel: false,
+    run: (world, s) => startWarp(world, s.ctx, s.w),
   },
   {
     // the landing chain's first half, $81:8905 (its hit-stop suspends the
@@ -509,9 +521,9 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   w.modifierKind = mod.kind;
   w.modifierWindow = mod.window;
   w.modifierTimer = mod.timer;
-  // $DA2C <- block $D886 (a scratch the step never reads; kept for the
-  // round trip's shape)
-  w.scratch = 0;
+  // $82:F03E: $DA2C <- block $D886, which $82:F1CE stores from $D9DA: the
+  // heading the last step left (the warp's $82:AC4C reads it)
+  w.scratch = heading.deg;
   const shot = world.get(Shot)!;
   w.shotAim = shot.aim;
   w.shotElev = shot.elev;

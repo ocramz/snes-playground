@@ -4,7 +4,8 @@
  * - every sound id the table lists has a rendered file in audio.json;
  * - the eight test courses (played out by the CourseDriver, through the
  *   course's end) and the stepper's scripts (the flow traces' runs, the
- *   hazard scenarios with their pokes) emit only kinds and ids the table has;
+ *   hazard, terrain and warp scenarios with their pokes) emit only kinds and
+ *   ids the table has;
  * - every cutscene cue the replay plays itself is in the table.
  */
 import { afterEach, describe, expect, it } from 'vitest';
@@ -81,6 +82,8 @@ describe.skipIf(!haveRules)('what core emits is in the table', () => {
     { name: 'web_arrow', to: 3000, hole: 1, offset: 2332, pokes: true },
     { name: 'web_ramps', to: 3000, hole: 1, offset: 2332, pokes: true },
     { name: 'web_step', to: 3000, hole: 2, offset: 2333, pokes: true },
+    { name: 'web_warp', to: 2800, hole: 3, offset: 2336, pokes: true },
+    { name: 'web_warp_fly', to: 2800, hole: 3, offset: 2336, pokes: true },
   ];
   for (const s of scripts) {
     it.skipIf(!haveRomTest || !loadFlow(s.name) || (s.hole !== undefined && !loadRomHole(s.hole)))(`${s.name}`, () => {

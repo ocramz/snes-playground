@@ -31,7 +31,7 @@ URL flags:
 |---|---|
 | `?nointro` | skip the fly-in; the host plays the hole's song itself |
 | `?hole=N` | start the chosen course at hole N |
-| `?debug` | exposes `window.__engine`: `phase()`, `frame()`, `kirby()`, `depths()`, `step(pad, n)`, `freeze()`, `isolatePanel()`, `hitNextEnemy()`, `putOnCup()`, `freeEnemies()`. Key D toggles the procedural terrain over a ROM hole |
+| `?debug` | exposes `window.__engine`: `phase()`, `frame()`, `scroll()`, `kirby()`, `depths()`, `warp()`, `step(pad, n)`, `freeze()`, `isolatePanel()`, `hitNextEnemy()`, `putOnCup(lift)`, `placeBall(p)`, `freeEnemies()`. Key D toggles the procedural terrain over a ROM hole |
 
 | key | pad |
 |---|---|
@@ -67,7 +67,7 @@ The rules (reference §3), checked statically by `test/no-phaser-in-core.test.ts
 - **The view reads traits and calls actions.** Nothing under `src/game` imports `core/systems` or `core/sim`. Views read core's traits; scenes call core's actions and run its schedule (`runCoreFrame`).
 - **The pure half of the bridge imports nothing from Phaser**, so the node tests run it:
   - `bridge/{tick-time, frame-loop, history, placement}`;
-  - `features/{catalog-data, kirby/pose-clips, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding}`;
+  - `features/{catalog-data, kirby/pose-clips, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames}`;
   - `assets/schema`, `config`.
 - **There is no global world.** `main.ts` creates it with `createGameWorld()` and passes it in the scenes' data (`game/host.ts`).
 
@@ -113,24 +113,25 @@ The rules that go with it:
 | 17 | drop-off-edge | `$81:8B78` | `sim/wall-step.ts` |
 | 18 | dispatch-tile | `$81:811B` / `$81:8436` and the tile handlers | `sim/dispatch.ts`, `sim/outline.ts`, `sim/cup.ts`, `sim/enemy.ts`, `sim/hazards.ts` |
 | 19 | take-enemy | `$82:8A2E`, `$82:8A98`; the reveal `$82:8B5C` | `systems/take.ts`, `systems/reveal.ts` |
-| 20 | dispatch-landing | `$81:8905`'s first half (the hit-stop splits it) | `sim/landing.ts` |
-| 21 | finish-landing-or-roll | `$81:895B`-`$81:89A9` / `$81:8A56` | `sim/landing.ts`, `sim/roll.ts` |
-| 22 | emit-step-effects | the tail `$81:9BE5`: facts become events | |
-| 23 | arm-shot-modifier | `$82:DA51`, `$82:DB20` (from `$82:CDFF`) | |
-| 24 | store-ball-work | `$82:F1E3` | |
-| 25 | count-still-frames | `$81:A5CD` | `sim/still.ts` |
-| 26 | hazard-reaction | `$82:C0A8` → `$82:DB9A` | `systems/hazard-reaction.ts` |
+| 20 | warp | `$82:AA02`, inside the warp panels' handlers: the move to the other panel, the turn to its arrow; the step blocks for the warp | `systems/warp.ts`, `sim/warp.ts` |
+| 21 | dispatch-landing | `$81:8905`'s first half (the hit-stop splits it) | `sim/landing.ts` |
+| 22 | finish-landing-or-roll | `$81:895B`-`$81:89A9` / `$81:8A56` | `sim/landing.ts`, `sim/roll.ts` |
+| 23 | emit-step-effects | the tail `$81:9BE5`: facts become events | |
+| 24 | arm-shot-modifier | `$82:DA51`, `$82:DB20` (from `$82:CDFF`) | |
+| 25 | store-ball-work | `$82:F1E3` | |
+| 26 | count-still-frames | `$81:A5CD` | `sim/still.ts` |
+| 27 | hazard-reaction | `$82:C0A8` → `$82:DB9A` | `systems/hazard-reaction.ts` |
 | | **after the step** | | |
-| 27 | detect-ball-out | `$D956`, `$D9D2`, the hazards | `systems/hole-flow.ts` |
-| 28 | update-camera | the pans `$81:BA8A`, the follow `$80:BA35`, the roll loop's `$81:A121` | `systems/camera.ts`, `sim/camera.ts` |
-| 29 | update-pose | the hop's return, the squash `$81:8C95`-`$81:8CD2`, the bounce pose `$82:CE07` | `systems/pose.ts` |
-| 30 | the thread tick | the scheduler in `$80:8F78`: the HUD's tomato queue `$84:98EC` → `$83:ABDD`, the hazard actors `$80:E0C0` | `systems/counters.ts`, `systems/actors.ts`, `sim/actors.ts` |
+| 28 | detect-ball-out | `$D956`, `$D9D2`, the hazards | `systems/hole-flow.ts` |
+| 29 | update-camera | the pans `$81:BA8A`, the follow `$80:BA35`, the roll loop's `$81:A121` | `systems/camera.ts`, `sim/camera.ts` |
+| 30 | update-pose | the hop's return, the squash `$81:8C95`-`$81:8CD2`, the bounce pose `$82:CE07` | `systems/pose.ts` |
+| 31 | the thread tick | the scheduler in `$80:8F78`: the HUD's tomato queue `$84:98EC` → `$83:ABDD`, the hazard actors `$80:E0C0` | `systems/counters.ts`, `systems/actors.ts`, `sim/actors.ts` |
 
 The ball step's order is the game's. It differs from the plan's in two places:
 - the A/Y arming (the plan's item 12) runs after the physics, together with the bonus, as the Kirby state code does;
 - the hazard reaction is an addition.
 
-Systems 12-21, except take-enemy, are marked `kernel`. The shot guide runs them on a cloned work copy with no buttons, no stalls and no events (`runKernelStep`).
+Systems 12-22, except take-enemy and warp, are marked `kernel`. The shot guide runs them on a cloned work copy with no buttons, no stalls and no events (`runKernelStep`).
 
 **The stall runner** stands for the game's main loop being blocked inside one routine (`traits/stall.ts`). While a stall is active, a frame runs only that stall's own list:
 
@@ -139,6 +140,7 @@ Systems 12-21, except take-enemy, are marked `kernel`. The shot guide runs them 
 | `hitStop` / `stepStop` | `$81:8C95` waits 4 (a landing, `$81:8C79`) or 2 (a step hit, `$81:8C48`) frames inside the step | the squash pose; the pad ORed into a latch | yes |
 | `cupReveal` | `$82:8B5C`, the last enemy becomes the cup inside the step | `tickReveal` (`systems/reveal.ts`) | yes |
 | `takeWait` | `$82:8A83`'s 4 frames after an ability enemy's take | — | yes |
+| `warp` | `$82:AA02`, a warp panel takes the ball to the other one inside the step | `tickWarp` (`systems/warp.ts`) | yes |
 | `guideLag` | the aim loop's guide simulation outlasts the frame | — | no |
 | `apuLag` | a song request blocks in the APU handshake `$80:B70A` | — | no |
 
@@ -161,6 +163,7 @@ World singletons (`world.add` at creation, `core/world.ts`):
 | `Guide` (AoS) | the dots, the ends, steps, version, pendingFrame | `$B746`+, `$6B0C`-`$6B2A` | `traits/guide.ts` |
 | `Stall` | kind, framesLeft, resumeAt, variant, sfx, the suspended step's route | — | `traits/stall.ts` |
 | `Reveal` | stage, t, total, the cup's cell, the saved camera, the pan target, onScreen, hoverFrames, panned | `$38B4/B6`, `$ECBB/BD` | `traits/reveal.ts` |
+| `Warp` | stage, t, the two cells, the pan target, where Kirby went in, hidden | `$DA58/$DA5C`, `$0B7E/$0B82`, `$6A48` | `traits/warp.ts` |
 | `Hazards` (AoS) | the actors' run state, object 76's list, the cell index | `$B6BA`, `$ABB8`, the thread slots | `traits/hazards.ts` |
 | `Career` (AoS) | lives, the card | `$D7F4`, `$D80A` | `traits/counters.ts` |
 | `TomatoQueue` (AoS) | the ring, the pending change, the timer, the HUD's shown flag, hold | `$68FA`, `$68F4` | `traits/counters.ts` |
@@ -214,7 +217,7 @@ The actions (`core/actions.ts`) are the only way in from outside:
 
 Course data comes from two places (`core/course-data.ts`):
 - `fromRomCourse(course.json)` reads an exported ROM hole; the Preload scene and the test fixtures share it;
-- `fromAuthoredCourse` reads the test holes' own format, validated: one tee on flat ground, at least two enemies, no ability enemy, no actor on a gap.
+- `fromAuthoredCourse` reads the test holes' own format, validated: one tee on flat ground, at least two enemies, no ability enemy, no actor on a gap, warps in pairs.
 
 ## The bridge and the view
 
@@ -236,11 +239,13 @@ Course data comes from two places (`core/course-data.ts`):
 |---|---|
 | bind-views | `Visual` without `Ref` → a view from the catalog; `Removed(Visual)` → release; a changed kind (enemy → star or cup) → rebind |
 | sync-transforms | each view placed: the ball at `BallScreen`, the actors at their cell corner and `actorGround` (`bridge/placement.ts`, the core's `project`) |
-| sync-depth | the depth bands: BG3 0, back 10, decals 20, guide 25, actors 100 + y × 10⁻⁵, front 1000, panel 1100, fade 2000 |
+| sync-depth | the depth bands: BG3 0, back 10, front 12, decals 20, guide 25, actors 100 + y × 10⁻⁵, cutscene sprites 900, panel 1100, fade 2000. Every sprite of play is OAM priority 3, over both course layers |
 | sync-camera | the scroll from `Camera` (`scrollOf`), or the replay's camera during a cutscene |
 | sync-layers | the outline's colour walk (`$98:D3E6` from `tables.json`), the night swap |
 | sync-guide | the guide's dots and cone, in the Aim phase only |
 | sync-pose | Kirby's clip from `Pose` |
+| sync-cup-mask | the cup's near rim over Kirby while object 75 is up: Kirby cut off below it, the ring raised over him (`features/enemies/cup-mask.ts`) |
+| sync-warp | objects 63 and 64 from `Warp` (`features/warp`) |
 | sync-panel | the shot panel from `panel-state` |
 | sync-cutscene | the replay's sprites and fade |
 | play-feedback | the events → effects and music (the event table below) |
@@ -249,7 +254,7 @@ Course data comes from two places (`core/course-data.ts`):
 
 | kind | view | pictures |
 |---|---|---|
-| ball | `KirbyView` | the atlas's Kirby clips by `poseClip(state, facing, angle, variant, tomatoes, air)`; the `shadow` frame under an airborne ball |
+| ball | `KirbyView` | the atlas's Kirby clips by `poseClip(state, facing, angle, variant, tomatoes, air)`; the `shadow` frame under an airborne ball, not in the cup; off while `Warp.hidden`; cut off below the cup's rim (`cupmask`, object 75's shape) |
 | enemy / star | `EnemyView` | `enemy_idle`, then `star`; the hover lift |
 | cup | `CupView` | the hover drop, `cup_open` and the ring `cupring` from `Reveal.stage` |
 | tee | `TeeView` | `tee` (the pad, object 108) |
@@ -257,6 +262,7 @@ Course data comes from two places (`core/course-data.ts`):
 | hazard | `HazardView` | the `objects` atlas by actor type, direction and frame; a marker if a sheet is missing |
 | (course) | `LayersView` | the exported bitmaps; the procedural terrain for test holes and `?debug` |
 | (guide, panel, cutscene) | `GuideView`, `PanelView`, `CutsceneView` | `ui.json`'s pictures; `cutscenes.json`'s |
+| (warp) | `WarpView` | the `objects` atlas: object 63 where Kirby went in, 64 where he comes out, frame by frame as web_warp recorded them (`features/warp/warp-frames.ts`) |
 
 **The scenes** (`game/scenes/`):
 - Boot and Preload. Preload loads `tables.json`, the atlases, `ui`, the HUD, the font, the audio, the cutscenes and course 1's eight holes. It turns the atlases into textures with custom pivots and into global animations. A clip's looping tail becomes a second animation, chained.
@@ -298,7 +304,8 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | thrown | `$7B` | `$82:DB9A` code `$0F`, a volcano | `systems/hazard-reaction.ts` | effect |
 | enemy-taken | `$4F`, `$50` | `$82:8A92` / `$82:8A79` (an ability enemy) | `systems/take.ts` | effect |
 | cup-reveal | `$1C` | `$82:8D49`, the ring stage | `systems/reveal.ts` | effect |
-| holed-in | — | `$82:AD13`, object 75 over the cup | `systems/ball-step.ts` | nothing (not drawn) |
+| warp | `$76`, `$77` | `$82:AABC` the ball goes in, `$82:AB7C` it comes out | `systems/warp.ts` | effect |
+| holed-in | — | `$82:AD13`, object 75 over the cup | `systems/ball-step.ts` | the cup's rim mask, 2 frames on (`bridge/sync-cup-mask.ts`) |
 | holed | `$21` | `$82:AEF5`[mode], the sink's end | `systems/ball-step.ts` | effect |
 | music-mute | — | the sink's end: the music's volume 0 (`$80:B5F4`) | `systems/ball-step.ts` | music gain 0 |
 | tomato-gain | `$52` | `$83:AC07`, the HUD queue | `systems/counters.ts` | effect |
@@ -310,7 +317,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | song | 0, 11, 17, 18, 24, 25, 26 | `$80:B4AC` | `systems/hole-flow.ts`, `systems/camera.ts` (the fall) | the music: its own source node with the loop points; 0 stops |
 | cue | 29, 45, 47, 62, 98, 100, 103 | `cutscenes.json`'s cues | the bridge (`cutscene/director.ts`) | effect |
 
-`test/events.test.ts` checks the timing: every request the game makes from its main loop and physics matches an engine event in the same iteration with the same id. It covers seven recorded runs, about 230 requests. `trace-hazards.test.ts` and `trace-terrain.test.ts` do the same for the poked scenarios.
+`test/events.test.ts` checks the timing: every request the game makes from its main loop and physics matches an engine event in the same iteration with the same id. It covers seven recorded runs, about 230 requests. `trace-hazards.test.ts`, `trace-terrain.test.ts` and `trace-warp.test.ts` do the same for the poked scenarios.
 
 ## The assets
 
@@ -321,7 +328,8 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | physics constants and tables | the ROM tables, each with its `$bank:addr` (the outline walk `$98:D3E6` included) | `tables` | `rules/tables.json` | `RomRules` (`core/rules.ts`) |
 | Kirby's clips | the `$87` script engine plus live captures (`tools/kirbyanim.py --clips`; [animation.md](animation.md)) | `sprites` | `sprites.png/json` frames and clips | Preload's `addAtlasFrames` / `addAtlasClips`; `KirbyView` |
 | enemy, star, cup, tee pad, tree, shadow, guide | live VRAM/CGRAM of the c1n replay; snapshots for the guide (`export_web_sprites.py`, `emusheets.py`) | `sprites` | the same atlas | the views |
-| the hazard actors 76, 77, 81-83 | `build/sprites/emu/obj_NNN`, emulated sheets ([graphics.md](graphics.md) "From live state") | `objects` | `objects.png/json`: frames `oNNN_K_II` and their tables | `HazardView` |
+| the hazard actors 76, 77, 81-83; the warp's 63 and 64 | `build/sprites/emu/obj_NNN`, emulated sheets ([graphics.md](graphics.md) "From live state") | `objects` | `objects.png/json`: frames `oNNN_K_II` and their tables | `HazardView`, `WarpView` |
+| the cup's rim, object 75 | its sheet from the c1n replay (`build/web-sprites/obj_075`) | `sprites` | the atlas frame `cupmask` (only its shape is used) | `sync-cup-mask` |
 | the intro and the hole-outs | an every-frame trace of c1n (`tools/snesstep/trace_cutscene.py`) | `sprites` (`build_cutscenes`) | `cutscenes.json` + atlas frames `cs_*` | `features/cutscene` |
 | course bitmaps | bank `$88` course tables + BG3 scenery | `layers` (`--hole N`) | `holes/NN/layer_*.png`, the outline masks, the night set, `layers.json`, `course.json` | `LayersView`, `fromRomCourse` |
 | the shot panel | the game's OAM while the panel is up (`tools/export_web_ui.py`) | `ui` | `ui.png/json`, with the measured timing | `PanelView` |
@@ -350,6 +358,8 @@ Core:
 - **The coefficients `$DA30`-`$DA46` live in the work copy only.** The block round-trips them in the game; one ball needs no copy.
 - **The outline wall's sound 7 goes through the step's tail** (`tailSfx`), where the game plays it inline: same frame, same id.
 - **`placeBall` can re-probe**, so a placed ball has current probe fields. The game's block carries them at `$D8C2`-`$D8DE`, and a poke that skips them makes the first step read the old ground.
+- **A warp's turn is made before its stall.** The game turns the ball to the destination's arrow (`$82:ECFC`, `$82:AC4C`) after the warp's frames; the engine does it with the move, since nothing reads the velocity in between (the work copy is not stored while the step blocks).
+- **A warp list of 1, 3 or 4** is not played: the game's random pick (`$82:ABC6`, `$80:87DD`) is not ported, no ROM hole has one, and the test holes' validation rejects it.
 - **The hole's song** is `HOLE_SONG` = song 11 (course 1's `$89`) on every hole. The game picks it per hole from `$80:C967`'s table: course 1's holes 5-7 play song 7 and hole 8 song 13 ([audio.md](audio.md)). Those two songs are not exported, and the intro replay's song cue is the recording's (song 11).
 
 The bridge:
@@ -363,10 +373,12 @@ The bridge:
 - **A clip's `next` is ignored**, because it names a state and core sets that state itself.
 - **The music plays on its own `AudioBufferSourceNode`**, with the loop points; Phaser's WebAudioSound has no loop region.
 - **The score panel has no slot for the enemies left**, so they are not drawn. The lives sit in the blanked portrait box.
+- **The course's front layer (BG*.1) is under every sprite.** Every sprite of play is OAM priority 3, over both BG layers (the OAM of web_hole0 from 2185 on: Kirby, the trees, the enemies, the tee, the cup). Only the intro's first frames, before 2185, use priority 2, under the front layer, while the screen is black or fading in. The engine does not model that.
+- **The cup's rim (object 75) is drawn as a cut and an order**, not as a sprite mask. In the game it is a priority-0 sprite: lower in OAM than Kirby, so where it is opaque Kirby gives way to the course behind it. From the frame it appears, the ring is also over Kirby (web_hole 3896-3909, every frame). The engine raises the ring over Kirby and crops Kirby from the mask's third row down. Its top two rows are the ring's opening, and the ring covers the rest of them. That is the same picture while Kirby, 24 px wide, sits inside the 32 px mask. The engine stops when Kirby is hidden; the game keeps the object until 3303 (3654 in a hole in one), but nothing the engine draws is under it by then.
 
 ## Verification
 
-`make engine-test` runs 31 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 33 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -378,9 +390,11 @@ The bridge:
 | `events` | every sound request of seven runs, on its iteration |
 | `stalls`, `reveal` | the hit-stops and the reveal's edges, frame-exact; the reveal's stages on course 1's holes 1-4 |
 | `hole-entities`, `hazards`, `hazard-actors`, `trace-hazards` | the sweep on all 8 holes; the five hazard scenarios (ball states, sounds, the actors' state sequences); `$A2` and the auto-tiling on t7 |
+| `trace-warp` | two poked scenarios on course 1 hole 4 (`web_warp`, `web_warp_fly`): the warp `$B4` → `$B5` rolled onto and landed on; ball states and sounds, the stall's frames, Kirby's sprite and the camera's pan every frame from the warp's start |
 | `trace-terrain` | three poked scenarios on course 1 holes 2 and 3 (`web_arrow`, `web_ramps`, `web_step`): the arrow panel's turn, the in-cell crest, flush ramp edges along ±y, a step hit by the N edge and its hit-stop; ball states and sounds (`test/scenarios.ts`, shared with `trace-hazards`) |
-| `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
-| `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists; every sound id has a file; nothing is emitted outside the event table |
+| `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
+| `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists (the rim's `cupmask`, the warp's objects); every sound id has a file; nothing is emitted outside the event table |
+| `cup-mask-warp` | the rim mask's first frame and cut; objects 63 and 64's pictures and lives |
 | `determinism` | host frames of 1, 2, 3 and mixed core frames give the same world and the same events (web_hole on hole 1; a pad policy on t1) |
 | `frame-clock`, `cutscene`, `director`, `panel-state` | the 60.0988 Hz clock; the replay against the recording, sprite by sprite, and the anchors; the director's timing against core on web_hole; the panel's ages, closings, blink and meter lags on web_ui |
 | `no-phaser-in-core` | the dependency rules above |
@@ -394,6 +408,7 @@ The harness's conventions:
 - **A stamp below scanline 112 belongs to the previous iteration** ([emulation.md](emulation.md) "Frames, iterations and snapshots").
 - **The trace comparison aligns distinct states**, allowing the game's lag bursts, and the hazard actors are aligned to the recording before each poke.
 - **Koota keeps at most 16 worlds per process**, so the tests destroy their worlds in `afterEach`.
+- **Koota 0.6.6 hangs creating a tracking query** (`Removed`, `Changed`) over a trait on a generation's last bit, 2^30. Its loop `for (bit = 1; bit <= mask; bit <<= 1)` overflows to −2^31, then 0. A trait takes the next bit when a world first sees it, so `createGameWorld` registers `Visual`, the one tracked trait, first. The `Warp` singleton had pushed it to 2^30, and the hole scene hung in `primeBindings`. `hole-entities.test.ts` checks the bit.
 
 ## Not ported, or approximated
 
@@ -402,7 +417,7 @@ The physics:
 - The toggle tiles `$70`-`$7B`: their direction map at `$88:9190` is not exported.
 - The overlay `$60`-`$6F`'s enter/leave tracking `$82:80F6` (its `$D9EE` flag is ported).
 - The snap gate `$82:A692` and the snaps' exact clamps (stubbed).
-- The tiles `$58`-`$5D` and `$B0`-`$B9` ([tiles.md](tiles.md) "Not established").
+- The tiles `$58`-`$5D` ([tiles.md](tiles.md) "Not established"). The warps `$B0`-`$B9` are ported, except the random pick among 3 or 4.
 - The pillar's mode-7 branch `$82:EE9A`, and the hazards' mode-7 destroy.
 - The rough tiles' `$80:A453` arithmetic: ported, but no trace exercises it.
 - `$68F0` outside the fly shot's first bounce.
@@ -419,7 +434,7 @@ The presentation:
 - Objects not drawn, for want of pictures or a trace:
   - the curl stand-in `$1A`, the full-power object `$16`, the spin streak 25;
   - the hop object `$78`, the outline-wall effect `$47`, the hazard flash `$2F`;
-  - object 75 over the cup, the ring stage's 78/97/79, `$BE` (the `fall_asleep` clip stands in), `$40`, 110;
+  - the ring stage's 78/97/79, `$BE` (the `fall_asleep` clip stands in), `$40` after the out-of-tomatoes sleep (the warp's 64 is drawn), 110;
   - the eruption's projectiles (object 84);
   - the score panel's toggles and the portrait's face, the tee changing colour during the curl, the fly shot's shrinking dot tiles.
 - The guide's dots march in four steps of 5 frames toward the next point; the game's order of the march is not traced.
@@ -452,6 +467,7 @@ The plan's risks, and their state now:
 | 11 | the cutscene is one recording | open: c1n kept |
 
 Frames measured on one run only:
+- objects 63 and 64's pictures frame by frame (web_warp), and the cup's rim mask's life (web_hole's sink, c1n's hole-outs);
 - the hole-in-one's 1UP at C + 386 and its bonus tomato at C + 445 (c1n);
 - the tomato's blink start;
 - the fly guide's lag beyond web_ui and web_fly.

@@ -53,7 +53,7 @@ describe('the test courses', () => {
       ['boost $30-$33', [0x30, 0x31, 0x32, 0x33]], ['ramp boost $34-$3A', [0x34, 0x36, 0x38, 0x3a]],
       ['enemies', [0x40]], ['hover enemies', [0x4d, 0x50, 0x51]],
       ['hazard $80', [0x80]], ['hazard $90', [0x90]], ['hazard $98', [0x98]], ['hazard $A2', [0xa2]],
-      ['hazards $AC-$AE', [0xac, 0xad, 0xae]],
+      ['hazards $AC-$AE', [0xac, 0xad, 0xae]], ['warps $B0-$B3', [0xb1, 0xb3]],
     ];
     for (const [name, want] of groups) expect(want.filter((t) => !tiles.has(t)), name).toEqual([]);
     expect(walls).toBeGreaterThan(0);
@@ -96,5 +96,16 @@ describe('the test courses', () => {
       const ability = base.tile!.map((r) => r.replace('4A', '41'));
       expect(bad({ tile: ability })).toThrow(/copy ability/);
     }
+    // warps in pairs: one alone, or three on one list
+    const oneWarp = [...base.tile!];
+    oneWarp[6] = oneWarp[6].replace(/^\.\. \.\./, '.. B1');
+    expect(bad({ tile: oneWarp })).toThrow(/warp list 0 has 1 warps/);
+    const threeWarps = [...oneWarp];
+    threeWarps[1] = threeWarps[1].replace(/^\.\. \.\./, '.. B3');
+    threeWarps[2] = threeWarps[2].replace(/^\.\. \.\./, '.. B0');
+    expect(bad({ tile: threeWarps })).toThrow(/warp list 0 has 3 warps/);
+    const pair = [...oneWarp];
+    pair[1] = pair[1].replace(/^\.\. \.\./, '.. B3');
+    expect(bad({ tile: pair })).not.toThrow();
   });
 });

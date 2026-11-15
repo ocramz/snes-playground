@@ -19,15 +19,18 @@ import { trait } from 'koota';
  *   step; its own list is systems/reveal.ts (`tickReveal`), and the step
  *   resumes when it is over.
  * - `takeWait`: $82:8A83's 4 frames after an ability enemy's take.
- * The HUD thread (the tomato queue) runs in the hit-stops, the take wait
- * and the reveal, as the ROM's frame helper $80:8F78 does; not in the
+ * - `warp`: $82:AA02, the ball goes from one warp panel to the other inside
+ *   the step; its own list is systems/warp.ts (`tickWarp`), and the step
+ *   resumes when it is over.
+ * The HUD thread (the tomato queue) runs in the hit-stops, the take wait,
+ * the reveal and the warp, as the ROM's frame helper $80:8F78 does; not in the
  * guide's or the APU's lag, where the main loop is busy.
  *
  * A stall of N frames requested on frame F idles frames F+1..F+N-1 and
  * resumes on frame F+N. The suspended ball step's state rides as plain
  * fields (koota traits hold primitives only).
  */
-export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'guideLag' | 'apuLag';
+export type StallKind = 'none' | 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp' | 'guideLag' | 'apuLag';
 
 export const Stall = trait({
   kind: 'none' as StallKind,

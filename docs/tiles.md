@@ -81,7 +81,8 @@ which is the ordinary "no special behaviour" path. The rest:
 | `$28-$2D` | `$82:8FF1` | **the play-area outline**, a wall: see below |
 | `$60-$6F` | `$82:80F6` | surface overlay, with enter/leave tracking |
 | `$08` | `$82:AD8E` | **the cup**: holes the ball (docs/physics.md). In no course's data, because it is written at run time into the cell of the last enemy left, which becomes the cup |
-| `$1C`, `$1D`, `$58-$5D`, `$B0-$B9` | various | not established |
+| `$B0-$B9` | `$82:A980`, `$82:A9DB` | **warp panels**, in pairs: the ball goes to the other one and leaves it along its arrow |
+| `$1C`, `$1D`, `$58-$5D` | various | not established |
 
 The shot guide does not use these two tables. It has its own, `$81:B455`, in
 which only the outline `$28-$2D` and the overlay `$60-$6F` act; every other
@@ -171,6 +172,94 @@ course 1 hole 2's `$16`, the ball leaves at (0, 2914). The speed is kept
 iteration (2480).
 
 The shot guide's table `$81:B455` treats the arrows as plain ground.
+
+### Warp panels — `$B0-$B9`
+
+Pairs of panels: a ball that lands or rolls onto one is taken out and put
+down on the other, and leaves it along that panel's arrow. Course 1 has a
+pair on hole 4 (index 3: `$B4` at (4,22), `$B5` at (4,18)), hole 6 (`$B2`
+(2,3), `$B0` (3,8)) and hole 8 (`$B2` (4,5), `$B0` (6,10)). Every warp list
+in the ROM's 212 tile layouts is a pair (`build/courses/*/geometry.json`,
+read 2026-11-14). Read with `tools/dis65816.py '$82:A980'` and `'$82:AC4C'`:
+
+**The lists.** At load the sweep's handler for a tile with no actor
+(`$82:BD5C`, from `$82:B320`) appends each warp's (column, row) to one of
+four lists, in the sweep's order (rows from the top, each from its last
+column). `$82:B38D` terminates each with `$FFFF`:
+
+| tiles | x list | y list |
+|---|---|---|
+| `$B0-$B3` | `$7E:B6FC` | `$7E:B706` |
+| `$B4-$B7` | `$7E:B70E` | `$7E:B718` |
+| `$B8` | `$7E:B720` | `$7E:B72A` |
+| `$B9` | `$7E:B732` | `$7E:B73C` |
+
+**The handlers.**
+
+| handler | gate | then |
+|---|---|---|
+| `$82:A980` (land) | the window; mode ≠ `$0A`; at or under the surface (`$DA08:$DA06` ≥ `$D9FA:$D9F8`); the latch | in mode 0 with \|vz\| ≥ `$900`: `$6A6E` = `$DA04` and Kirby's state `$0C` (the squash); the warp; `JML $81:8905` |
+| `$82:A9DB` (hit) | the window; mode ≠ `$0A`; the latch | the warp; `JML $81:8A56` |
+
+- The window is `$82:AC74`: both fractions in [`$2800`, `$E000`).
+  Outside it the latch `$6A42` (per player) is cleared. The latch is set on
+  the warp and is also cleared by tile `$00`'s handlers (`$81:88F9`,
+  `$81:8A47`), so a ball warps once per visit.
+
+**The warp, `$82:AA02`.** It runs inside the ball step, and the step blocks
+until it is over:
+
+1. `$82:AA6F` finds the ball's cell in its list. With two entries the
+   destination is the other (`EOR #2` on the word index). With 1, 3 or 4,
+   `$82:ABC6` picks at random (`$80:87DD`, rows of `$82:AC0C`). With 1 it
+   never finds an index and hangs; no hole has such a list.
+2. The ball moves to the destination's centre (both fractions `$8000`) and
+   is re-probed (`$81:9479`). The probe's tile is now the destination's.
+3. `INC $6A48`. The player's own threads (`$85:8177`, `$85:822B`) suspend
+   themselves on it through `$82:AC94`. Then sound `$76` and
+   `$80:8FB6` with 10.
+4. Kirby's sprite goes off (`$0B7E`/`$0B82` = `$FFFF`) and z = the ground.
+   Object 63 takes his place, and Kirby's projection is computed at the
+   destination (`$81:A4C6`, `$81:A430`). The camera's lags `$38C2-$38C8`
+   are zeroed. The frames then run until object 63 raises `$699C`
+   (`$85:CEAB`).
+5. A frame, then a pan (`$81:BA8A`) toward the projection, repeated until a
+   pan finds the camera there.
+6. Object 64 appears at the destination with sound `$77`. After 26
+   frames Kirby's sprite comes back. In 1-player there are 20 more frames.
+7. `STZ $6A48`, and `$82:ACAA` resumes the threads.
+8. `$B0-$B7`: `$82:ECFC`(A = the destination's tile & 3) turns the
+   velocity to the arrow (N E S W, as for the arrow panels: the speed is
+   kept and the cross axis zeroed). Then `$82:AC4C`: unless a grounder was
+   chosen (`$6AD8`), the fly impulse `$D9CC/$D9CE` is turned by `$82:AC6C`
+   [arrow] − `$DA2C`. `$DA2C` is the block's `$D886`, which `$82:F1CE`
+   stores from `$D9DA`: the heading the last step left. `$B8` and `$B9`
+   keep the heading.
+
+*Emulated* (`tools/snesstep/inputs/web_warp`, `web_warp_fly`; the engine's
+`test/trace-warp.test.ts`). F is the warp's frame and A the arrival:
+
+| | web_warp (rolled onto `$B4`) | web_warp_fly (landed on it) |
+|---|---|---|
+| F: the handler, sound `$76` | 2488 | 2479 |
+| F + 10: object 63, Kirby off | 2498 | 2489 |
+| F + 48: `$699C` (38 frames of object 63) | 2536 | 2527 |
+| pans | 2537-2563 (27) | 2528-2553 (26) |
+| A: object 64, sound `$77` | 2563 | 2553 |
+| A + 26: Kirby back | 2589 | 2579 |
+| A + 46: the step goes on | 2609 | 2599 |
+| the ball | (4,18) centre, heading E at the speed it had (1237 → 1224 after the roll's friction) | (4,18) centre, vz −2944 and still airborne on the ground; on the next step it lands with a hit-stop and, 15 frames in the air, settles (`$81:8962`) |
+
+Objects 63 and 64 (`trace_actors.py --types 63,64`):
+
+- **Object 63** lives 2498-2535 at Kirby's projection where he went in. It
+  shows his own picture (`$5D9C` = `$FFFF`, the frame it copied from
+  `$0B1E`) for 2 frames, then table `$89:94F5`'s frames 0-10, the star
+  burst.
+- **Object 64** lives 2563-2589 at the destination. It shows frames 0-7,
+  20 and 0 of the same table.
+
+The shot guide's table `$81:B455` treats the warps as plain ground.
 
 ### Kicker — `$10-$13`
 
@@ -378,8 +467,8 @@ Some layer-2 values are locked to a layer-1 shape:
 - What the `$60-$6F` overlay *is*. Its handler `$82:80F6` tracks entering and
   leaving via `$69CA`/`$69D2`-`$69DA`, and it appears in 45 holes with 1,807
   cells — the second largest group. Mechanics traced, identity not.
-- `$1C`, `$1D`, `$58-$5D`, `$B0-$B9`: handlers located, not read. (`$14-$17`
-  are settled: the arrow panels, above.)
+- `$1C`, `$1D`, `$58-$5D`: handlers located, not read. (`$14-$17` are
+  settled: the arrow panels, above; so are `$B0-$B9`, the warp panels.)
 - The `$70-$7B` family's purpose. Twelve values in four groups of three,
   gated on a toggle at `$6A2A`, two impulse magnitudes (`$80:DDEF` = 4912 and
   `$80:DDF3` = 2456). Only four are used at all: `$74` (166 cells), `$75`

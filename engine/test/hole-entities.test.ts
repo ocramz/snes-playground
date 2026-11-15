@@ -4,6 +4,7 @@
  * what web_flow's two takes leave behind (the stars, the owners, the cup).
  */
 import { describe, expect, it } from 'vitest';
+import { $internal } from 'koota';
 import { RomRules } from '../src/core/rules';
 import { fromRomCourse } from '../src/core/course-data';
 import { sweepActors } from '../src/core/sweep';
@@ -100,5 +101,22 @@ describe.skipIf(!haveRules || !haveRomTest)('the hole entities', () => {
     expect(w.query(IsCup)).toHaveLength(0);
     expect(w.query(IsEnemy).filter((e) => e.targetFor(TakenBy) !== undefined)).toHaveLength(0);
     expect(courseEntity(w).get(Course)!.layer2[5 * 12 + 6]).toBe(0x4c);
+  });
+});
+
+describe.skipIf(!haveRules || !haveRomTest)('Visual\'s bit in the world', () => {
+  // Koota 0.6.6 loops forever creating a tracking query (Removed, Changed:
+  // the bridge's bind-views) over a trait on a generation's last bit, 2^30
+  // (core/world.ts). createGameWorld registers Visual first.
+  it('stays off the last bit of its generation, whatever hole comes first', () => {
+    const rules = new RomRules(loadTables());
+    for (const h of [0, 3]) {
+      const world = createGameWorld();
+      startCourse(world, rules, [fromRomCourse(loadRomHole(h)!)]);
+      const inst = (world as unknown as Record<symbol, { traitInstances: Array<{ bitflag: number } | undefined> }>)[$internal]
+        .traitInstances[(Visual as unknown as { id: number }).id];
+      expect(inst?.bitflag).toBeLessThan(2 ** 30);
+      world.destroy();
+    }
   });
 });

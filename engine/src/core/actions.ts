@@ -25,6 +25,7 @@ import { Pose, BallScreen } from './traits/pose';
 import { Course, setCourse, courseEntity } from './traits/course';
 import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
+import { Warp } from './traits/warp';
 import { Time } from './traits/time';
 import { Session, IsPaused } from './traits/session';
 import {
@@ -180,6 +181,7 @@ export function startHole(world: World, i: number): Ctx {
   g.points = []; g.ends = []; g.steps = 0; g.pendingFrame = -1;
   world.set(Stall, { ...world.get(Stall)!, kind: 'none', framesLeft: 0, resumeAt: -1 });
   world.set(Reveal, { ...world.get(Reveal)!, stage: 'none', t: 0, total: 0 });
+  world.set(Warp, { ...world.get(Warp)!, stage: 'none', t: 0, hidden: 0 });
   const actors = spawnHoleEntities(world, s.rules, data, i);
   setupHazards(world, ctx, actors); // $82:B9C7, $82:BA87 (after the sweep)
   // the first core frame after this is the set-up's first

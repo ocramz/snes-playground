@@ -43,7 +43,8 @@
     "103": "the star flies up with Kirby after a hole-out ($84:A917)",
     "111": "a bumper or a hazard tile bounces the ball ($82:9C9D, $82:A5A3); engine/",
     "113": "the ball hits a pillar ($82:956C, $82:95F8); engine/",
-    "119": "object $40 after the out-of-tomatoes sleep ($80:F89E); engine/",
+    "118": "a warp panel ($B0-$B9) takes the ball in ($82:AABC, the warp's first frame; object 63 follows); engine/",
+    "119": "object $40 after the out-of-tomatoes sleep ($80:F89E); also a warp panel lets the ball out ($82:AB7C, with object $40 = 64); engine/",
     "123": "a volcano throws the ball ($82:DB9A code $0F); engine/",
     "124": "the ball touches a volcano's cone (the cone handler in engine/src/core/sim/hazards.ts); engine/"
   },

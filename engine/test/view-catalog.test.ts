@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { World } from 'koota';
 import { Visual } from '../src/core/traits/visual';
 import { KIND_ART, CUP_RING_FRAME, SHADOW_FRAME, hazardFrame, HAZARD_TYPES } from '../src/game/features/catalog-data';
+import { CUP_MASK_FRAME } from '../src/game/features/enemies/cup-mask';
+import { OBJ63, OBJ64 } from '../src/game/features/warp/warp-frames';
 import { poseClip, KEEP, ENGINE_POSE_STATES } from '../src/game/features/kirby/pose-clips';
 import { panelFrames } from '../src/game/features/shot-panel/panel-layout';
 import { haveAssets, loadAtlas, loadCutscenes, loadObjects, loadUi } from './assets';
@@ -34,6 +36,22 @@ describe.skipIf(!haveAssets)('the view catalog vs the atlases', () => {
     }
     expect(atlas.frames[CUP_RING_FRAME]).toBeDefined();
     expect(atlas.frames[SHADOW_FRAME]).toBeDefined();
+    // the cup's rim (object 75): its top-left at the cell corner + (16, 2)
+    const mask = atlas.frames[CUP_MASK_FRAME];
+    expect(mask).toBeDefined();
+    expect([mask.w, mask.h, mask.ox, mask.oy]).toEqual([32, 32, -16, -2]);
+  });
+
+  it('the warp\'s objects 63 and 64 have every picture warp-frames names', () => {
+    const objects = loadObjects();
+    expect(objects).not.toBeNull();
+    for (const [type, list] of [[63, OBJ63], [64, OBJ64]] as const) {
+      for (const [, table, index] of list) {
+        const name = objects!.objects![String(type)]?.frames[table]?.[index];
+        expect(name, `${type} ${table}:${index}`).toBeTruthy();
+        expect(objects!.frames[name!]).toBeDefined();
+      }
+    }
   });
 
   it('every clip poseClip names exists, for every state, facing, angle, variant, tomato count and air', () => {

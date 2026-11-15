@@ -4,9 +4,16 @@
  * back to front,
  *   BG3          the scenery, one screen, fixed to the screen
  *   back         BG2.0 + BG1.0, the course at world (0, 0)
- *   [sprites]
  *   front        BG2.1 + BG1.1
- * with the backdrop colour behind. The play area's outline is not baked in:
+ *   [sprites]
+ * with the backdrop colour behind. Every sprite of play is OAM priority 3,
+ * which mode 1 draws over BG1.1 and BG2.1 (tools/ppu_render.py): Kirby, the
+ * trees, the enemies, the tee and the cup in every snapshot of web_hole0
+ * from 2185 on (play and the hole-out; read 2026-11-14). Only the intro's
+ * frames before 2185, while the screen is black or fading in, use priority
+ * 2, under the front layer; the engine does not model that. The priority-0
+ * sprites are masks that let the course show through (object 75, the cup's
+ * rim: features/enemies/cup-mask.ts). The play area's outline is not baked in:
  * `layer_outline_{back,front}` are white masks of palette 7 colour 15, which
  * object $84:81A3 cycles through the 15 colours of $98:D3E6 in a ping-pong
  * walk of 30 steps, 3 frames each (tables.json outlineColours/outlineWalk;
@@ -27,8 +34,8 @@ export const DEPTH = {
   bg3: 0,
   back: 10,
   outlineBack: 11,
-  front: 1000,
-  outlineFront: 1001,
+  front: 12,
+  outlineFront: 13,
 } as const;
 
 /** The backdrop of every course-1 hole (layers.json backColour), also behind the authored ones. */
@@ -78,7 +85,8 @@ export class LayersView {
     if (!bitmaps || debugTerrain) {
       this.terrain = drawTerrain(scene, rules, course);
       this.terrain.setDepth(DEPTH.back + 0.5);
-      if (bitmaps) this.terrain.setVisible(false).setAlpha(0.6);
+      // over the bitmaps (?debug, key D) it covers both layers
+      if (bitmaps) this.terrain.setVisible(false).setAlpha(0.6).setDepth(DEPTH.outlineFront + 0.5);
     }
   }
 

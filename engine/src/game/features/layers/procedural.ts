@@ -7,7 +7,8 @@
  * the camera (+x and -y: they face down the screen) go down to the
  * neighbour's surface. Cells are painted back to front by x - y. Shading
  * is by slope; the colour by the special-tile group of docs/tiles.md;
- * layer-4 walls and the outline tiles $28-$2D are lines on the surface.
+ * layer-4 walls and the outline tiles $28-$2D are lines on the surface; the
+ * warps $B0-$B7 carry a tick toward the edge their arrow leaves by.
  * It is a picture of the data the physics runs on, not of the game's art.
  */
 import Phaser from 'phaser';
@@ -31,6 +32,7 @@ function tileColour(tile: number): number {
   if (tile >= 0x20 && tile <= 0x24) return 0xd8c078; // friction
   if (tile >= 0x30 && tile <= 0x3b) return 0xe89030; // boost panels
   if ((tile >= 0x80 && tile <= 0xa2) || (tile >= 0xac && tile <= 0xae)) return 0xc04848; // hazards
+  if (tile >= 0xb0 && tile <= 0xb9) return 0x7050e0; // warps
   return GRASS;
 }
 
@@ -56,6 +58,9 @@ const OUTLINE: Record<number, [Pt, Pt]> = {
   0x2c: [[1, 0.5], [0.5, 1]],
   0x2d: [[0.5, 0], [1, 0.5]],
 };
+
+/** The warps' exit arrow tips, N E S W (cell fractions). */
+const WARP_TIP: Pt[] = [[0.5, 0.15], [0.85, 0.5], [0.5, 0.85], [0.15, 0.5]];
 
 export function drawTerrain(scene: Phaser.Scene, rules: RomRules, c: CourseState): Phaser.GameObjects.Graphics {
   const g = scene.add.graphics();
@@ -139,6 +144,14 @@ export function drawTerrain(scene: Phaser.Scene, rules: RomRules, c: CourseState
       const [a, b] = line;
       const pa = proj(x, y, a, z(x, y, a));
       const pb = proj(x, y, b, z(x, y, b));
+      g.lineStyle(2, 0xffffff, 1).lineBetween(pa[0], pa[1], pb[0], pb[1]);
+    }
+    const warp = c.layer2[i];
+    if (warp >= 0xb0 && warp <= 0xb7) {
+      // the exit arrow ($82:ECFC: N E S W = -y +x +y -x)
+      const tip = WARP_TIP[(warp - 0xb0) & 3];
+      const pa = proj(x, y, [0.5, 0.5], z(x, y, [0.5, 0.5]));
+      const pb = proj(x, y, tip, z(x, y, tip));
       g.lineStyle(2, 0xffffff, 1).lineBetween(pa[0], pa[1], pb[0], pb[1]);
     }
   }

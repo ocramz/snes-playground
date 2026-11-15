@@ -314,7 +314,10 @@ resumes where it stopped in F+4. This is frame-exact on web_fly's landing
 and step hit (the engine's `stalls.test.ts`). `$81:8C48` does the same for
 2 frames on a step hit, when |vx| + |vy| ≥ `$0300` and the edge is 0 or 1.
 *Emulated*: a fly shot landing with vz = −3901 is reflected at frame 3114
-and damped at 3118.
+and damped at 3118. Back from the stop, the landing goes on at step 6's
+spin impulse, so step 8's rest rule still applies: web_warp_fly lands 15
+frames after a warp (2600, vz −2944), stops for 4 frames and comes to rest
+(vz 0, airborne 0 at 2604) instead of bouncing.
 
 ### Cell edges, walls and steps
 
@@ -795,6 +798,20 @@ with no pokes and is matched state for state by the engine (`trace-script`):
 * The hole-out `$82:AE2B` sets holed 1, keeps the ball airborne, records
   ground' (`$6B80/$6B82`), spawns object 75 (`$82:AD13`), and clears vx,
   vy and the spin. The step ends.
+* **Object 75 is the cup's near rim**, and it is a sprite mask.
+  - It is four 16 x 16 sprites at OAM priority 0, at the cup cell's corner
+    + (16, 2), 32 x 32 in all (`build/sprites/emu/obj_075.png`). Its top
+    two rows have a notch: the ring's opening.
+  - Every other sprite of play is priority 3. The mask comes before Kirby
+    in OAM and wins where both are opaque, and since it is behind BG1/BG2
+    the course shows there. Below the rim Kirby is hidden.
+  - From its first frame the ring (object 74) also comes before Kirby in
+    OAM, so the ring draws over him. Before, Kirby came first.
+  - Measured on web_hole with snapshots every frame (3890-3912): the mask
+    is in OAM from 3896, holed + 2, and Kirby's sprite goes at 3910.
+  - In c1n (`trace_cutscene.py`'s slots) it lives 3123-3303, or 3123-3654
+    in the hole in one. It is gone 34 frames before the star (object 128)
+    rises out of the cup.
 * **The sink** `$82:AE61` runs each step after that while the ball is
   airborne over tile `$08`. It never moves z (the step's own move adds vz).
   * It adds gravity to vz, and a vz that would take z below 0 becomes

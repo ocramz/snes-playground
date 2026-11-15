@@ -121,9 +121,9 @@ ENGINE_ROMTEST := build/engine/rom-test/.stamp
 ENGINE_ASSETS  := build/engine/assets/manifest.json
 ENGINE_NODE    := engine/node_modules/.package-lock.json
 ENGINE_DIST    := engine/dist/index.html
-# the hazard actors' emulated sheets (tools/emusheets.py over every hole); the
+# the hazard actors' and the warp's emulated sheets (tools/emusheets.py over every hole); the
 # objects step skips a missing one and the engine draws a marker instead
-ENGINE_OBJ     := $(wildcard $(foreach t,076 077 081 082 083,build/sprites/emu/obj_$(t).json))
+ENGINE_OBJ     := $(wildcard $(foreach t,063 064 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
 ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
                   engine/index.html engine/vite.config.ts engine/tsconfig.json engine/package.json
 

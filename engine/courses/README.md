@@ -14,7 +14,7 @@ files by hand).
 | t3-diagonals | diagonal corners `$14-$17` (a hill) and `$10-$13` (a hollow), full diagonal ramps `$18-$1B` |
 | t4-steps-walls | terraces at elevations 0, 1, 3 (steps up block, steps down launch), a fence of layer-4 walls |
 | t5-islands | two islands, open edges: a fall loses the ball |
-| t6-surfaces | friction `$20-$24`, rough `$04`, boost `$30-$3B`, kickers `$10-$13`, snaps `$18-$1B`, arrows `$14-$17` |
+| t6-surfaces | friction `$20-$24`, rough `$04`, boost `$30-$3B`, kickers `$10-$13`, snaps `$18-$1B`, arrows `$14-$17`, a warp pair `$B1`/`$B3` |
 | t7-hazards | the hazard tiles (`$80`, `$98`, `$90`, `$AC-$AE`, `$05`, `$A2`) and pillars `$02` |
 | t8-outline | an octagon of outline walls `$28-$2D`, hovering enemies (`$4D`, `$50`, `$51`) |
 
@@ -55,4 +55,7 @@ Validation rejects, with the offending cell:
 - fewer than two enemies (one is taken, the last becomes the cup);
 - an enemy that gives a copy ability, or the roulette `57` (copy abilities
   are deferred);
-- an actor tile on a gap.
+- an actor tile on a gap;
+- a warp list (`B0`-`B3`, `B4`-`B7`, `B8`, `B9`) that is neither empty nor
+  a pair (the game picks among 3 or 4 at random, which is not ported, and
+  hangs on 1), or a warp on a gap.

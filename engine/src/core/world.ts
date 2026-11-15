@@ -15,6 +15,7 @@ import { Session } from './traits/session';
 import { Visual } from './traits/visual';
 import { Stall } from './traits/stall';
 import { Reveal } from './traits/reveal';
+import { Warp } from './traits/warp';
 import { Hazards } from './traits/hazards';
 
 /**
@@ -27,10 +28,19 @@ import { Hazards } from './traits/hazards';
  */
 export function createGameWorld(): World {
   const world = createWorld();
+  // Visual first: it is the one trait the bridge tracks (Removed, Changed),
+  // and Koota 0.6.6's tracking loop (`for (bit = 1; bit <= mask; bit <<= 1)`
+  // in createQueryInstance) never ends for a trait on a generation's last
+  // bit, 2^30: the shift overflows to -2^31, then 0. A trait takes the next
+  // bit when the world first sees it, so registering Visual here keeps it on
+  // bit 0 however many traits come before its first spawn (the warp's trait
+  // pushed it to 2^30, and the hole scene hung in primeBindings).
+  world.query(Visual);
   world.add(Time);
   world.add(Pad);
   world.add(Stall);
   world.add(Reveal);
+  world.add(Warp);
   world.add(Shot);
   world.add(HoleFlow);
   world.add(Camera);

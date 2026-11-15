@@ -184,7 +184,7 @@ h.put(9, 7, tile=0x4A)
 holes.append(h)
 
 # t6: the surface tiles
-h = Hole("t6-surfaces", "Surface tiles: friction $20-$23 on ramps and $24 on flat, rough $04, boost panels $30-$33 (flat) and $34/$36/$38/$3A (on their ramps), kickers $10-$13, snaps $18-$1B, arrow panels $14-$17.", 16, 10)
+h = Hole("t6-surfaces", "Surface tiles: friction $20-$23 on ramps and $24 on flat, rough $04, boost panels $30-$33 (flat) and $34/$36/$38/$3A (on their ramps), kickers $10-$13, snaps $18-$1B, arrow panels $14-$17, a warp pair $B1/$B3 (the ball comes out heading E/W).", 16, 10)
 h.fence()
 h.put(1, 1, tile=0x0C)
 for i, t in enumerate((0x30, 0x31, 0x32, 0x33)):
@@ -195,6 +195,8 @@ for i, t in enumerate((0x18, 0x19, 0x1A, 0x1B)):
     h.put(3 + i, 5, tile=t)
 for i, t in enumerate((0x14, 0x15, 0x16, 0x17)):   # the arrows, N E S W
     h.put(3 + i, 7, tile=t)
+h.put(1, 5, tile=0xB1)    # a warp pair: into (9,5), out of (1,5) heading E
+h.put(9, 5, tile=0xB3)    # into (1,5), out of (9,5) heading W
 h.put(8, 1, tile=0x24)
 h.put(9, 1, tile=0x04)
 h.put(10, 1, tile=0x04)

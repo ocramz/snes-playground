@@ -14,7 +14,9 @@ import { nextHole, continueGame, pause, resume } from '../src/core/actions';
 import { HoleFlow } from '../src/core/traits/flow';
 import { Session } from '../src/core/traits/session';
 import { Tomatoes, Stars, Strokes, Career } from '../src/core/traits/counters';
-import { BallPos, BallWork } from '../src/core/traits/ball';
+import { BallPos, BallVel, BallWork } from '../src/core/traits/ball';
+import { Warp } from '../src/core/traits/warp';
+import { WARP_HOLD, WARP_IN, WARP_LEAD, WARP_OUT } from '../src/core/systems/warp';
 import { Pose } from '../src/core/traits/pose';
 import { Time } from '../src/core/traits/time';
 import { Shot } from '../src/core/traits/shot';
@@ -99,6 +101,30 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     expect(e.get(Tomatoes)!.n).toBe(4);
     expect(d.world.get(Career)!.lives).toBe(1);
     expect(kinds(d, lost)).toEqual(['song:0', 'ball-lost:54', 'song:b', 'life-lost:b', ...Array(4).fill('tomato-gain:52')]);
+  });
+
+  it('t6: rolled onto the warp $B3 at (9,5), the ball comes out of $B1 at (1,5) heading east', () => {
+    const d = new CourseDriver();
+    for (let i = 0; i < 5; i++) nextHole(d.world); // t6
+    d.shoot();
+    // rolling west into (9,5)'s centre window
+    placeBall(d.world, { xc: 10, xf: 0x2000, yc: 5, yf: 0x8000, z: 0x5a82, vx: 0xf800, vy: 0, vz: 0, air: 0 });
+    const from = d.frame;
+    d.until(() => d.world.get(Warp)!.stage !== 'none', 60, 'the warp');
+    const start = d.frame;
+    d.until(() => d.world.get(Warp)!.stage === 'none', 400, 'the warp\'s end');
+    const pos = d.world.queryFirst(BallWork)!.get(BallPos)!;
+    expect([pos.xc, pos.yc]).toEqual([1, 5]);
+    const vel = d.world.queryFirst(BallWork)!.get(BallVel)!;
+    expect(vel.vy).toBe(0);
+    expect(vel.vx).toBeGreaterThan(0);
+    expect(vel.vx).toBeLessThan(0x0800);
+    expect(kinds(d, from).filter((k) => k.startsWith('warp'))).toEqual(['warp:76', 'warp:77']);
+    // the stall: 10 + 38 + the pan + 26 + 20 frames
+    expect(d.frame - start).toBeGreaterThanOrEqual(WARP_LEAD + WARP_OUT + 1 + WARP_IN + WARP_HOLD);
+    // the latch: the ball rolls off (1,5) without warping back
+    d.step(60);
+    expect(kinds(d, from).filter((k) => k.startsWith('warp'))).toHaveLength(2);
   });
 
   it('t1: four shots spend the tomatoes; tired twice, asleep, a life for the refill, the same hole', () => {

@@ -12,10 +12,11 @@
  * The stall runner: while a stall is active a frame runs only that stall's
  * own list. A hit-stop requested on frame F idles F+1..F+N-1; on F+N the
  * suspended step resumes and the post-step systems follow. The cup reveal
- * ($82:8B5C) suspends the step the same way, for as long as its own list
- * (systems/reveal.ts) runs. A `guideLag` idles likewise and its last frame
- * is an ordinary frame. The host latches input by writing `Pad.raw` before
- * each call. `IsPaused` on the world skips the frame entirely.
+ * ($82:8B5C) and the warp ($82:AA02) suspend the step the same way, for as
+ * long as their own lists (systems/reveal.ts, systems/warp.ts) run. A
+ * `guideLag` idles likewise and its last frame is an ordinary frame. The
+ * host latches input by writing `Pad.raw` before each call. `IsPaused` on
+ * the world skips the frame entirely.
  *
  * `apply-tomato-queue` (the HUD thread) ends every frame, as the thread
  * scheduler ends the ROM's ($80:8F78 after the main loop's work): a push
@@ -24,7 +25,8 @@
  * stamps those last two 3003/3088 because they happen in the first lines of
  * the next video frame, which still belong to the iteration). It also ends
  * the stall frames whose ROM loop calls the frame helper (the hit-stops,
- * the take's wait, the reveal), not the guide's or the APU's lag frames.
+ * the take's wait, the reveal, the warp), not the guide's or the APU's lag
+ * frames.
  */
 import type { World } from 'koota';
 import { Time } from './traits/time';
@@ -33,6 +35,7 @@ import { IsPaused, Session } from './traits/session';
 import { runBallStep, resumeBallStep, BALL_STEP } from './systems/ball-step';
 import { Stall } from './traits/stall';
 import { tickReveal } from './systems/reveal';
+import { tickWarp } from './systems/warp';
 import { latchPad } from './systems/pad';
 import { updateHoleFlow, setupShot, detectBallOut, ballStepRuns } from './systems/hole-flow';
 import { updateAim, updateShotGuide } from './systems/aim';
@@ -90,7 +93,7 @@ export function runCoreFrame(world: World, ctx?: Ctx): void {
 /** Is the idle stall one whose ROM loop still runs the threads each frame? */
 function sameIteration(world: World): boolean {
   const k = world.get(Stall)!.kind;
-  return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'cupReveal';
+  return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'cupReveal' || k === 'warp';
 }
 
 /**
@@ -102,9 +105,10 @@ function sameIteration(world: World): boolean {
 function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   const stall = world.get(Stall)!;
   if (stall.kind === 'none') return 'none';
-  if (stall.kind !== 'cupReveal' && stall.framesLeft <= 0) return 'none';
+  const own = stall.kind === 'cupReveal' || stall.kind === 'warp'; // a list of its own, no count
+  if (!own && stall.framesLeft <= 0) return 'none';
   const hit = stall.kind === 'hitStop' || stall.kind === 'stepStop';
-  const threads = hit || stall.kind === 'takeWait' || stall.kind === 'cupReveal';
+  const threads = hit || stall.kind === 'takeWait' || own;
   if (hit) {
     // $81:8CAB-$81:8CBF: OR the pad of every stall frame
     const pad = world.get(Pad)!;
@@ -116,6 +120,8 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   }
   if (stall.kind === 'cupReveal') {
     if (!tickReveal(world)) return 'idle';
+  } else if (stall.kind === 'warp') {
+    if (!tickWarp(world, ctx)) return 'idle';
   } else {
     const left = stall.framesLeft - 1;
     if (left > 0) {

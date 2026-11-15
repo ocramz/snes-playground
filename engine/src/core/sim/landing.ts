@@ -100,26 +100,35 @@ export function dispatchLanding(ctx: Ctx, w: Work, entry: 'full' | 'grounded' = 
  * then the settle ($81:896B) or the damping ($81:8975) and the gravity
  * tail ($81:899F).
  */
-export function finishLanding(_ctx: Ctx, w: Work, outcome: LandingOutcome): void {
+export function finishLanding(ctx: Ctx, w: Work, outcome: LandingOutcome): void {
   switch (outcome.kind) {
     case 'gravity':
       gravityTail(w);
       return;
     case 'hitstop':
+      // back from $81:8C79 at $81:895B: the spin impulse, then the same
+      // settle rule as any landing ($81:8962): a ball airborne for fewer
+      // than 16 frames comes to rest (web_warp_fly 2600: 15 frames after
+      // the warp, a hit-stop and no bounce)
       if (w.mode === 0 || w.mode === 7) spinImpulse(w, w.shotElev);
       w.spinPending = 0;
-      dampAndGravity(w);
+      if (w.airFrames < ctx.rules.const_('bounceMinFrames')) rest(w);
+      else dampAndGravity(w);
       return;
     case 'rest':
-      // $81:896B: come to rest vertically and roll from here
-      w.air = 0;
-      w.vz = 0;
-      w.airFrames = 0;
+      rest(w);
       return;
     case 'damp':
       dampAndGravity(w);
       return;
   }
+}
+
+/** $81:896B: come to rest vertically and roll from here. */
+function rest(w: Work): void {
+  w.air = 0;
+  w.vz = 0;
+  w.airFrames = 0;
 }
 
 function dampAndGravity(w: Work): void {

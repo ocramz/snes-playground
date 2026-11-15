@@ -5,20 +5,26 @@
  * recomputed every frame and changed only when it differs (core writes Pose
  * several times a frame, not always through `set`), and restarted when the
  * pose's timer jumps up (a second hop during a hop). The ball's shadow
- * (object 121's picture) sits on the ground under an airborne ball.
+ * (object 121's picture) sits on the ground under an airborne ball, but not
+ * in the cup (the sink's frames of web_hole have no shadow sprite). While the
+ * cup's rim mask is up (object 75, features/enemies/cup-mask.ts) Kirby is
+ * cut off below the rim (`setCut`); in a warp his sprite is off while the
+ * warp's objects take his place (features/warp).
  */
 import Phaser from 'phaser';
 import type { Entity } from 'koota';
 import { Tex } from '../../assets/keys';
 import { playClip } from '../../assets/atlas';
-import { BallAir, BallPos, BallWork } from '../../../core/traits/ball';
+import { BallAir, BallHoled, BallPos, BallWork } from '../../../core/traits/ball';
 import { BallScreen, Pose } from '../../../core/traits/pose';
 import { Tomatoes } from '../../../core/traits/counters';
 import { HoleFlow } from '../../../core/traits/flow';
+import { Warp } from '../../../core/traits/warp';
 import { kirbyPoint, worldOf } from '../../bridge/placement';
 import type { View, ViewCtx } from '../../bridge/view';
 import { KEEP, poseClip } from './pose-clips';
 import { SHADOW_FRAME } from '../catalog-data';
+import { rowsAboveCut } from '../enemies/cup-mask';
 
 /** What Kirby shows before core has set a pose (state 0 holds the last one): facing the camera. */
 const FIRST_CLIP = 'aim_facing3';
@@ -39,8 +45,10 @@ export class KirbyView implements View {
   place(ctx: ViewCtx, e: Entity): number | null {
     const p = kirbyPoint(ctx.course, e.get(BallScreen)!);
     this.sprite.setPosition(p.x, p.y);
-    const hidden = ctx.hidden.has('ball');
-    const flying = e.get(BallAir)!.air !== 0 && ctx.world.get(HoleFlow)!.phase === 'Rolling';
+    // the cutscene's own Kirby, or a warp's ($0B7E/$0B82, core systems/warp.ts)
+    const hidden = ctx.hidden.has('ball') || ctx.world.get(Warp)!.hidden !== 0;
+    const flying = e.get(BallAir)!.air !== 0 && ctx.world.get(HoleFlow)!.phase === 'Rolling'
+      && e.get(BallHoled)!.holed === 0;
     if (flying && !hidden) {
       const pos = e.get(BallPos)!;
       const g = worldOf(ctx.course, pos.xc, pos.xf, pos.yc, pos.yf, e.get(BallWork)!.ground);
@@ -74,6 +82,21 @@ export class KirbyView implements View {
     }
   }
 
+  /**
+   * Hide Kirby from bitmap row `cut` down (the cup's rim), or show him whole
+   * (null). Applied now, to the frame showing, and again each host frame by
+   * the caller, since a clip's frames have different pivots.
+   */
+  setCut(cut: number | null): void {
+    const s = this.sprite;
+    if (cut === null) {
+      if (s.isCropped) s.setCrop();
+      return;
+    }
+    const top = s.y - s.displayOriginY;
+    s.setCrop(0, 0, s.frame.width, rowsAboveCut(top, s.frame.height, cut));
+  }
+
   /** The clip playing, for the debug hook and the smoke test. */
   get current(): string | null {
     return this.clip;
@@ -81,6 +104,10 @@ export class KirbyView implements View {
 
   get position(): { x: number; y: number; depth: number; visible: boolean } {
     return { x: this.sprite.x, y: this.sprite.y, depth: this.sprite.depth, visible: this.sprite.visible };
+  }
+
+  get depth(): number {
+    return this.sprite.depth;
   }
 
   private show(clip: string): void {

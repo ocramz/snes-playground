@@ -2,8 +2,11 @@
  * `sync-depth`: the iso sort. Things on the ground (the tee pad, the cup and
  * its ring) stay under the actors (Kirby must be drawn over the cup:
  * web/test/e2e/depth.mjs's rule); actors sort by the world y of their feet
- * (a larger y is nearer the camera). All of it sits between the course's back
- * and front layers (BG*.0 and BG*.1).
+ * (a larger y is nearer the camera). All of it sits over both of the course's
+ * layers (BG*.0 and BG*.1): every sprite of play is OAM priority 3
+ * (layers-view.ts). While the cup's rim mask is up (object 75,
+ * features/enemies/cup-mask.ts), sync-cup-mask raises the ring over Kirby
+ * and cuts him off below the rim.
  */
 import { DEPTH, type Presentation } from './presentation';
 

@@ -423,6 +423,14 @@ $82:A74F	0x01274F	code	sub_tile_arrow_ns_hit	52	tiles $14, $16 rolling: x in [$6
 $82:A783	0x012783	code	sub_tile_arrow_ew_hit	52	tiles $15, $17 rolling: as sub_tile_arrow_ns_hit with the axes swapped
 $82:A7B7	0x0127B7	code	sub_arrow_turn	38	JSR; once per pass ($6A68): sub_turn_to_dir(tile - $14), the spin cleared, $6A6C = $0C (emulated: web_arrow)
 $82:A7DD	0x0127DD	code	sub_tile_kicker	-	tiles $10-$13; landing vz becomes a directional vx/vy impulse
+$82:A980	0x012980	code	sub_tile_warp	91	tiles $B0-$B9 on landing: the centre window ($82:AC74), mode != $0A, at or under the surface, the latch $6A42; |vz| >= $900 in mode 0: Kirby state $0C; sub_warp; JML $81:8905 (emulated: web_warp_fly)
+$82:A9DB	0x0129DB	code	sub_tile_warp_hit	39	tiles $B0-$B9 rolling: the window, mode != $0A, the latch $6A42; sub_warp; JML $81:8A56 (emulated: web_warp)
+$82:AA02	0x012A02	code	sub_warp	-	JSR; the other warp of the ball's list ($82:AA6F), the ball at its centre and re-probed, sound $76, 10 frames, object 63, the pan, object 64 and sound $77, 26 + 20 frames, then sub_turn_to_dir by the destination's arrow and loc_warp_impulse (docs/tiles.md "Warp panels")
+$82:ABC6	0x012BC6	code	sub_warp_pick	-	JSR; a random other warp of a list of 1, 3 or 4 ($80:87DD, rows $82:AC0C); never reached by the ROM's holes (all pairs); hangs on a list of 1
+$82:AC4C	0x012C4C	code	loc_warp_impulse	32	unless a grounder ($6AD8): the fly impulse $D9CC/$D9CE turned by $82:AC6C[dir] - $DA2C (the stored heading) via $82:ED4C
+$82:AC74	0x012C74	code	sub_warp_window	32	JSR; X = 0 when both fractions are in [$2800,$E000), else $FFFF (the warp's centre window)
+$82:AC94	0x012C94	code	sub_warp_suspend	-	JSL from a player's own thread while $6A48 (a warp) is set: pushes it on $6A4A/$6A54 and suspends it ($80:E458)
+$82:ACAA	0x012CAA	code	sub_warp_resume	21	JSR; resumes the threads sub_warp_suspend parked ($80:E487)
 $82:ACBF	0x012CBF	code	sub_find_marked_cell	-	scan layer 2 for $0C or $C3; records column, row and elevation+1
 $82:AD8E	0x012D8E	code	sub_tile_cup	-	layer-2 handler $08, the cup: holes the ball when $82:AFE9 says centre ($5000) and it is low enough
 $82:AFE9	0x012FE9	code	sub_cup_depth	-	cup depth at the ball's in-cell position from the profile at $88:8990; $5000 = centre
@@ -432,6 +440,7 @@ $82:B1CA	0x0131CA	code	sub_course_load_header	-	copy the 28-byte uncompressed ho
 $82:B20C	0x01320C	code	sub_course_load_grids	100	decompress course tables 1-4 (w*h grid layers) and table 10
 $82:B320	0x013320	code	sub_spawn_course_actors	-	load-time sweep of layer 2; looks each value up in tbl_tile_actor
 $82:B3AF	0x0133AF	code	sub_spawn_actor	-	A = actor id from tbl_tile_actor: spawns thread object type A via sub_thread_spawn_below at the cell ($6A82/$6A86); $8000 records the cell without spawning. Actor id == object type (emulated: all 232 holes)
+$82:BD5C	0x013D5C	code	sub_sweep_warp	96	sub_spawn_course_actors' handler for a tile with no actor: a warp $B0-$B9 appends its cell to one of four lists, $B6FC/$B70E/$B720/$B732 (x) and +10 (y)
 $82:BDBC	0x013DBC	data	tbl_tile_actor	512	256 words, layer-2 byte -> actor id; $FFFF means no actor
 $82:C84E	0x01484E	code	loc_roll_state_by_spin	-	picks Kirby's rolling animation state 14, 16 or 15 from how far $6B54/$6B58 (0-12, centre 6) are from 6
 $82:C90A	0x01490A	tbl	tbl_ability_states	-	copy ability -> Kirby animation state
