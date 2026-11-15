@@ -7,7 +7,8 @@ docs/           long-form findings: memory maps, data formats, subsystems
 notes/          working scratch, per-session, unpolished, may be wrong
 tools/          analysis scripts
 web/            the Phaser 4 + Vite demo of one hole (docs/web-demo.md)
-engine/         the Koota + Phaser 4 reimplementation (docs/engine.md)
+engine/         the Koota + Phaser 4 reimplementation (docs/engine.md); random.html
+                plays seeded random holes (src/core/gen)
 plans/          design plans for work in progress
 symbols.tsv     machine-readable symbol/label table
 Makefile        `make` builds the web demo end to end; `make engine-*` the engine;
@@ -65,8 +66,10 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/engine.md](docs/engine.md) — the Koota × Phaser 4 reimplementation in
   `engine/`: how to run and test it, the dependency rules, the event model,
   the frame (every system with the routine it ports), the traits, the hole
-  flow, the bridge and views, the event and asset tables, the deviations from
-  the game, and what is unported, deferred or unconfirmed.
+  flow, the bridge and views, the event and asset tables, the random holes
+  (the generator, the physics-checked solver, the styled terrain drawn from
+  the course art's exemplar patches), the deviations from the game, and what
+  is unported, deferred or unconfirmed.
 - [docs/web-demo.md](docs/web-demo.md) — the browser demo of course 1 hole 1:
   how to export the assets and run it, the TypeScript port of the ball physics
   and how it was checked frame by frame against the game, what was measured

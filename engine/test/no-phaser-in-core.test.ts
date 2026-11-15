@@ -46,7 +46,7 @@ const PURE = [
   'features/catalog-data.ts', 'features/kirby/pose-clips.ts', 'features/audio/event-table.ts',
   'features/cutscene/replay.ts', 'features/cutscene/director.ts', 'features/shot-panel/panel-layout.ts', 'features/shot-panel/panel-state.ts',
   'features/guide/guide-dots.ts', 'features/hud/hud-state.ts', 'features/text/encoding.ts',
-  'features/enemies/cup-mask.ts', 'features/warp/warp-frames.ts',
+  'features/enemies/cup-mask.ts', 'features/warp/warp-frames.ts', 'features/layers/styled.ts',
   'features/kirby/sprite-rules.ts', 'features/layers/layer-depth.ts',
   'assets/schema.ts', 'config.ts',
 ];
@@ -82,7 +82,7 @@ describe('the pure bridge modules import no phaser', () => {
 describe('src/game reads core through traits and actions', () => {
   it('no file under src/game imports core/systems or core/sim', () => {
     const bad: string[] = [];
-    const files = [...walk(game), resolve(here, '../src/main.ts')];
+    const files = [...walk(game), resolve(here, '../src/main.ts'), resolve(here, '../src/random.ts')];
     for (const path of files) {
       const src = readFileSync(path, 'utf8');
       for (const m of src.matchAll(/(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]/g)) {

@@ -41,7 +41,7 @@ DIST   := web/dist/index.html
 WEB_SRC := $(shell find web/src -type f ! -path '*/__tests__/*' ! -name .DS_Store) \
            web/index.html web/hands.html web/vite.config.ts web/tsconfig.json web/package.json
 
-.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e extract help clean clean-rust distclean
+.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e engine-random extract help clean clean-rust distclean
 .DELETE_ON_ERROR:
 
 all: build
@@ -113,8 +113,10 @@ $(DIST): $(NODE) $(ASSETS) $(WEB_SRC)
 #                         course.json (course 1, and the hazard holes 11 and 54),
 #                         and, after `make engine-traces`, the ball, flow, sound
 #                         and hazard-actor fixtures of tools/snesstep/inputs/web_*
-# build/engine/assets     the sprite atlas, ui, hud, font, audio, cutscenes
-#                         and the 8 course-1 holes' course.json + layers
+# build/engine/assets     the sprite atlas, ui, hud, font, audio, cutscenes,
+#                         the 8 course-1 holes' course.json + layers, and the
+#                         course art's exemplar patches (terrain_style.*) the
+#                         holes without bitmaps are drawn with
 
 ENGINE_RULES   := build/engine/rules/tables.json
 ENGINE_ROMTEST := build/engine/rom-test/.stamp
@@ -125,7 +127,7 @@ ENGINE_DIST    := engine/dist/index.html
 # objects step skips a missing one and the engine draws a marker instead
 ENGINE_OBJ     := $(wildcard $(foreach t,063 064 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
 ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
-                  engine/index.html engine/vite.config.ts engine/tsconfig.json engine/package.json
+                  engine/index.html engine/random.html engine/vite.config.ts engine/tsconfig.json engine/package.json
 
 $(ENGINE_RULES): tools/export_web.py
 	$(PYTHON) tools/export_web.py --only tables --out build/engine/rules
@@ -139,7 +141,8 @@ $(ENGINE_ROMTEST): tools/export_web.py
 	@touch $@
 
 $(ENGINE_ASSETS): $(AUDIO) $(HUD) $(CLIPS) $(REPLAY) $(CUTSCENE) $(ENGINE_OBJ) tools/web_audio_map.json \
-                  tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py | $(SNESSTEP)
+                  tools/export_web.py tools/export_web_sprites.py tools/export_web_ui.py tools/coursemap.py \
+                  tools/terrain_style.py | $(SNESSTEP)
 ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
@@ -148,6 +151,7 @@ endif
 	for h in 0 1 2 3 4 5 6 7; do \
 	  $(PYTHON) tools/export_web.py --hole $$h --only course,layers --out build/engine/assets/holes/0$$h || exit; \
 	done
+	$(PYTHON) tools/terrain_style.py --out build/engine/assets
 	$(PYTHON) tools/export_web.py --only manifest --out build/engine/assets
 
 $(ENGINE_NODE): engine/package.json engine/package-lock.json
@@ -173,6 +177,11 @@ engine-traces: | $(SNESSTEP)
 engine-e2e: $(ENGINE_NODE)
 	cd engine && $(NPM) run e2e
 
+# random.html: a course of random holes (plans/random_holes.md) on the dev
+# server, opened in the browser; ?seed=N&difficulty=easy|normal|hard
+engine-random: $(ENGINE_NODE) $(ENGINE_RULES) $(ENGINE_ASSETS)
+	cd engine && $(NPM) run random
+
 # ---- not part of `build`
 
 extract: tools
@@ -187,7 +196,8 @@ help:
 	@echo "make web           web/dist (vite build)"
 	@echo "make engine        engine/dist (npm ci, vite build; needs engine-assets and the rules)"
 	@echo "make engine-assets build/engine/assets: the ROM assets for the engine (like make assets)"
-	@echo "make engine-e2e    browser smoke test of the engine (needs cd engine && npm run dev)"
+	@echo "make engine-e2e    browser smoke tests of the engine (needs cd engine && npm run dev)"
+	@echo "make engine-random the dev server with random.html: a course of random holes"
 	@echo "make engine-test   the engine's vitest suite (ROM-derived tests skip without build/engine)"
 	@echo "make engine-traces the trace/flow fixtures into build/engine/rom-test (stepper runs)"
 	@echo "make extract       tools/extract_all.py: every extractor + build/manifest.tsv"

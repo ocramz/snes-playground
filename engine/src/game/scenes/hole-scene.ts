@@ -103,7 +103,9 @@ export class HoleScene extends Phaser.Scene {
     }
     const hole = this.holeAssets(world);
     const course = courseEntity(world).get(Course)!;
-    const layers = new LayersView(this, rules, course, hole?.layersOf ?? null, hole?.layers ?? null, host.flags.debug);
+    const layers = new LayersView(
+      this, rules, course, hole?.layersOf ?? null, hole?.layers ?? null, host.flags.debug, host.assets.terrainStyle,
+    );
     this.views = new ViewRegistry(this, host, VIEW_CATALOG);
     primeBindings(world);
     this.director = new CutsceneDirector(host.assets.cutscenes, () => this.anchors(world, course));

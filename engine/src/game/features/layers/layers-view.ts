@@ -29,7 +29,11 @@
  * swaps the BG colours to the night set (hole 1 only: the swap was recorded
  * on course 1's CGRAM; plans risk 10): the `_night` bitmaps and backdrop.
  *
- * An authored course has no bitmaps: procedural.ts draws it.
+ * A hole without bitmaps (the authored test holes, random.html's holes) is
+ * drawn with the course art's exemplar patches by styled.ts, with course 1's
+ * BG3 scenery and backdrop behind it, and its walls as an outline mask
+ * tinted like the ROM holes'; without the style atlas (tools/
+ * terrain_style.py), procedural.ts draws the data instead.
  */
 import Phaser from 'phaser';
 import { holeTexKey } from '../../assets/keys';
@@ -37,9 +41,13 @@ import type { LayersJson } from '../../assets/schema';
 import type { RomRules } from '../../../core/rules';
 import type { CourseState } from '../../../core/traits/course';
 import { drawTerrain } from './procedural';
+import { rasterTerrain, type TerrainStyle } from './styled';
 import { DEPTH } from './layer-depth';
 
 export { DEPTH };
+
+/** Each styled raster's texture key is new (a hole scene restarts per hole). */
+let styledSerial = 0;
 
 /** The backdrop of every course-1 hole (layers.json backColour), also behind the authored ones. */
 const DEFAULT_BACK: [number, number, number] = [33, 57, 231];
@@ -68,6 +76,8 @@ export class LayersView {
   private readonly outlines: Phaser.GameObjects.Image[] = [];
   private readonly ripples: Ripple[] = [];
   private terrain: Phaser.GameObjects.Graphics | null = null;
+  /** The styled raster's textures (removed with the view). */
+  private readonly ownTextures: string[] = [];
   private readonly walk: number[];
   private readonly colours: Int32Array;
   private night = false;
@@ -79,6 +89,7 @@ export class LayersView {
     private readonly hole: number | null,
     private readonly info: LayersJson | null,
     debugTerrain: boolean,
+    style: TerrainStyle | null = null,
   ) {
     this.walk = rules.outlineWalk;
     this.colours = rules.table('outlineColours');
@@ -93,12 +104,42 @@ export class LayersView {
       this.addRipples('layer_front', DEPTH.rippleFront);
     }
     scene.cameras.main.setBackgroundColor(rgb(info?.backColour ?? DEFAULT_BACK));
-    if (!bitmaps || debugTerrain) {
+    const styled = !bitmaps && style !== null && this.addStyled(rules, style);
+    if ((!bitmaps && !styled) || debugTerrain) {
       this.terrain = drawTerrain(scene, rules, course);
       this.terrain.setDepth(DEPTH.back + 0.5);
       // over the bitmaps (?debug, key D) it covers both layers
-      if (bitmaps) this.terrain.setVisible(false).setAlpha(0.6).setDepth(DEPTH.outlineFront + 0.5);
+      if (bitmaps || styled) this.terrain.setVisible(false).setAlpha(0.6).setDepth(DEPTH.outlineFront + 0.5);
     }
+  }
+
+  /**
+   * The styled terrain (styled.ts) as one image at the back layer's depth,
+   * the walls' mask as an outline image, and course 1's scenery behind.
+   */
+  private addStyled(rules: RomRules, style: TerrainStyle): boolean {
+    const r = rasterTerrain(rules, this.course, style);
+    const key = `styled:${++styledSerial}`;
+    const tex = (data: Uint8ClampedArray, k: string): string | null => {
+      const t = this.scene.textures.createCanvas(k, r.width, r.height);
+      if (!t) return null;
+      t.context.putImageData(new ImageData(new Uint8ClampedArray(data), r.width, r.height), 0, 0);
+      t.refresh();
+      this.ownTextures.push(k);
+      return k;
+    };
+    const back = tex(r.pixels, key);
+    if (!back) return false;
+    this.layers.push({ file: 'styled', image: this.scene.add.image(r.x0, r.y0, back).setOrigin(0, 0).setDepth(DEPTH.back) });
+    if (r.outline.some((v, i) => (i & 3) === 3 && v !== 0)) {
+      const ol = tex(r.outline, `${key}:outline`);
+      if (ol) this.outlines.push(this.scene.add.image(r.x0, r.y0, ol).setOrigin(0, 0).setDepth(DEPTH.outlineBack));
+    }
+    const sky = holeTexKey(0, 'layer_bg3.png');
+    if (this.scene.textures.exists(sky)) {
+      this.layers.push({ file: 'bg3', image: this.scene.add.image(0, 0, sky).setOrigin(0, 0).setDepth(DEPTH.bg3).setScrollFactor(0) });
+    }
+    return true;
   }
 
   private has(file: string): boolean {
@@ -145,7 +186,7 @@ export class LayersView {
     }
   }
 
-  /** The procedural terrain over the bitmaps (?debug, key D). */
+  /** The procedural terrain over the bitmaps or the styled terrain (?debug, key D). */
   toggleTerrain(): void {
     if (!this.terrain) return;
     if (this.layers.length > 0) this.terrain.setVisible(!this.terrain.visible);
@@ -181,5 +222,6 @@ export class LayersView {
     for (const o of this.outlines) o.destroy();
     for (const r of this.ripples) r.image.destroy();
     this.terrain?.destroy();
+    for (const k of this.ownTextures) if (this.scene.textures.exists(k)) this.scene.textures.remove(k);
   }
 }
