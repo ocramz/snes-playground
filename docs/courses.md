@@ -168,7 +168,9 @@ The tile page and palette are the course scene's own, not a guess.
 `$80:CC9D` stages `$8B:DAB1` at `$7F:2000` and `$90:9E9E` at `$7F:0000`,
 then uploads 27,136 bytes to VRAM word `$0000` through the record at
 `$80:CCB7` — so tiles `$000-$0FF` come from `$90:9E9E` and `$100-$34F` from
-`$8B:DAB1`, 848 in all, and the highest index any hole uses is `$2DC`. The
+`$8B:DAB1`, 848 in all, and the highest index any hole uses is `$349` (MAP67,
+index 119; 134 of the 232 holes go past `$2DC`: `max_tile` in
+`build/courses/*/map.json`, measured 2026-11-15). The
 palette is the 512-byte CGRAM image at `$98:C000`, moved by `$80:D369`.
 
 ### Per-hole surface graphics: the water

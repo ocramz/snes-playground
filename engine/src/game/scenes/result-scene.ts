@@ -42,7 +42,12 @@ export class ResultScene extends Phaser.Scene {
     } else {
       const card = world.get(Career)!.card;
       addText(this, 64, 24, `${this.host.set?.label ?? 'COURSE'} CLEAR`);
-      card.forEach((n, i) => addText(this, 72, 48 + 12 * i, `HOLE ${i + 1}   ${n < 0 ? '-' : String(n).padStart(2, ' ')}`));
+      // a random course's holes also show the solver's par (core/gen)
+      const par = (i: number): string => {
+        const p = this.host.set?.holes[i]?.par;
+        return p === undefined ? '' : `  PAR ${p}`;
+      };
+      card.forEach((n, i) => addText(this, 72, 48 + 12 * i, `HOLE ${i + 1}   ${n < 0 ? '-' : String(n).padStart(2, ' ')}${par(i)}`));
       const total = card.filter((n) => n >= 0).reduce((a, b) => a + b, 0);
       addText(this, 72, 56 + 12 * card.length, `TOTAL    ${String(total).padStart(2, ' ')}`);
       addText(this, 72, 200, 'PRESS ENTER');

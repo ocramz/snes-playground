@@ -4,7 +4,10 @@
 
 What it plays:
 - course 1's eight holes, with the course bitmaps, sprites, panel, font and sounds exported from the ROM;
-- eight small test holes written for the engine (`engine/courses/`), drawn by a procedural renderer.
+- eight small test holes written for the engine (`engine/courses/`);
+- random holes, generated from a seed and checked winnable with the engine's own physics (`random.html`, "Random holes" below).
+
+The holes without ROM bitmaps are drawn with exemplar patches of the ROM's course art ("Random holes": the styled terrain).
 
 A hole runs from the star's fly-in to the fly-out, with every turn, take, reveal, tomato, life and hole-out in between, then the course card, GAME OVER and CONTINUE.
 
@@ -21,7 +24,8 @@ make engine-test          # the vitest suite (ROM-derived tests skip without bui
 make engine-traces        # re-record the trace fixtures into build/engine/rom-test (stepper runs)
 make engine               # npm ci + vite build -> engine/dist
 cd engine && npm run dev  # http://127.0.0.1:5174/
-make engine-e2e           # browser smoke test, against the running dev server
+make engine-e2e           # browser smoke tests (index.html, random.html), against the running dev server
+make engine-random        # the dev server, opening random.html: a course of random holes
 python3 tools/check_web_ui.py --target engine   # the shot panel, pixel for pixel (dev server up)
 ```
 
@@ -31,7 +35,9 @@ URL flags:
 |---|---|
 | `?nointro` | skip the fly-in; the host plays the hole's song itself |
 | `?hole=N` | start the chosen course at hole N |
-| `?debug` | exposes `window.__engine`: `phase()`, `frame()`, `scroll()`, `kirby()`, `depths()`, `warp()`, `step(pad, n)`, `freeze()`, `isolatePanel()`, `hitNextEnemy()`, `putOnCup(lift)`, `placeBall(p)`, `freeEnemies()`. Key D toggles the procedural terrain over a ROM hole |
+| `?debug` | exposes `window.__engine`: `phase()`, `frame()`, `scroll()`, `kirby()`, `depths()`, `warp()`, `step(pad, n)`, `freeze()`, `isolatePanel()`, `hitNextEnemy()`, `putOnCup(lift)`, `placeBall(p)`, `freeEnemies()`. Key D toggles the procedural terrain over a ROM hole or a styled one. On `random.html`, `window.__random`: the seed, the difficulty, and each hole's JSON, par and plan |
+| `?seed=N` | `random.html`: the course's seed (else a fresh one, written back to the URL) |
+| `?difficulty=` | `random.html`: `easy`, `normal` (the default) or `hard` |
 
 | key | pad |
 |---|---|
@@ -48,8 +54,10 @@ URL flags:
 ```
 engine/
   courses/            the test holes (*.course.json; README.md is the format)
+  index.html random.html  the two pages: main.ts (the course menu), random.ts (random holes)
   src/core/           imports koota only
     fixed.ts rules.ts terrain.ts projection.ts course-data.ts sweep.ts
+    gen/              the random holes: layouts, placement, features, the shot simulator and solver
     sim/              kernels: pure functions over the ball's work copy, one per routine
     traits/           state: world singletons, the ball, the hole's entities
     systems/          the frame's systems; schedule.ts orders them
@@ -58,7 +66,8 @@ engine/
     bridge/           host frame, input, view binding, the presentation systems
     features/         one folder per domain: views, layout, audio, the cutscene
     assets/           keys, schemas, atlas conversion, course sets
-    scenes/           Boot, Preload, Menu, Hole, Hud, Result
+    scenes/           Boot, Preload, Menu (or RandomMenu), Hole, Hud, Result
+    boot-game.ts      the world, the host and the Phaser game, shared by both pages
   test/               vitest (node); test/e2e: Playwright scripts
 ```
 
@@ -67,9 +76,9 @@ The rules (reference §3), checked statically by `test/no-phaser-in-core.test.ts
 - **The view reads traits and calls actions.** Nothing under `src/game` imports `core/systems` or `core/sim`. Views read core's traits; scenes call core's actions and run its schedule (`runCoreFrame`).
 - **The pure half of the bridge imports nothing from Phaser**, so the node tests run it:
   - `bridge/{tick-time, frame-loop, history, placement}`;
-  - `features/{catalog-data, kirby/pose-clips, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames}`;
+  - `features/{catalog-data, kirby/pose-clips, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames, layers/styled}`;
   - `assets/schema`, `config`.
-- **There is no global world.** `main.ts` creates it with `createGameWorld()` and passes it in the scenes' data (`game/host.ts`).
+- **There is no global world.** `boot-game.ts` creates it with `createGameWorld()` and passes it in the scenes' data (`game/host.ts`).
 
 ## The event model
 
@@ -321,7 +330,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 
 ## The assets
 
-`make engine-assets` runs the web demo's exporter into `build/engine/assets` (`tools/export_web.py --only font,hud,sprites,ui,audio,objects`, then `course,layers` per hole and `manifest`). The rules and the test fixtures go to `build/engine/rules` and `build/engine/rom-test`. Vite serves `build/engine` as the public directory.
+`make engine-assets` runs the web demo's exporter into `build/engine/assets` (`tools/export_web.py --only font,hud,sprites,ui,audio,objects`, then `course,layers` per hole, then `tools/terrain_style.py`, then `manifest`). The rules and the test fixtures go to `build/engine/rules` and `build/engine/rom-test`. Vite serves `build/engine` as the public directory.
 
 | asset | ROM source | exporter step | output | engine consumer |
 |---|---|---|---|---|
@@ -336,6 +345,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | the score panel | stepper screen snapshots | `hud` | `hud_panel.png`, `hud_tomato.png`, `hud.json` (the slots) | the Hud scene |
 | the font | `gfx_course_font $90:FBBC` ([text.md](text.md)) | `font` | `font.png` | `features/text` (a RetroFont) |
 | music and effects | N-SPC sequences + BRR samples, rendered (`tools/render_audio.py`; [audio.md](audio.md)) | `audio` (`tools/web_audio_map.json`) | `audio.json`, ogg + mp3 | `AudioPlayer` |
+| the course art's exemplar patches | tables 8 and 9 of the 92 plain geometries, the tile page and palette `$98:C000` (`tools/terrain_style.py`) | — | `terrain_style.png/json` | Preload (`host.assets.terrainStyle`), `features/layers/styled.ts` |
 
 What the audio is not: the effects were rendered over song 0's tempo, but in play they are clocked by the running song (12 of 33 songs differ). The driver's dropped ticks under load are not modelled, and the 1.30× level difference against libgme is not corrected ([audio.md](audio.md) "Known deviations").
 
@@ -343,6 +353,88 @@ The asset caveats:
 - **The night palette** is a recorded 68-colour CGRAM swap of course 1. Where the game loads it from was never traced. The engine has it for hole 1 only, and on the other holes HOLE IN ONE plays without it (plans risk 10).
 - **Every enemy draws hole 1's pictures.** Only actor `$49` → type 73 is a "match" in `build/sprites/emu/actors.tsv`, and the other actor ids are "weak" (plans risk 9). Objects 77 and 81-83 draw their first frame table on every course, unconfirmed beyond the scenarios.
 - **The cutscenes are one run's recording, c1n.** A trace of `course1` draws other enemy pictures in the hole-outs, which is why `make distclean` keeps c1n (plans risk 11).
+
+## Random holes
+
+`random.html` (`make engine-random`, or `npm run random` in `engine/`) plays a course of 8 holes generated from a seed. The plan is `plans/random_holes.md`. The generator is pure core (`src/core/gen/`), so the node tests run it, and the page shows what it made with the course art's own pictures.
+
+**The generator** (`gen/generate.ts`). `generateCourse(rules, seed, 8, {difficulty})` derives one seed per hole. Each hole is built in four steps, then solved:
+
+1. `layout.ts` lays out the terrain, legal by construction:
+   - square slots of flat ground (4 or 5 cells) on a lattice, one cell of gutter between them;
+   - a self-avoiding walk of 3-6 slots from the tee's, plus at most one branch.
+   - The gutter between consecutive slots is either:
+     - flat, when they are level;
+     - a row of ramps at the upper elevation falling toward the lower one, for one step (`$04`/`$05`/`$06`/`$07` fall N/E/S/W);
+     - a deliberate step-down, downhill only.
+   - A step up of two or more never happens.
+   - Unused gutters are gaps, so ramp sides open onto gaps, as in the ROM's courses ([terrain.md](terrain.md)).
+   - Slots of 5 may get a hill, a hollow (the stamps of `tools/engine_courses.py`) or a mound in their middle.
+   - The rim is fenced with layer-4 walls, each kept with the difficulty's odds.
+   - `HoleGrid.unintendedSteps` must find no non-flush edge besides the step-downs.
+2. `place.ts` puts the tee on `$01` in the first slot, then 2-5 ability-0 enemies on `$01` cells, two cells apart, the path's ends first. The enemies are `$40 $4A-$4C`, and the hovering `$4D $4E $50 $51` from normal up.
+3. `features.ts` adds special tiles, only from ported groups and where the ROM puts them ([tiles.md](tiles.md)):
+   - rough `$04`;
+   - friction `$20-$23` on their ramps, `$24` on flat;
+   - boosts `$30-$33` before a door, `$34/36/38/3A` uphill on their ramps;
+   - kickers, arrows (toward a door), snaps, trees `$02`;
+   - one warp pair `$B0-$B3` whose arrows point at ground.
+4. `fromAuthoredCourse` validates the hole, as it does the test holes.
+
+**The solver** (`gen/shot-sim.ts`, `gen/solve.ts`). A hole is kept only if a plan wins it.
+
+- **The shot.** `simulateShot` plays one shot silently on a work copy:
+  - the kernel entries of `BALL_STEP`, the guide's `runKernelStep`;
+  - the play context (`presentation` unset, so enemies, the cup and every tile act);
+  - the set-up's resets and the launch (`shotPower`, `shotSpin`, `launchVelocity`);
+  - the warp's move through a hook `runKernelStep` now takes at the non-kernel `warp` entry's place;
+  - `countStill` to the rest.
+
+  It is exact: `test/gen-sim.test.ts` replays the same shots through the whole world on the test holes, and the rest positions are equal. A step costs about 0.8 µs in node.
+- **The search** is best-first over (rest cell, taken mask, tomatoes): the fewest enemies left first, then the fewest shots, then the nearest free enemy.
+  - A state is expanded from its own exact work copy, so a plan replays exactly.
+  - Shots per state:
+    - at each free enemy and 2° either side, grounders at four meters, or fly shots for a hovering one;
+    - a fan of 16 aims × 3 meters and 8 fly shots;
+    - with one enemy left and within 8 cells: slower shots at it, with `$08` written into the solver's own layer 2, which must hole.
+  - Every shot costs a tomato and every take gives one back, up to 4. A state at 0 is dropped.
+  - Lost balls and shots that run through the cup's cell after it appeared are never part of a plan.
+  - **Par** is the plan's length. It must fall in the difficulty's window: easy 2-4, normal 3-6, hard 3-8.
+  - Budget: 3000 shots or 80 states, else the next attempt seed (`attemptSeed`).
+  - Measured over 30 seeds each: 97 % of easy, 93 % of normal and 73 % of hard layouts solve, in 85-160 ms on average.
+  - `test/gen.test.ts` replays three plans through the whole world shot by shot, and they hole out.
+- **The page.** `src/random.ts` boots the same game with `RandomMenuScene` registered as the menu.
+  - It generates in slices of about 10 ms a frame. In the e2e browser, from the canvas to the course being ready (asset loading included), seed 42 (normal) took 1.0 s and seed 777 (hard) 1.8 s.
+  - It shows the pars, and keeps the seed and the difficulty in the URL.
+  - Enter plays, N draws a new seed, Up/Down change the difficulty.
+  - The Result card shows each hole's par next to its strokes.
+  - `GEN_VERSION` (1) is in the course's label, because a seed's holes change when the generator or the physics does.
+
+**The styled terrain** (`features/layers/styled.ts`; `tools/terrain_style.py`). Holes without ROM bitmaps, both these and the test holes, are drawn with the ROM's own course art. The art is regular:
+- cells sit exactly on the 8×8 tile grid;
+- every clean interior flat cell of the 116 geometries is the same BG1 block (tiles `$020`/`$021` with flips, palette 7);
+- every hole shares one 848-tile page and palette;
+- floor markings are BG2 overlays.
+
+`terrain_style.py` composes each plain hole's BG layers and takes, per pixel, the commonest colour over many instances. It cuts:
+- a cell's surface per terrain shape (all 26 shapes the ROM uses; 93-100 % of instances agree, except `$1A` at 60 %);
+- the markings per (tile, shape), from a single instance where that is all there is;
+- the E and N step faces (top, middle and bottom steps).
+
+`rasterTerrain` paints back to front by x − y:
+- each cell's four quadrant triangles at core's `surfaceZ`, from its patch at the same offset from the cell's left vertex;
+- the faces from the face patches;
+- the layer-4 walls as the ROM draws them: a 2-pixel line along the edge in the play area's outline colour, as on MAP13's rim. They go into an outline mask, which `LayersView` tints with the outline walk.
+
+Course 1's BG3 scenery is shown behind. Redrawing course 1's eight holes from their grids matches the exported layers on 98, 97, 97, 94, 96, 93, 90 and 88 % of the pixels (`test/styled.test.ts`). Holes 7 and 8 are water holes, which the patches leave out, and the outline tiles are not drawn.
+
+What the random holes leave out:
+- **The hazard actors.** The solver cannot run them, since moving bumpers depend on time spent aiming, and `$05` and the volcanoes act in a non-kernel system.
+- the outline tiles `$28-$2D`, water, the toggles, ability enemies and `$57`;
+- warp lists other than one pair.
+- **Markings with no ROM instance draw as plain ground:** snap `$19` and the boosts' other ramp pairs.
+- **The solver's par is a plan it found, not always the shortest.** Its shots use no spin and no A/Y.
+- **Its plans replay exactly in the engine, not necessarily in the game:** the cross-cell crest `$81:980B` is not ported (below), and every hole that has a ramp falling away from flat ground meets it.
 
 ## Deviations from the game, on purpose
 
@@ -378,7 +470,7 @@ The bridge:
 
 ## Verification
 
-`make engine-test` runs 33 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 36 vitest files in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -397,10 +489,12 @@ The bridge:
 | `cup-mask-warp` | the rim mask's first frame and cut; objects 63 and 64's pictures and lives |
 | `determinism` | host frames of 1, 2, 3 and mixed core frames give the same world and the same events (web_hole on hole 1; a pad policy on t1) |
 | `frame-clock`, `cutscene`, `director`, `panel-state` | the 60.0988 Hz clock; the replay against the recording, sprite by sprite, and the anchors; the director's timing against core on web_hole; the panel's ages, closings, blink and meter lags on web_ui |
+| `gen`, `gen-sim` | the random holes: 200 layouts per difficulty valid and flush but for their step-downs, actors on `$01`, only ported tiles; a seed always gives the same hole and plan; plans within the par windows; three plans replayed through the world hole out; the shot simulator's rests equal the world's on the test holes, and its speed |
+| `styled` | the styled terrain: deterministic, a flat cell is the `$020/$021` block, the walls go to the outline mask, and course 1 redrawn from its grids matches its exported art (see "Random holes") |
 | `no-phaser-in-core` | the dependency rules above |
 
 In the browser:
-- `npm run e2e` (`test/e2e/smoke.mjs`, Playwright with the cached Chromium) boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
+- `npm run e2e` runs `test/e2e/smoke.mjs` and `test/e2e/random.mjs` (Playwright with the cached Chromium). `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
 - `python3 tools/check_web_ui.py --target engine` renders the panel for 20 recorded states. All 20 are pixel-identical to the game's OAM sprites.
 
 The harness's conventions:

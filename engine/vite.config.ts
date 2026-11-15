@@ -13,7 +13,8 @@ export default defineConfig({
   server: { host: '127.0.0.1', port: 5174 },
   build: {
     chunkSizeWarningLimit: 2000,
-    rolldownOptions: { input: { main: resolve(here, 'index.html') } },
+    // two pages: the course menu and the random course (random.html)
+    rolldownOptions: { input: { main: resolve(here, 'index.html'), random: resolve(here, 'random.html') } },
   },
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],

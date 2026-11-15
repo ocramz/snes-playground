@@ -20,6 +20,7 @@ import type { CourseJson } from '../../core/course-data';
 import { buildFont } from '../features/text/font';
 import { AudioPlayer } from '../features/audio/audio-player';
 import type { Host, SceneData } from '../host';
+import type { TerrainStyle, TerrainStyleJson } from '../features/layers/styled';
 
 const other = (url: string): string => url.replace(/\.ogg$/, '.mp3');
 
@@ -63,6 +64,10 @@ export class PreloadScene extends Phaser.Scene {
     if (files.has('hud_tomato.png')) load.image(Tex.hudTomato, AssetUrl.hudTomato);
     if (files.has('font.png')) load.image(Tex.font, AssetUrl.font);
     if (files.has('cutscenes.json')) load.json(Json.cutscenes, AssetUrl.cutscenes);
+    if (files.has('terrain_style.json') && files.has('terrain_style.png')) {
+      load.json(Json.terrainStyle, AssetUrl.terrainStyle);
+      load.image(Tex.terrainStyle, AssetUrl.terrainStyleImage);
+    }
     if (files.has('audio.json')) {
       load.json(Json.audio, AssetUrl.audio);
       load.once(`${Phaser.Loader.Events.FILE_KEY_COMPLETE}json-${Json.audio}`, (_k: string, _t: string, a: AudioJson) => {
@@ -80,6 +85,20 @@ export class PreloadScene extends Phaser.Scene {
         });
       }
     }
+  }
+
+  /** The style atlas' pixels, read back once for the software rasteriser (features/layers/styled.ts). */
+  private terrainStyle(json: TerrainStyleJson | null): TerrainStyle | null {
+    if (!json || !this.textures.exists(Tex.terrainStyle)) return null;
+    const img = this.textures.get(Tex.terrainStyle).getSourceImage() as HTMLImageElement | HTMLCanvasElement;
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    const g = canvas.getContext('2d', { willReadFrequently: true });
+    if (!g) return null;
+    g.drawImage(img, 0, 0);
+    const data = g.getImageData(0, 0, img.width, img.height).data;
+    return { json, atlas: { data, width: img.width, height: img.height } };
   }
 
   create(): void {
@@ -102,6 +121,7 @@ export class PreloadScene extends Phaser.Scene {
       hud: json<HudJson>(Json.hud),
       audio: json<AudioJson>(Json.audio),
       cutscenes: json<CutscenesJson>(Json.cutscenes),
+      terrainStyle: this.terrainStyle(json<TerrainStyleJson>(Json.terrainStyle)),
     };
     if (host.assets.atlas) {
       addAtlasFrames(this.textures, Tex.atlas, host.assets.atlas);

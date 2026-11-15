@@ -48,7 +48,8 @@ The engine ([docs/engine.md](engine.md)) has its own targets, none of them part 
 | `make engine-test` | the vitest suite (it needs only the rules and `build/engine/rom-test`; ROM-derived tests skip without them) |
 | `make engine-traces` | re-records the trace, flow, sound and actor fixtures into `build/engine/rom-test` (stepper runs) |
 | `make engine` | `npm ci` and `vite build` into `engine/dist` |
-| `make engine-e2e` | the browser smoke test; it needs `cd engine && npm run dev` running |
+| `make engine-e2e` | the browser smoke tests (index.html, random.html); they need `cd engine && npm run dev` running |
+| `make engine-random` | the dev server, opening `random.html`: a course of random holes (docs/engine.md "Random holes") |
 
 Cleanup comes in three tiers:
 - `make clean`: `web/dist`, `engine/dist`, `build/web`, `build/engine` and
@@ -98,6 +99,8 @@ python3 tools/coursemap.py --check        # assert the row directory, 232/232
 python3 tools/coursemap.py --index 0      # -> render.png, bg1/bg2, map.json
 python3 tools/coursemap.py                # all 232
 python3 tools/coursemap.py --no-backdrop  # course geometry without the scenery
+python3 tools/terrain_style.py            # exemplar patches of the course art -> build/engine/assets
+python3 tools/terrain_style.py --out build/style --sheet   # ... and a 4x sheet to look at
 
 # Playfield geometry: terrain shape, elevation, gaps
 python3 tools/terrain.py --tables         # the engine's 28 terrain shapes

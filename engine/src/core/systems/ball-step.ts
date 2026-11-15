@@ -467,8 +467,12 @@ function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | 
  * use (plans/port_v1_koota_phaser4.md: "simulateGuide runs BALL_STEP too,
  * on a cloned BallWork with buttons off, stalls ignored and no events").
  * A hit-stop request does not suspend: the list simply goes on.
+ *
+ * `onWarp` stands in for the non-kernel `warp` entry at its place in the
+ * list (the random holes' solver, core/gen/shot-sim.ts, moves the ball
+ * there with the pure warp helpers; the guide passes none and never warps).
  */
-export function runKernelStep(ctx: Ctx, w: BallWorkFields): void {
+export function runKernelStep(ctx: Ctx, w: BallWorkFields, onWarp?: (w: BallWorkFields) => void): void {
   const s: StepState = {
     ctx,
     w,
@@ -476,7 +480,10 @@ export function runKernelStep(ctx: Ctx, w: BallWorkFields): void {
     route: { kind: 'land' },
   };
   for (const entry of BALL_STEP) {
-    if (!entry.kernel) continue;
+    if (!entry.kernel) {
+      if (onWarp && entry.name === 'warp') onWarp(w);
+      continue;
+    }
     entry.run(null as unknown as World, s);
   }
 }

@@ -26,6 +26,7 @@ export const Json = {
   hud: 'json:hud',
   audio: 'json:audio',
   cutscenes: 'json:cutscenes',
+  terrainStyle: 'json:terrain-style',
 } as const;
 
 /** Texture keys. The atlases' frames are added to these by assets/atlas.ts. */
@@ -36,6 +37,7 @@ export const Tex = {
   font: 'tex:font',
   hudPanel: 'tex:hud-panel',
   hudTomato: 'tex:hud-tomato',
+  terrainStyle: 'tex:terrain-style',
 } as const;
 
 /** The bitmap font made from font.png (features/text/font.ts). */
@@ -56,6 +58,8 @@ export const AssetUrl = {
   hudTomato: `${BASE}assets/hud_tomato.png`,
   font: `${BASE}assets/font.png`,
   audio: `${BASE}assets/audio.json`,
+  terrainStyle: `${BASE}assets/terrain_style.json`,
+  terrainStyleImage: `${BASE}assets/terrain_style.png`,
   cutscenes: `${BASE}assets/cutscenes.json`,
 } as const;
 
