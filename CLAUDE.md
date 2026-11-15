@@ -32,7 +32,8 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   compressed asset uses, and the two decompressor entry points.
 - [docs/audio.md](docs/audio.md) — N-SPC driver upload, BRR samples,
   33 songs and 125 effects, how the standalone `.spc` files are built, the
-  sequencer's timing, and how the WAV renderer was validated.
+  sequencer's timing, how the WAV renderer was validated, and the stems
+  (per voice and per sample, wet and dry).
 - [docs/graphics.md](docs/graphics.md) — tiles, tilemaps, palettes, the
   metasprite/OAM pipeline, the VRAM transfer queue, and how sprite sheets
   are rendered.

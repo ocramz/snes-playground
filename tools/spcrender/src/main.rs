@@ -1,9 +1,7 @@
 //! spcrender: play a `.spc` file through an SPC700 + S-DSP model and write
 //! the result as a 32 kHz stereo 16-bit WAV.
 //!
-//! The repository has no emulator, so this is the only thing that turns the
-//! extracted N-SPC driver and sequences into sound. It is a general `.spc`
-//! player, not a Kirby-specific one: it knows nothing about the driver and
+//! It is a general `.spc` player, not a Kirby-specific one: it knows nothing about the driver and
 //! simply runs whatever program the image contains.
 //!
 //! A one-line JSON summary goes to stdout so `tools/render_audio.py` can
@@ -60,6 +58,13 @@ usage: spcrender INPUT.spc [-o OUT.wav] [options]
                             ADSR1, ADSR2, GAIN, VOL L, VOL R
   --mute-voices MASK        leave these voices out of the mix; bit n is
                             voice n (decimal or 0x hex)
+  --solo-source ADDR[,ADDR...]
+                            mix only the voices whose last key-on loaded one
+                            of these BRR start addresses (the sample
+                            directory's start entries); the rest are left out
+                            as by --mute-voices
+  --no-echo                 leave the echo return out of the output. The echo
+                            buffer is still written, so the run is unchanged
   --watch ADDR[,ADDR...]    RAM addresses whose writes go to --log-watch
   --log-watch FILE          TSV: sample, seconds, address, value, PC
   --trace N                 print the first N instructions to stderr
@@ -102,6 +107,8 @@ struct Options {
     stems: bool,
     log_kon: Option<PathBuf>,
     mute_voices: u8,
+    solo_sources: Vec<u16>,
+    no_echo: bool,
     watch: Vec<u16>,
     busy: Vec<u16>,
     log_watch: Option<PathBuf>,
@@ -138,6 +145,7 @@ fn parse_args(args: &[String]) -> Result<Options, Error> {
             "--selftest" => opts.selftest = true,
             "--stems" => opts.stems = true,
             "--trim-leading" => opts.trim_leading = true,
+            "--no-echo" => opts.no_echo = true,
             "-o" | "--output" => opts.output = Some(PathBuf::from(value(&mut i, arg)?)),
             "--log-kon" => opts.log_kon = Some(PathBuf::from(value(&mut i, arg)?)),
             "--log-watch" => opts.log_watch = Some(PathBuf::from(value(&mut i, arg)?)),
@@ -177,16 +185,16 @@ fn parse_args(args: &[String]) -> Result<Options, Error> {
                     .ok_or_else(|| bad(arg, &text))?;
                 opts.mute_voices = mask as u8;
             }
-            "--watch" | "--busy" => {
+            "--watch" | "--busy" | "--solo-source" => {
                 let text = value(&mut i, arg)?;
                 for part in text.split(',') {
                     let addr = parse_int(part)
                         .filter(|&a| a <= 0xFFFF)
                         .ok_or_else(|| bad(arg, part))?;
-                    if arg == "--watch" {
-                        opts.watch.push(addr as u16);
-                    } else {
-                        opts.busy.push(addr as u16);
+                    match arg {
+                        "--watch" => opts.watch.push(addr as u16),
+                        "--busy" => opts.busy.push(addr as u16),
+                        _ => opts.solo_sources.push(addr as u16),
                     }
                 }
             }
@@ -280,6 +288,8 @@ fn render(opts: &Options, input: &Path) -> Result<(), Error> {
         source,
     })?;
     apu.dsp.mute_mask = opts.mute_voices;
+    apu.dsp.solo_sources = opts.solo_sources.clone();
+    apu.dsp.no_echo = opts.no_echo;
     apu.dsp.log_kon = opts.log_kon.is_some();
     apu.dsp.capture_voices = opts.stems && opts.output.is_some();
     apu.trace_left = opts.trace;
@@ -487,6 +497,7 @@ fn render(opts: &Options, input: &Path) -> Result<(), Error> {
          \"busy_end_sample\": {}, \"stop\": \"{}\", \"length_source\": \"{}\", \"body_seconds\": {:.6}, \"fade_ms\": {}, \
          \"peak\": {}, \"rms\": {:.3}, \"silent\": {}, \
          \"kon_total\": {}, \"kon_per_voice\": [{}], \"voices_used\": [{}], \
+         \"saturated_main\": {}, \"saturated_echo\": {}, \"saturated_output\": {}, \
          \"instructions\": {}, \"cycles\": {}, \"opcodes_used\": {}, \"opcode_map\": \"{}\", \
          \"halted\": {}, \"elapsed_seconds\": {:.4}, \"realtime_factor\": {:.1}}}",
         end - begin,
@@ -506,6 +517,9 @@ fn render(opts: &Options, input: &Path) -> Result<(), Error> {
         kon_total,
         kon_per_voice.join(", "),
         voices_used.join(", "),
+        apu.dsp.saturated.main,
+        apu.dsp.saturated.echo,
+        apu.dsp.saturated.output,
         apu.instructions,
         apu.clock,
         opcodes_used,

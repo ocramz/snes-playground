@@ -10,7 +10,9 @@ the sequences, `tools/dis_spc700.py` disassembles the driver, and
 `tools/brr.py` decodes samples. `tools/render_audio.py` turns the songs and
 effects into WAV files with `tools/spcrender`, an SPC700 + S-DSP model
 written for this repository, and `tools/audio_check.py` is how that model
-was checked; see [Rendering](#rendering).
+was checked; see [Rendering](#rendering). `tools/render_stems.py` splits a
+song into stems, per voice and per sample, with and without echo; see
+[Stems](#stems).
 
 Driver routines are cited by their **SPC** address throughout. The image is
 loaded to SPC `$0800` from `$80:AA9D (0x002A9D)`, so the ROM address of any
@@ -737,7 +739,7 @@ about N-SPC.
 | `src/dsp.rs` | the S-DSP: BRR decoding (four filters, loop and end flags), 4-point Gaussian interpolation, pitch and pitch modulation, ADSR and the GAIN modes, noise, KON/KOFF/ENDX/FLG, voice and master volume, echo with the 8-tap FIR, ENVX/OUTX read-back |
 | `src/tables.rs` | the Gaussian kernel, boot ROM, rate periods and offsets, cycle counts |
 | `src/main.rs` | options, the render loop, the WAV and log writers |
-| `src/selftest.rs` | 39 checks with hand-derived answers, run by `--selftest` and `cargo test` |
+| `src/selftest.rs` | 44 checks with hand-derived answers, run by `--selftest` and `cargo test` |
 
 The APU ports `$F4`-`$F7` are static latches holding the image's values. The
 driver in these files never reads them (that is what the `$08B6` patch is
@@ -768,11 +770,20 @@ others: `--seconds N`, `--fade MS`, `--until-silent [TAIL_MS]` (stop once
 every envelope is 0, no key-on is pending and the output has been exactly
 zero for the tail), `--busy ADDR` (do not stop while this RAM byte is
 non-zero), `--min-seconds N`, `--trim-leading`, `--stems` (one WAV per
-voice), `--log-kon FILE` (every key-on: sample, time, voice, SRCN, pitch,
-BRR address, ADSR, GAIN, volumes), `--mute-voices MASK`, `--watch ADDRS`
-with `--log-watch FILE` (every CPU write to those RAM addresses, with the
-PC that made it), `--trace N`, `--selftest`. A one-line JSON summary goes to
-stdout.
+voice, without echo), `--log-kon FILE` (every key-on: sample, time, voice,
+SRCN, pitch, BRR address, ADSR, GAIN, volumes), `--mute-voices MASK`,
+`--solo-source ADDRS` (mix only the voices whose last key-on loaded one of
+these BRR start addresses), `--no-echo` (leave the echo return out of the
+output; the echo ring is still written, so nothing else about the run
+changes), `--watch ADDRS` with `--log-watch FILE` (every CPU write to those
+RAM addresses, with the PC that made it), `--trace N`, `--selftest`. A
+one-line JSON summary goes to stdout. Among its fields, `saturated_main`,
+`saturated_echo` and `saturated_output` count the samples in which a 16-bit
+stage clamped or wrapped: the sum of the voices; the echo send, FIR, return
+and feedback; and the MVOL-scaled mix plus the echo return. Muted voices
+take no part in any of them. Over the full mixes of the 32 songs that key
+notes, all three are zero except song 31's echo, at 14 samples (see
+[Stems](#stems)).
 
 `--watch` is what makes the measurements in this document possible without
 teaching the renderer about the driver: the loop point is a write to `$40`
@@ -932,3 +943,75 @@ From the run recorded in `build/spc/wav/index.tsv`:
   WAV and the fade begins at the tag length.
 * About 150 times real time for one render; the whole batch takes 15 s on
   eight cores.
+
+### Stems
+
+`python3 tools/render_stems.py --song N` (repeatable; `--all`, or
+`make stems`) writes song *N* as stems under `build/spc/stems/song_NN/`.
+There is one WAV per DSP voice and one per sample, each with echo (`wet/`)
+and without (`dry/`). Next to them go the full mix (`mix.wav`) and the mix
+without echo (`mix_dry.wav`). `--by voice|sample` and `--mix wet|dry` pick
+a subset. Every file plays the song's ID666 tag, so all of them are the same
+length and start on the same sample. For a song that ends, that tag is the
+length rounded up to whole seconds, so `mix.wav` can run up to a second of
+silence longer than `build/spc/wav/songs/`. The script refuses a `.spc`
+that `render_audio.py` has not tagged.
+
+**Voice or sample.** A voice is one line of the arrangement, not one
+instrument. Tracks change instrument between notes, and percussion notes
+set their own (`$5F + n`, see [Event grammar](#event-grammar)). In song 6,
+voice 2 plays eight different samples and voice 3 plays ten, drums
+included; `stems.tsv` lists them from the key-on log.
+
+A sample stem is one sample wherever it is played. A voice counts towards
+the sample whose BRR start address it loaded at its last key-on. Duplicate
+directory entries therefore count as one sample. Each stem is named after
+the lowest entry with that address: `sample_66` is `samples.tsv` index 66.
+
+23 samples are played by some song. Over the 32 songs that key notes (song
+0 keys none) there are 184 voice stems and 239 sample stems per set.
+
+**How a stem is made.** Each stem is its own pass of `spcrender` over the
+song's `.spc`:
+
+* a voice stem: `--mute-voices` on all but that voice;
+* a sample stem: `--solo-source` with that sample's start address;
+* the dry set adds `--no-echo` to either.
+
+A muted voice is taken out of the main mix and out of the echo send, and
+nothing else changes. The SPC700 runs the same code, and the voice's
+envelope and `OUTX`/`ENVX` advance as before; the self-test pins this. Every
+pass must count the same key-ons and write the same number of frames as the
+mix, or the script stops. Echo is one bus shared by all voices, so
+rendering a part alone is the only way to give it its own echo and nobody
+else's. (`--stems` writes the dry per-voice outputs in a single pass;
+`render_stems.py` does not use it.)
+
+**Do they add up.** Each song's `check.tsv` sums every set and compares it
+with the mix it came from; `index.tsv` collects the songs. Measured on all
+32 songs:
+
+* **Dry.** The DSP scales the voices' sum by MVOL and floors it once. *n*
+  stems floor it *n* times, so their sum can fall short of the mix by up to
+  *n* - 1. In a song that loops, the 10 s fade then rounds each file once
+  more, up to (*n* + 1)/2 either way. The script fails a dry set that strays past
+  (*n* - 1) + ceil((*n* + 1)/2), unless the mix itself clamped in the main
+  sum or the output. None strays and none clamps. The largest difference is
+  7, against a bound of 12, and every residual is at or below -83.8 dBFS.
+* **Wet.** The echo FIR, the feedback and the LSB mask round the summed
+  signal again on every trip round the ring, so there is no bound like the
+  dry one, and wet sets are reported, not judged. Leaving out song 31, the
+  largest difference is 14 and the worst residual is -73.1 dBFS, both in
+  song 19, which plays for 537 s.
+* **Song 31.** The full mix's echo path clamps in 14 samples
+  (`saturated_echo`); none of the 423 wet stems clamps anywhere. In the
+  voice set, 157 frames between 1.40 s and 2.60 s differ from the mix by
+  more than 20. The largest difference is 718 in the voice set and 724 in
+  the sample set. That difference is the DSP's own limit,
+  reached only when every part feeds the echo at once, so each stem is
+  still what its part sounds like alone. Song 31's dry sets add up within
+  their bound.
+
+**Size.** `--all` writes 9.1 GB: 2,406 s of music, the two mixes and both
+sets of stems. It took 126 s of wall time on eight cores. Song 6 alone is
+558 MB.

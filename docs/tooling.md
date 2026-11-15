@@ -179,6 +179,11 @@ python3 tools/audio_check.py vlc                  # vs VLC's libgme, if VLC.app 
 build/spcrender/release/spcrender --selftest
 build/spcrender/release/spcrender build/spc/songs/song_06_id84.spc \
     -o build/x.wav --stems --log-kon build/x.tsv
+build/spcrender/release/spcrender build/spc/songs/song_06_id84.spc \
+    -o build/x.wav --solo-source 0x8710 --no-echo   # one sample, dry
+python3 tools/render_stems.py --song 6            # -> build/spc/stems/song_06/{wet,dry}/
+python3 tools/render_stems.py --song 6 --by sample --mix wet
+python3 tools/render_stems.py --all               # every song: 9.1 GB (make stems)
 
 # Text in the game's font encoding (not ASCII)
 python3 tools/text.py --strings                   # -> build/text/strings.tsv

@@ -81,6 +81,9 @@ struct Voice {
     env: i32,
     /// The envelope before clamping, which the bent-increase GAIN mode tests.
     hidden_env: i32,
+    /// BRR start address loaded at the last key-on: which sample the voice
+    /// is playing, for `solo_sources`. `None` until the first key-on.
+    source: Option<u16>,
 }
 
 impl Voice {
@@ -95,6 +98,7 @@ impl Voice {
             env_mode: EnvMode::Release,
             env: 0,
             hidden_env: 0,
+            source: None,
         }
     }
 }
@@ -143,6 +147,12 @@ pub struct Dsp {
 
     /// Voices left out of the mix (and of the echo input).
     pub mute_mask: u8,
+    /// When not empty, only voices whose last key-on loaded one of these BRR
+    /// start addresses are mixed; the rest are muted as by `mute_mask`.
+    pub solo_sources: Vec<u16>,
+    /// Leave the echo return out of the output. The echo buffer is still
+    /// written as usual, so nothing else about the run changes.
+    pub no_echo: bool,
     /// Each voice's contribution to the dry mix for the last sample, after
     /// VxVOL and MVOL but without echo. Filled only when `capture_voices`.
     pub voice_out: [[i16; 2]; 8],
@@ -151,6 +161,22 @@ pub struct Dsp {
     pub kon_events: Vec<KonEvent>,
     /// Key-ons acted on, per voice.
     pub kon_count: [u32; 8],
+    /// Samples in which a 16-bit stage clamped or wrapped.
+    pub saturated: Saturation,
+}
+
+/// Samples in which one of the DSP's 16-bit stages clamped or wrapped a
+/// value, on either channel. Muted voices take no part, so a solo render can
+/// stay clear of a limit that the full mix hits.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct Saturation {
+    /// Summing the voices into the main mix.
+    pub main: u64,
+    /// The echo path: summing the echo send, the FIR, the echo return and
+    /// the feedback written back to the ring.
+    pub echo: u64,
+    /// Scaling the main mix by MVOL and adding the echo return.
+    pub output: u64,
 }
 
 #[inline]
@@ -161,6 +187,22 @@ fn clamp16(value: i32) -> i32 {
 #[inline]
 fn wrap16(value: i32) -> i32 {
     i32::from(value as i16)
+}
+
+/// `clamp16`, setting `hit` if it changed the value.
+#[inline]
+fn clamp16_noted(value: i32, hit: &mut bool) -> i32 {
+    let out = clamp16(value);
+    *hit |= out != value;
+    out
+}
+
+/// `wrap16`, setting `hit` if it changed the value.
+#[inline]
+fn wrap16_noted(value: i32, hit: &mut bool) -> i32 {
+    let out = wrap16(value);
+    *hit |= out != value;
+    out
 }
 
 impl Dsp {
@@ -187,11 +229,14 @@ impl Dsp {
             echo_hist: [[0; 2]; 8],
             echo_hist_pos: 0,
             mute_mask: 0,
+            solo_sources: Vec::new(),
+            no_echo: false,
             voice_out: [[0; 2]; 8],
             capture_voices: false,
             log_kon: false,
             kon_events: Vec::new(),
             kon_count: [0; 8],
+            saturated: Saturation::default(),
         }
     }
 
@@ -201,8 +246,11 @@ impl Dsp {
     /// was captured mid-note.
     pub fn load(&mut self, regs: &[u8; 128]) {
         let (mute_mask, capture, log) = (self.mute_mask, self.capture_voices, self.log_kon);
+        let (solo_sources, no_echo) = (std::mem::take(&mut self.solo_sources), self.no_echo);
         *self = Self::new();
         self.mute_mask = mute_mask;
+        self.solo_sources = solo_sources;
+        self.no_echo = no_echo;
         self.capture_voices = capture;
         self.log_kon = log;
         self.regs = *regs;
@@ -406,6 +454,7 @@ impl Dsp {
         let mut main = [0i32; 2];
         let mut echo = [0i32; 2];
         let mut prev_output = 0i32;
+        let (mut sat_main, mut sat_echo, mut sat_output) = (false, false, false);
 
         for index in 0..8 {
             let base = index << 4;
@@ -442,6 +491,7 @@ impl Dsp {
                     voice.brr_addr = next_addr;
                     voice.brr_offset = 1;
                     voice.buf_pos = 0;
+                    voice.source = Some(next_addr);
                     // Whatever block the voice was on no longer matters.
                     header = 0;
                     self.kon_count[index] += 1;
@@ -520,7 +570,11 @@ impl Dsp {
                 voice.interp_pos = ((voice.interp_pos & 0x3FFF) + pitch).min(0x7FFF);
             }
 
-            let muted = self.mute_mask & vbit != 0;
+            let muted = self.mute_mask & vbit != 0
+                || (!self.solo_sources.is_empty()
+                    && !self.voices[index]
+                        .source
+                        .is_some_and(|source| self.solo_sources.contains(&source)));
             for ch in 0..2 {
                 let vol = i32::from(self.regs[base + V_VOLL + ch] as i8);
                 let amp = (output * vol) >> 7;
@@ -530,9 +584,9 @@ impl Dsp {
                 if muted {
                     continue;
                 }
-                main[ch] = clamp16(main[ch] + amp);
+                main[ch] = clamp16_noted(main[ch] + amp, &mut sat_main);
                 if self.t_eon & vbit != 0 {
-                    echo[ch] = clamp16(echo[ch] + amp);
+                    echo[ch] = clamp16_noted(echo[ch] + amp, &mut sat_echo);
                 }
             }
 
@@ -567,10 +621,10 @@ impl Dsp {
                 let coeff = i32::from(self.regs[R_FIR + (tap << 4)] as i8);
                 sum += (self.echo_hist[(newest + tap + 1) & 7][ch] * coeff) >> 6;
             }
-            sum = wrap16(sum);
+            sum = wrap16_noted(sum, &mut sat_echo);
             let coeff = i32::from(self.regs[R_FIR + 0x70] as i8);
-            sum += wrap16((self.echo_hist[newest][ch] * coeff) >> 6);
-            *slot = clamp16(sum) & !1;
+            sum += wrap16_noted((self.echo_hist[newest][ch] * coeff) >> 6, &mut sat_echo);
+            *slot = clamp16_noted(sum, &mut sat_echo) & !1;
         }
 
         let evol = [
@@ -580,9 +634,15 @@ impl Dsp {
         let efb = i32::from(self.regs[R_EFB] as i8);
         let mut out = [0i32; 2];
         for ch in 0..2 {
-            out[ch] =
-                clamp16(wrap16((main[ch] * mvol[ch]) >> 7) + wrap16((echo_in[ch] * evol[ch]) >> 7));
-            let feedback = clamp16(echo[ch] + wrap16((echo_in[ch] * efb) >> 7)) & !1;
+            let echo_return = if self.no_echo {
+                0
+            } else {
+                wrap16_noted((echo_in[ch] * evol[ch]) >> 7, &mut sat_echo)
+            };
+            let dry = wrap16_noted((main[ch] * mvol[ch]) >> 7, &mut sat_output);
+            out[ch] = clamp16_noted(dry + echo_return, &mut sat_output);
+            let fed_back = wrap16_noted((echo_in[ch] * efb) >> 7, &mut sat_echo);
+            let feedback = clamp16_noted(echo[ch] + fed_back, &mut sat_echo) & !1;
             if flg & FLG_ECHO_OFF == 0 {
                 let at = echo_ptr + ch * 2;
                 let [lo, hi] = (feedback as i16).to_le_bytes();
@@ -590,6 +650,9 @@ impl Dsp {
                 ram[(at + 1) & 0xFFFF] = hi;
             }
         }
+        self.saturated.main += u64::from(sat_main);
+        self.saturated.echo += u64::from(sat_echo);
+        self.saturated.output += u64::from(sat_output);
         if self.echo_offset == 0 {
             self.echo_length = u32::from(self.regs[R_EDL] & 0x0F) * 0x800;
         }

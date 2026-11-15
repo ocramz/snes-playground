@@ -41,7 +41,7 @@ DIST   := web/dist/index.html
 WEB_SRC := $(shell find web/src -type f ! -path '*/__tests__/*' ! -name .DS_Store) \
            web/index.html web/hands.html web/vite.config.ts web/tsconfig.json web/package.json
 
-.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e engine-random extract help clean clean-rust distclean
+.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e engine-random extract stems help clean clean-rust distclean
 .DELETE_ON_ERROR:
 
 all: build
@@ -204,6 +204,11 @@ engine-random: $(ENGINE_NODE) $(ENGINE_RULES) $(ENGINE_ASSETS)
 extract: tools
 	$(PYTHON) tools/extract_all.py
 
+# Every song as stems, per voice and per sample, wet and dry: 9.1 GB, about
+# 2 min on eight cores (docs/audio.md, "Stems"). One song: render_stems.py --song N.
+stems: $(AUDIO) | $(SPCRENDER)
+	$(PYTHON) tools/render_stems.py --all
+
 help:
 	@echo "make, make build   the web demo end to end: Rust tools, audio, screens, Kirby clips,"
 	@echo "                   cutscene trace, tools/export_web.py, npm ci, vite build -> web/dist"
@@ -218,6 +223,8 @@ help:
 	@echo "make engine-test   the engine's vitest suite (ROM-derived tests skip without build/engine)"
 	@echo "make engine-traces the trace/flow fixtures into build/engine/rom-test (stepper runs)"
 	@echo "make extract       tools/extract_all.py: every extractor + build/manifest.tsv"
+	@echo "make stems         build/spc/stems: every song per voice and per sample, wet and dry"
+	@echo "                   (9.1 GB, about 2 min; one song: tools/render_stems.py --song N)"
 	@echo "make clean         web/dist, engine/dist, build/web, build/engine, __pycache__: seconds to redo"
 	@echo "make clean-rust    the cargo target dirs build/snesstep, build/spcrender"
 	@echo "make distclean     clean + web/node_modules + build/, except build/emu/autoplay/c1n"
