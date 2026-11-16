@@ -7,7 +7,7 @@ What a URL does:
 | URL | goes to |
 |---|---|
 | `…/` (no `l=`) | the editor, on the default level |
-| `…/#l=<payload>` | the level plays at once, with a play bar: **Edit**, **Retry**, **Copy link** |
+| `…/#l=<payload>` | the level plays, with a play bar: **Edit**, **Retry**, **Copy link**. First a start screen (the level's name and picture) asks for the click a browser needs before it plays sound, unless the page may already play it |
 | `…/#l=<payload>&edit` | the editor on that level: the editor's own URL, kept current as you edit, so a reload keeps the work |
 
 **Share link** copies the `#l=` form, so whoever opens it plays first. The query flags of the engine still work beside the hash (`?debug`, `?nointro`). A link that does not decode opens the editor on the default level with a message. A level that decodes but fails the checks opens in the editor with its errors listed.
@@ -103,7 +103,7 @@ Both refuse to leave elevations 0-15.
 - **Flatten**: flat at the selection's commonest top.
 - **Dig**: gaps.
 - **Fill**: the selection's gaps become flat ground, level with the highest edge of the ground beside them.
-- **The shape brush**: any of the 28 shapes at an elevation.
+- **The shape brush**: any of the 28 shapes at an elevation (the cell's base, not the top the grid shows), with no check of the neighbours. It is folded under **Advanced** at the bottom of the tools, closed by default; picking the Shape tool (its button or `6`) opens it.
 - **Walls**: a click toggles an edge's wall. Walls are one-sided (the kernel tests the bit of the cell being left, `sim/edges.ts`), so an edge between two solid cells gets both bits, and an edge on a gap or the border gets the solid side's. **Fence** (`HoleGrid.fence`) walls every edge that faces a gap or the border; **Clear** removes them all.
 - **Paint / Erase** a tile (the palette below), as a brush or over the selection.
 - **Resize**: a row or column on any side, within 4-32. **Crop to the ground** cuts to the bounding box.
@@ -169,7 +169,8 @@ The random holes' solver (`core/gen/solve.ts`, [engine.md](engine.md) "Random ho
 
 | file | does |
 |---|---|
-| `app.ts` | `LevelApp`: the modes (edit, play), the hash, Share, the play bar, the game's scenes |
+| `app.ts` | `LevelApp`: the modes (edit, play), the hash, Share, the play bar, the game's scenes, the audio's unlock |
+| `start-gate.ts` | the start screen of a shared link |
 | `editor-ui.ts` | `Editor`: the header, the tools, the palette, the shape brush, the par, the checks, the status line, the keys |
 | `grid-view.ts` | the top-down grid and its pointer tools |
 | `iso-view.ts` | the isometric preview |
@@ -226,6 +227,13 @@ The game is the engine's (`bootGame`, which now returns the host too), with `Lev
 
 The play bar's buttons keep the focus off themselves, so Space and Enter stay the game's.
 
+**The start screen** (`src/editor/start-gate.ts`):
+- **Why:** browsers keep a page's AudioContext suspended until a click, a tap or a key. A shared link that started its level at once played the intro silent, and the song came in at the first click. So a play link first shows the level's name, its isometric picture and **▶ Click to play**, plus **Open in the editor**.
+- **When it shows:** only while Phaser's context is not running. It appears as soon as the page sees the link, with "Loading…" until the assets are in and the level is checked.
+- **What a press does:** the click, or Enter or Space, resumes the context inside the gesture, and the level plays once the resume resolves. A click while loading is kept, and the level starts when ready.
+- **A key starts on its keyup:** the keydown is what unlocks the audio (a keyup is no user activation), and starting on the keyup keeps a held Enter out of the hole, where it is Start.
+- **When it is skipped:** Play from the editor, Retry and the menu's ENTER come after a gesture, so the screen never shows for them. Neither does it in a browser that lets the page play sound already.
+
 **Edit** after a played link opens the level with a fresh history. After Play from the editor, the history goes on: Ctrl+Z undoes the last edit.
 
 ## The water in the styled terrain
@@ -277,7 +285,9 @@ Measured on 2026-11-16: 202 files, 7.7 MB (5.3 MB zipped). The JavaScript is one
   - Play from the editor;
   - the pause menu's QUIT, then E, back to the editor with the undo history intact;
   - a damaged link opens the editor with a message;
+  - with the audio already allowed (the launch flag `--autoplay-policy=no-user-gesture-required`), the share link plays without the start screen;
+  - in a browser with Chromium's default policy (the audio held until a gesture), the share link shows the start screen with the level's name, the context suspended and no hole running; a click, and separately an Enter pressed while still loading, unlock the audio (the context running) and reach the aim without opening the pause menu;
   - no page error, console error or failed request.
 
   On 2026-11-16 it passed against the dev server, and against `build/editor-site` served under `/snes-playground/` by `python3 -m http.server`.
-- With `?debug`, `window.__level` exposes `mode()`, `json()`, `lint()`, `par()`, `selection()`, `shareUrl()` and `cellPoint(x, y)` (a cell's centre on the page).
+- With `?debug`, `window.__level` exposes `mode()`, `json()`, `lint()`, `par()`, `selection()`, `shareUrl()`, `cellPoint(x, y)` (a cell's centre on the page), `audio()` (the audio context's state) and `gate()` (the start screen shown).

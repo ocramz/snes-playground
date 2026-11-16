@@ -3,7 +3,9 @@
 // through the UI; the share link plays that level, a shot rolls the ball, and
 // Edit brings the same level back to the editor; Play from the editor; QUIT
 // from the pause menu and E back to the editor; a damaged link opens the
-// editor. Screenshots in build/engine-test/editor/.
+// editor. With the browser's audio held until a gesture, the share link
+// first shows the start screen, and a click (or Enter) unlocks the audio and
+// plays the level. Screenshots in build/engine-test/editor/.
 //   cd engine && npm run dev     (then, elsewhere)   node test/e2e/editor.mjs
 // Against the site build (make editor-site, served under a path):
 //   ENGINE_URL=http://127.0.0.1:4173/snes-playground/ EDITOR_PAGE= node test/e2e/editor.mjs
@@ -82,6 +84,7 @@ const [base, hash] = shared.split('#');
 const player = await open(`${base}?debug&nointro#${hash}`);
 await until(player, () => window.__engine && window.__engine.phase() === 'Aim', 'the shared level\'s aim');
 const playedJson = await player.evaluate(() => window.__level.json());
+if (await player.evaluate(() => window.__level.gate())) fail.push('the start screen showed with the audio already allowed');
 if (JSON.stringify(playedJson) !== JSON.stringify(edited)) fail.push('the shared link plays another level');
 await player.waitForTimeout(500);
 await player.screenshot({ path: join(out, 'shared-play.png') });
@@ -129,6 +132,42 @@ await page.keyboard.press('Control+z');
 const undone = await page.evaluate(() => window.__level.json());
 if (cell(undone, 'tile', 3, 6) !== 0) fail.push('the undo history did not survive the play');
 await page.close();
+
+// --- the start screen: a browser that holds the audio until a gesture ---
+// Chromium's default policy holds the audio until a user activation (measured
+// 2026-11-16: --autoplay-policy=user-gesture-required let the context run)
+const strict = await launch();
+for (const how of ['click', 'Enter']) {
+  const p = await strict.newPage({ viewport: { width: 1000, height: 760 } });
+  p.on('pageerror', (e) => problems.push(`pageerror: ${e.message}`));
+  p.on('console', (m) => { if (m.type() === 'error') problems.push(`console: ${m.text()}`); });
+  p.on('response', (r) => { if (r.status() >= 400) problems.push(`http ${r.status()}: ${r.url()}`); });
+  await p.goto(`${base}?debug&nointro#${hash}`);
+  if (!(await until(p, () => window.__level && window.__level.gate(), `the start screen (${how})`))) continue;
+  const held = await p.evaluate(() => ({ audio: window.__level.audio(), engine: !!window.__engine }));
+  if (held.audio !== 'suspended') fail.push(`under the start screen the audio is ${held.audio}, not suspended`);
+  if (held.engine) fail.push('a hole runs under the start screen');
+  if (how === 'click') {
+    // ready: the level's name, its picture, the button
+    await until(p, () => document.querySelector('.gate-play')?.textContent?.includes('Click to play'), 'the start screen ready');
+    const title = await p.evaluate(() => document.querySelector('.gate-title')?.textContent);
+    if (title !== edited.name) fail.push(`the start screen names the level ${JSON.stringify(title)}, not ${JSON.stringify(edited.name)}`);
+    await p.waitForTimeout(300);
+    await p.screenshot({ path: join(out, 'gate.png') });
+    await p.click('.gate-play');
+  } else {
+    // at once, maybe still loading: the key is kept and the level starts when ready
+    await p.keyboard.press('Enter');
+  }
+  await until(p, () => window.__engine && window.__engine.phase() === 'Aim', `the level after the start screen (${how})`);
+  const after = await p.evaluate(() => ({ audio: window.__level.audio(), gate: window.__level.gate(), pause: window.__engine.aimUi().pause }));
+  if (after.audio !== 'running') fail.push(`after the ${how} the audio is ${after.audio}`);
+  if (after.gate) fail.push(`the start screen stayed after the ${how}`);
+  if (after.pause) fail.push(`the ${how} reached the hole (the pause menu is open)`);
+  console.log(`start screen (${how}): ${JSON.stringify(held)} -> ${JSON.stringify(after)}`);
+  await p.close();
+}
+await strict.close();
 
 // --- a damaged link opens the editor ---
 const broken = await open(`${URL_BASE}${PAGE}?debug&nointro#l=not!base64`);

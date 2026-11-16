@@ -179,3 +179,65 @@
   .ed-header { flex-wrap: wrap; }
   .ed-tools, .ed-sidebar { border: 0; overflow: visible; }
 }
+
+/* The start screen of a shared level (start-gate.ts): the click the browser wants before it plays sound. */
+#gate {
+  position: fixed;
+  inset: 0;
+  z-index: 25;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--ed-bg);
+  color: var(--ed-text);
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+#gate[hidden] { display: none; }
+.gate-card {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  width: min(100%, 520px);
+  padding: 20px;
+  background: var(--ed-panel);
+  border: 1px solid var(--ed-line);
+  border-radius: 12px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+}
+.gate-preview {
+  position: relative;
+  width: 100%;
+  height: clamp(160px, 40vh, 280px);
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--ed-line);
+}
+.gate-preview[hidden] { display: none; }
+.gate-preview canvas { position: absolute; inset: 0; cursor: default; }
+.gate-title { margin: 4px 0 0; font-size: 22px; letter-spacing: 0.04em; text-align: center; overflow-wrap: anywhere; }
+.gate-title:empty { display: none; }
+.gate-play {
+  font: 600 18px/1.2 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: #fff;
+  background: var(--ed-play);
+  border: 0;
+  border-radius: 10px;
+  padding: 14px 28px;
+  min-width: 60%;
+  cursor: pointer;
+}
+.gate-play:hover { filter: brightness(1.1); }
+.gate-play:focus-visible { outline: 2px solid var(--ed-accent); outline-offset: 2px; }
+.gate-hint { color: var(--ed-dim); font-size: 13px; }
+.gate-edit {
+  font: inherit;
+  font-size: 13px;
+  color: var(--ed-dim);
+  background: none;
+  border: 1px solid var(--ed-line);
+  border-radius: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+.gate-edit:hover { color: var(--ed-text); }
+.gate-edit[hidden] { display: none; }

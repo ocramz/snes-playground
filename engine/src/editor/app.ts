@@ -3,8 +3,10 @@
  * page, and the URL that carries the level (core/level/codec.ts).
  *
  * - No level in the URL: the editor, on the default level.
- * - `#l=<payload>`: the level plays at once; the play bar's Edit opens it in
- *   the editor, Retry plays it again, Copy link shares it.
+ * - `#l=<payload>`: the level plays; the play bar's Edit opens it in the
+ *   editor, Retry plays it again, Copy link shares it. While the browser
+ *   keeps the page's audio stopped (no click or key yet), a start screen
+ *   asks for the click first (start-gate.ts), so the intro has its song.
  * - `#l=<payload>&edit`: the editor on that level (the editor keeps its URL
  *   so, a reload keeps the work).
  *
@@ -32,6 +34,7 @@ import type { Level } from '../core/level/ops';
 import { Editor } from './editor-ui';
 import { Sprites } from './sprites';
 import { SolverClient } from './solver';
+import { StartGate } from './start-gate';
 
 type Mode = 'loading' | 'edit' | 'play';
 
@@ -54,9 +57,18 @@ export class LevelApp {
   private readonly shareInput: HTMLInputElement;
   private readonly shareNote: HTMLElement;
   private toastTimer = 0;
+  private readonly gate: StartGate;
+  private sprites: Sprites | null = null;
 
   constructor(private readonly game: Phaser.Game, private readonly host: Host) {
     this.gameEl = document.getElementById('game')!;
+    this.gate = new StartGate(() => this.unlockAudio());
+    // a play link with the audio still stopped: the start screen at once, while the assets load
+    const first = parseHash(window.location.hash);
+    if (first.payload && !first.edit && !this.audioRunning()) {
+      this.gameEl.hidden = true;
+      this.gate.showLoading();
+    }
     host.level = {
       mode: () => this.mode,
       menuReady: () => {
@@ -102,7 +114,7 @@ export class LevelApp {
     window.addEventListener('hashchange', () => {
       if (window.location.hash === this.lastHash) return;
       this.lastHash = window.location.hash;
-      if (this.mode !== 'loading') void this.route(window.location.hash);
+      if (this.editor) void this.route(window.location.hash); // once the assets are in
     });
   }
 
@@ -115,6 +127,7 @@ export class LevelApp {
       ? (this.game.textures.get(Tex.atlas).getSourceImage() as HTMLImageElement)
       : null;
     const sprites = this.host.assets.atlas ? new Sprites(this.host.assets.atlas, atlasImage) : null;
+    this.sprites = sprites;
     this.parSolver = tables ? new SolverClient(tables) : null;
     this.editor = new Editor(document.body, {
       rules,
@@ -156,8 +169,42 @@ export class LevelApp {
       this.toEditor(level);
     } else if (edit) {
       this.toEditor(level);
-    } else {
+    } else if (this.audioRunning()) {
       this.play(level, false);
+    } else {
+      // the browser holds the audio until a click or a key: ask for one first
+      this.stopGame();
+      this.gameEl.hidden = true;
+      this.playBar.hidden = true;
+      this.editor?.show(false);
+      this.gate.ready(level, { rules: this.host.rules!, style: this.host.assets.terrainStyle, sprites: this.sprites }, {
+        unlock: () => this.unlockAudio(),
+        play: () => this.play(level, false),
+        edit: () => this.toEditor(level),
+      });
+    }
+  }
+
+  /** Phaser's audio context (none with the HTML5 or no-audio sound managers). */
+  private audioContext(): AudioContext | null {
+    const m = this.game.sound as Phaser.Sound.WebAudioSoundManager;
+    return 'context' in m && m.context ? m.context : null;
+  }
+
+  /** May the page play sound now? (No context at all: nothing to wait for.) */
+  private audioRunning(): boolean {
+    const ctx = this.audioContext();
+    return !ctx || ctx.state === 'running';
+  }
+
+  /** Resume the audio: called inside the user's gesture (the start screen's click or key). */
+  private async unlockAudio(): Promise<void> {
+    const ctx = this.audioContext();
+    if (!ctx || ctx.state === 'running') return;
+    try {
+      await ctx.resume();
+    } catch {
+      // the level plays silent rather than not at all
     }
   }
 
@@ -165,6 +212,7 @@ export class LevelApp {
   toEditor(level?: Level): void {
     const editor = this.editor;
     if (!editor) return;
+    this.gate.hide();
     this.stopGame();
     this.mode = 'edit';
     if (level) editor.load(level);
@@ -184,6 +232,7 @@ export class LevelApp {
       this.toast(lint.issues.find((i) => i.severity === 'error')?.message ?? 'the level has errors');
       return;
     }
+    this.gate.hide();
     this.playing = level;
     this.playFromEditor = fromEditor;
     this.mode = 'play';
@@ -308,6 +357,8 @@ export class LevelApp {
       selection: () => [...editor.selection],
       shareUrl: () => this.shareUrl(this.mode === 'play' && this.playing ? this.playing : editor.level),
       cellPoint: (x: number, y: number) => editor.cellPoint(x, y),
+      audio: () => this.audioContext()?.state ?? 'none',
+      gate: () => this.gate.shown,
     };
   }
 }

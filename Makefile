@@ -135,6 +135,9 @@ ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 
                   engine/vite.site.config.ts engine/tsconfig.json engine/package.json
 # the level editor as a static site (docs/editor.md): the page, its trimmed assets, a zip
 EDITOR_SITE    := build/editor-site/index.html
+# where the site is published: the link preview's og:image is made absolute
+# under it (vite.site.config.ts); empty leaves that URL relative too
+EDITOR_SITE_URL ?= https://infinite-dream-course.netlify.app/
 # The ROM holes the engine ships, by index (course * 8 + hole): 0-63 are the
 # 1P courses 1-8; the extra game is 64-127. One file rule each, so `make -j`
 # exports them in parallel; hole 0 also takes the night set from the cutscene trace.
@@ -191,8 +194,11 @@ $(ENGINE_DIST): $(ENGINE_NODE) $(ENGINE_ASSETS) $(ENGINE_RULES) $(ENGINE_SRC)
 # ROM-derived files (docs/editor.md "The site").
 $(EDITOR_SITE): $(ENGINE_NODE) $(ENGINE_ASSETS) $(ENGINE_RULES) $(ENGINE_SRC) tools/stage_editor_site.py
 	$(PYTHON) tools/stage_editor_site.py --src build/engine --out build/editor-site-public
-	cd engine && $(NPM) run build:site
+	cd engine && EDITOR_SITE_URL='$(EDITOR_SITE_URL)' $(NPM) run build:site
 	mv build/editor-site/editor.html $@
+ifneq ($(strip $(EDITOR_SITE_URL)),)
+	@grep -q 'property="og:image" content="$(patsubst %/,%,$(EDITOR_SITE_URL))/js/og-' $@ || { echo "og:image is not under $(EDITOR_SITE_URL)"; exit 1; }
+endif
 	touch build/editor-site/.nojekyll
 	rm -f build/editor-site.zip
 	cd build && zip -qr editor-site.zip editor-site
