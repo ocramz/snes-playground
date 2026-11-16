@@ -41,7 +41,7 @@ DIST   := web/dist/index.html
 WEB_SRC := $(shell find web/src -type f ! -path '*/__tests__/*' ! -name .DS_Store) \
            web/index.html web/hands.html web/vite.config.ts web/tsconfig.json web/package.json
 
-.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e engine-random extract stems help clean clean-rust distclean
+.PHONY: all build tools assets web engine engine-assets engine-test engine-traces engine-e2e engine-random engine-editor editor-site extract stems help clean clean-rust distclean
 .DELETE_ON_ERROR:
 
 all: build
@@ -131,7 +131,10 @@ ENGINE_DIST    := engine/dist/index.html
 # and the engine draws a marker instead (an ability object: nothing)
 ENGINE_OBJ     := $(wildcard $(foreach t,021 027 028 031 032 033 035 037 039 049 052 062 063 064 065 066 076 077 081 082 083,build/sprites/emu/obj_$(t).json))
 ENGINE_SRC     := $(shell find engine/src engine/test -type f ! -name .DS_Store 2>/dev/null) \
-                  engine/index.html engine/random.html engine/vite.config.ts engine/tsconfig.json engine/package.json
+                  engine/index.html engine/random.html engine/editor.html engine/vite.config.ts \
+                  engine/vite.site.config.ts engine/tsconfig.json engine/package.json
+# the level editor as a static site (docs/editor.md): the page, its trimmed assets, a zip
+EDITOR_SITE    := build/editor-site/index.html
 # The ROM holes the engine ships, by index (course * 8 + hole): 0-63 are the
 # 1P courses 1-8; the extra game is 64-127. One file rule each, so `make -j`
 # exports them in parallel; hole 0 also takes the night set from the cutscene trace.
@@ -182,6 +185,21 @@ $(ENGINE_NODE): engine/package.json engine/package-lock.json
 $(ENGINE_DIST): $(ENGINE_NODE) $(ENGINE_ASSETS) $(ENGINE_RULES) $(ENGINE_SRC)
 	cd engine && $(NPM) run build
 
+# The level editor's site: editor.html built with relative URLs (vite.site.config.ts)
+# over a trimmed copy of build/engine (tools/stage_editor_site.py), renamed to
+# index.html, and zipped. Serve build/editor-site from any path; it holds
+# ROM-derived files (docs/editor.md "The site").
+$(EDITOR_SITE): $(ENGINE_NODE) $(ENGINE_ASSETS) $(ENGINE_RULES) $(ENGINE_SRC) tools/stage_editor_site.py
+	$(PYTHON) tools/stage_editor_site.py --src build/engine --out build/editor-site-public
+	cd engine && $(NPM) run build:site
+	mv build/editor-site/editor.html $@
+	touch build/editor-site/.nojekyll
+	rm -f build/editor-site.zip
+	cd build && zip -qr editor-site.zip editor-site
+	@du -sh build/editor-site build/editor-site.zip
+
+editor-site: $(EDITOR_SITE)
+
 engine-assets: $(ENGINE_ASSETS)
 
 engine: $(ENGINE_DIST)
@@ -203,6 +221,10 @@ engine-e2e: $(ENGINE_NODE)
 engine-random: $(ENGINE_NODE) $(ENGINE_RULES) $(ENGINE_ASSETS)
 	cd engine && $(NPM) run random
 
+# editor.html: the level editor (docs/editor.md) on the dev server, opened in the browser
+engine-editor: $(ENGINE_NODE) $(ENGINE_RULES) $(ENGINE_ASSETS)
+	cd engine && $(NPM) run editor
+
 # ---- not part of `build`
 
 extract: tools
@@ -222,6 +244,9 @@ help:
 	@echo "make web           web/dist (vite build)"
 	@echo "make engine        engine/dist (npm ci, vite build; needs engine-assets and the rules)"
 	@echo "make engine-assets build/engine/assets: the ROM assets for the engine (like make assets)"
+	@echo "make engine-editor the dev server with editor.html: the level editor"
+	@echo "make editor-site   build/editor-site (+ .zip): the level editor as a static site, relative"
+	@echo "                   URLs, trimmed assets (ROM-derived: publishing it is your call)"
 	@echo "make engine-e2e    browser smoke tests of the engine (needs cd engine && npm run dev)"
 	@echo "make engine-random the dev server with random.html: a course of random holes"
 	@echo "make engine-test   the engine's vitest suite (ROM-derived tests skip without build/engine)"
@@ -229,7 +254,7 @@ help:
 	@echo "make extract       tools/extract_all.py: every extractor + build/manifest.tsv"
 	@echo "make stems         build/spc/stems: every song per voice and per sample, wet and dry"
 	@echo "                   (9.1 GB, about 2 min; one song: tools/render_stems.py --song N)"
-	@echo "make clean         web/dist, engine/dist, build/web, build/engine, __pycache__: seconds to redo"
+	@echo "make clean         web/dist, engine/dist, build/web, build/engine, the editor site, __pycache__"
 	@echo "make clean-rust    the cargo target dirs build/snesstep, build/spcrender"
 	@echo "make distclean     clean + web/node_modules + build/, except build/emu/autoplay/c1n"
 	@echo ""
@@ -238,7 +263,7 @@ help:
 # ---- clean-up, in three tiers
 
 clean:
-	rm -rf web/dist engine/dist build/web build/engine
+	rm -rf web/dist engine/dist build/web build/engine build/editor-site build/editor-site-public build/editor-site.zip
 	find tools -name __pycache__ -type d -prune -exec rm -rf {} +
 
 clean-rust:

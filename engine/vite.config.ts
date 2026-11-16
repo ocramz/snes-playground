@@ -13,8 +13,11 @@ export default defineConfig({
   server: { host: '127.0.0.1', port: 5174 },
   build: {
     chunkSizeWarningLimit: 2000,
-    // two pages: the course menu and the random course (random.html)
-    rolldownOptions: { input: { main: resolve(here, 'index.html'), random: resolve(here, 'random.html') } },
+    // three pages: the course menu, the random course (random.html) and the
+    // level editor (editor.html; its own site build: vite.site.config.ts)
+    rolldownOptions: {
+      input: { main: resolve(here, 'index.html'), random: resolve(here, 'random.html'), editor: resolve(here, 'editor.html') },
+    },
   },
   test: {
     include: ['src/**/*.test.ts', 'test/**/*.test.ts'],

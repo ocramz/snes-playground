@@ -21,6 +21,12 @@
  *   2026-11-15), into a separate white mask that the view tints with the
  *   outline walk, as for the ROM holes' layer_outline.
  *
+ * - the water ($61, the rim $64-$6F; docs/tiles.md "Water"): a plane at
+ *   the level $82:83B9 over the part of the cell the region test $82:83DD
+ *   does not call dry, the flat patch's checks under it in the water's two
+ *   colours, as the ROM draws its ponds (none while the water switch has it
+ *   off at the load, $82:BC59).
+ *
  * A shape without a patch (the dimple $03: no ROM course has one) takes the
  * flat patch, shaded by its slope. Pure: no Phaser, node-tested.
  */
@@ -87,6 +93,13 @@ const STEP_PX = 16;
 /** The offsets sampleNear tries, nearest first. */
 const NEAR: Array<[number, number]> = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], [2, 0], [-2, 0], [0, 2], [0, -2]];
 const FACE_BROWN: [number, number, number] = [0x8a, 0x6a, 0x40];
+/**
+ * The water over the flat patch's dark and light checks: course 1's pond
+ * colours, measured on course 1 hole 7's art (holes/006/layer_front.png,
+ * the open water $61 at (8, 9) and its rim; 2026-11-16).
+ */
+const WATER_DARK: [number, number, number] = [49, 132, 123];
+const WATER_LIGHT: [number, number, number] = [156, 239, 231];
 
 const hex2 = (v: number): string => v.toString(16).toUpperCase().padStart(2, '0');
 
@@ -169,6 +182,43 @@ export function rasterTerrain(rules: RomRules, c: StyledCourse, style: TerrainSt
   const faceE = { top: style.json.face.E_top, mid: style.json.face.E_mid, bottom: style.json.face.E_bottom };
   const faceN = { top: style.json.face.N_top, mid: style.json.face.N_mid, bottom: style.json.face.N_bottom };
 
+  // $82:BC59: with the water switch's $5D and no $5C the water starts off
+  let has5C = false;
+  let has5D = false;
+  for (let i = 0; i < c.w * c.h; i++) {
+    const t = c.layer2[i] & 0xff;
+    if (t === 0x5c) has5C = true;
+    if (t === 0x5d) has5D = true;
+  }
+  const waterOn = !(has5D && !has5C);
+  const waterOffset = rules.consts.get('waterLevelOffset') ?? 0x57ad;
+
+  /** The water plane over cell (x, y) of elevation e with water byte t. */
+  const paintWater = (x: number, y: number, e: number, t: number): void => {
+    const lift = t === 0x61 ? 1 : 0;
+    const level = rules.heightZ(e + lift) + waterOffset;
+    // the checks of a flat top at the bank's height (the level is $2D5 under it)
+    const ax = 32 * (x + y);
+    const ay = c.originY + 16 * (x - y) - 16 * (e + 1 + lift) - 32;
+    const corners: Pt[] = [[0, 0], [1, 0], [1, 1], [0, 1]].map((p) => proj(x, y, p as Pt, level));
+    const lift16 = (16 * level) / zUnit;
+    const put = (X: number, Y: number): void => {
+      const s = (X + 0.5) / 32 - x - y;
+      const d = (Y + 0.5 - c.originY + lift16) / 16 - x + y;
+      const fx = (s + d) / 2;
+      const fy = (s - d) / 2;
+      if (fx < 0 || fy < 0 || fx >= 1 || fy >= 1) return;
+      if (!waterWet(t, Math.floor(fx * 0x10000), Math.floor(fy * 0x10000))) return;
+      const k = flat ? sampleNear(flat, X - ax, Y - ay) : -1;
+      const d0 = atlas.data;
+      const light = k >= 0 && d0[k] * 0.3 + d0[k + 1] * 0.59 + d0[k + 2] * 0.11 > 150;
+      const col = light ? WATER_LIGHT : WATER_DARK;
+      paint(X, Y, col[0], col[1], col[2]);
+    };
+    fillTriangle(corners[0], corners[1], corners[2], put);
+    fillTriangle(corners[0], corners[2], corners[3], put);
+  };
+
   const cells: Array<[number, number]> = [];
   for (let y = 0; y < c.h; y++) for (let x = 0; x < c.w; x++) if (solid(x, y)) cells.push([x, y]);
   cells.sort((a, b) => a[0] - a[1] - (b[0] - b[1]) || a[0] + a[1] - (b[0] + b[1]));
@@ -199,6 +249,8 @@ export function rasterTerrain(rules: RomRules, c: StyledCourse, style: TerrainSt
         paint(X, Y, 0x48 * shade, 0xa8 * shade, 0x48 * shade);
       });
     }
+
+    if (waterOn && isWaterByte(tile)) paintWater(x, y, e, tile);
 
     // the sides the camera sees: E (+x) and N (-y)
     const sides = [
@@ -262,6 +314,40 @@ export function rasterTerrain(rules: RomRules, c: StyledCourse, style: TerrainSt
     }
   }
   return { width, height, x0, y0, pixels, outline };
+}
+
+/** The water's bytes: $61 and the rim $64-$6F ($60, $62, $63 hang the ROM). */
+export function isWaterByte(t: number): boolean {
+  return t === 0x61 || (t >= 0x64 && t <= 0x6f);
+}
+
+/**
+ * $82:83DD's region test, not dry: is the point (fractions 0-$FFFF) of a
+ * cell with water byte t in the water? (sim/water.ts `waterRegion`, which
+ * the view may not import; test/styled.test.ts checks the two agree.)
+ */
+export function waterWet(t: number, xf: number, yf: number): boolean {
+  const nx = (0x10000 - xf) & 0xffff;
+  const ny = (0x10000 - yf) & 0xffff;
+  const edge = (a: number): boolean => a < 0xe000;
+  const outer = (a: number, b: number): boolean => a < 0xf000 && b < 0xf000;
+  const inner = (a: number, b: number): boolean => !(a >= 0xf000 && b >= 0xf000);
+  switch (t) {
+    case 0x61: return true;
+    case 0x64: return edge(yf);
+    case 0x65: return edge(nx);
+    case 0x66: return edge(ny);
+    case 0x67: return edge(xf);
+    case 0x68: return outer(nx, yf);
+    case 0x69: return outer(nx, ny);
+    case 0x6a: return outer(xf, ny);
+    case 0x6b: return outer(xf, yf);
+    case 0x6c: return inner(nx, yf);
+    case 0x6d: return inner(nx, ny);
+    case 0x6e: return inner(xf, ny);
+    case 0x6f: return inner(xf, yf);
+    default: return false;
+  }
 }
 
 /** A quadrant's light, as procedural.ts shades it: lit from up the screen. */
