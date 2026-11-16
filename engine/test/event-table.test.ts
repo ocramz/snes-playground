@@ -84,6 +84,14 @@ describe.skipIf(!haveRules)('what core emits is in the table', () => {
     { name: 'web_step', to: 3000, hole: 2, offset: 2333, pokes: true },
     { name: 'web_warp', to: 2800, hole: 3, offset: 2336, pokes: true },
     { name: 'web_warp_fly', to: 2800, hole: 3, offset: 2336, pokes: true },
+    { name: 'web_snap', to: 2560, hole: 54, offset: 2338, pokes: true },
+    { name: 'web_snap_land', to: 2560, hole: 54, offset: 2338, pokes: true },
+    { name: 'web_snap_back', to: 2560, hole: 29, offset: 2340, pokes: true },
+    { name: 'web_snap_fast', to: 2520, hole: 29, offset: 2340, pokes: true },
+    { name: 'web_snap_east', to: 2520, hole: 62, offset: 2342, pokes: true },
+    ...['roll', 'drop', 'shallow', 'skim', 'climb', 'skip', 'skip_back', 'mod']
+      .map((n) => ({ name: `web_water_${n}`, to: 2660, hole: 6, offset: 2332, pokes: true })),
+    { name: 'web_water_shot', to: 3640, hole: 6 },
   ];
   for (const s of scripts) {
     it.skipIf(!haveRomTest || !loadFlow(s.name) || (s.hole !== undefined && !loadRomHole(s.hole)))(`${s.name}`, () => {

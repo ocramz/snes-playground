@@ -1,0 +1,19 @@
+# Course 3 hole 2 (index 17, MAP21), as web_boost, but the ball rolls onto the
+# N boost panel (4,18) from (4,19) at x $4000 with vx +$180 (web_boost_side
+# .pokes): on the panel's first frame |vx| >= $80, so $82:9CBF takes the small
+# push (vy -$40, the coefficients reset, $6A28 = 0); the panel's friction then
+# brings |vx| under $80 and a later frame on the tile is a straight hit (vx 0,
+# vy -1023, $6A28 set), and object 112 hums until the ball leaves the panel.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2359 A 2        # aim (the set-up's 90)
+2432 A 2        # spin
+2439 A 2        # power (meter 2)

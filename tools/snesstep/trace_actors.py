@@ -13,9 +13,11 @@ slot of one of the requested object types changes, records that slot:
     python3 tools/snesstep/trace_actors.py web_haz76 --types 76,77,81,82,83
 
 Output: build/web-test/actors_<name>.json
-  {"name", "types", "fields": [...], "records": [[frame, line, slot, type, v...], ...]}
+  {"name", "types", "fields": [...], "records": [[frame, line, slot, type, v...], ...],
+   "exits": [[frame, line, slot, type], ...]}
   (a record is the slot's state at the end of that frame's writes; `line`
-  the scanline of its first write, as in trace_ball.py).
+  the scanline of its first write, as in trace_ball.py; an exit is the write
+  that freed a slot holding a requested type, `$4E1C` = $FFFF by `$80:E060`).
 """
 
 import argparse
@@ -60,6 +62,8 @@ def trace(name, frames, types, out_dir):
         return None
 
     records = []
+    exits = []
+    alive = {}  # slot -> the requested type it holds
     touched = {}  # slot -> first line in this frame
     cur = None
 
@@ -68,6 +72,7 @@ def trace(name, frames, types, out_dir):
             t = word(TYPE + 2 * slot)
             if t in types:
                 records.append([frame, line, slot, t] + [word(b + 2 * slot) for b in FIELDS])
+                alive[slot] = t
         touched.clear()
 
     with open(os.path.join(run, "watch.tsv")) as f:
@@ -80,6 +85,11 @@ def trace(name, frames, types, out_dir):
             cur = fr
             a = int(addr.split(":")[1], 16)
             mem[a] = int(new, 16)
+            if TYPE <= a < TYPE + 2 * SLOTS:
+                k = (a - TYPE) // 2
+                if word(TYPE + 2 * k) == 0xFFFF and k in alive:
+                    # $80:E060 freed the slot: the thread's exit
+                    exits.append([fr, int(ln), k, alive.pop(k)])
             s = slot_of(a)
             if s is not None and s not in touched:
                 touched[s] = int(ln)
@@ -90,8 +100,8 @@ def trace(name, frames, types, out_dir):
     with open(path, "w") as f:
         json.dump({"name": name, "types": sorted(types),
                    "fields": ["frame", "line", "slot", "type"] + NAMES,
-                   "records": records}, f, separators=(",", ":"))
-    print("{}: {} records -> {}".format(name, len(records), path))
+                   "records": records, "exits": exits}, f, separators=(",", ":"))
+    print("{}: {} records, {} exits -> {}".format(name, len(records), len(exits), path))
 
 
 def main():

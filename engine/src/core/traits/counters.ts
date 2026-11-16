@@ -7,7 +7,8 @@
  *   $D82A  strokes + 1: 1 at the hole's start ($80:C1DC), +1 per set-up
  *          ($80:C50B), never past 99
  *   $6A10  the enemies the player took ($82:8AA0)
- *   $D852  the stocked copy ability (recorded only; abilities are deferred)
+ *   $D852  the stocked copy ability (the work copy's $D9C4; B uses it, once a
+ *          shot); $DA90 the stock carried into the next hole
  *   $D7F4  spare lives: 2 at a new game ($80:C058), cap 99
  *   $D80A  the score card, one word per hole ($83:D4F6: $D82A - 1)
  */
@@ -17,7 +18,13 @@ import { trait } from 'koota';
 export const Tomatoes = trait({ n: 4 });
 export const Strokes = trait({ n: 1 });
 export const Stars = trait({ n: 0 });
-export const StockedAbility = trait({ id: 0 });
+/**
+ * `$D852`: the stock (B triggers it once a shot; never used up), and `$DA90`:
+ * what the hole-out carries into the next hole (`$80:F5EF`; `$80:C22E` at
+ * the hole's start). Lost with the ball out of bounds (`$80:F5B7`,
+ * `$82:F48D`) and with a life (`$80:F3C1`); 0 at a new course (`$80:C128`).
+ */
+export const StockedAbility = trait({ id: 0, carry: 0 });
 
 /** The most tomatoes a 1-player game holds ($83:ABF9: +1 only below 5). */
 export const TOMATO_MAX = 4;

@@ -11,12 +11,18 @@ import { runFlowScript, GAME_OFFSET } from './flow-harness';
 import { distinctStates, launchSeedIndex, matchBallStates } from './align';
 import { haveRules, haveRomTest, loadTrace } from './fixtures';
 import { BallWork } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 
 const SCRIPTS = [
   'web_grounder', 'web_fly', 'web_fly_spin', 'web_curve', 'web_aimed',
   'web_a45', 'web_a135', 'web_a225', 'web_a315', 'web_flya', 'web_gy',
   'web_flow', 'web_ui', 'web_hole', 'web_tomatoes',
+  // course 1 hole 7: into the pond and out of it (test/water-scenarios.ts)
+  'web_water_shot',
 ];
+
+/** The scripts on another hole than course 1's first (build/engine/rom-test/holes/<n>). */
+const HOLE: Record<string, number> = { web_water_shot: 6 };
 
 /** Where a script's comparison ends when not at the lost ball: web_hole's hole 2 starts at 4518. */
 const UNTIL: Record<string, number> = { web_hole: 4331 };
@@ -36,7 +42,8 @@ describe.skipIf(!haveRules || !haveRomTest)('the real game, end to end from its 
       // longer so the last recorded state can still be matched
       const lastF = Math.min(all[all.length - 1].f, UNTIL[name] ?? Infinity);
       const run = runFlowScript(name, lastF - GAME_OFFSET + 20, {
-        until: (w) => w.queryFirst(BallWork)!.get(BallWork)!.fellOut !== 0,
+        hole: HOLE[name],
+        until: (w) => activePlayer(w).get(BallWork)!.fellOut !== 0,
       });
       const game = distinctStates(all.slice(seed).filter((r) => r.f <= lastF));
       // the launch: the trace's seed record carries the shot's numbers

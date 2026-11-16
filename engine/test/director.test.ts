@@ -18,6 +18,7 @@ import { RomRules } from '../src/core/rules';
 import { fromRomCourse } from '../src/core/course-data';
 import { Time } from '../src/core/traits/time';
 import { HoleFlow } from '../src/core/traits/flow';
+import { Session } from '../src/core/traits/session';
 import { Course, courseEntity } from '../src/core/traits/course';
 import { Cell, IsCup } from '../src/core/traits/hole';
 import type { GameEvent } from '../src/core/events';
@@ -53,7 +54,7 @@ function setUp(): { world: World; director: CutsceneDirector; rules: RomRules } 
 describe.skipIf(!haveAssets || !haveRules || !haveRomTest)('the cutscene director', () => {
   it('the intro holds the core 164 ticks, the set-up runs under its last frames, and it cues the hole song', () => {
     const { world, director } = setUp();
-    expect(director.startIntro()).toBe(true);
+    expect(director.startIntro(world.get(Session)!.courses[0].song)).toBe(true);
     const history = new CoreHistory();
     const events: GameEvent[] = [];
     const host = (n: number): void => {

@@ -26,6 +26,9 @@ export function playFeedback(p: Presentation): void {
       case 'mute-music':
         audio.muteMusic();
         break;
+      case 'music-volume':
+        audio.setMusicVolume(e.romSfx / 0xff);
+        break;
       default:
         break;
     }

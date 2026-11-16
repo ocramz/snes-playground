@@ -41,7 +41,10 @@ import { Cell, EnemyKind, Hover, IsCup, IsEnemy, TakenBy } from '../traits/hole'
 import { Visual } from '../traits/visual';
 import { TomatoQueue } from '../traits/counters';
 import { BallWork } from '../traits/ball';
+import { activePlayer } from '../traits/player';
 import { panStep } from '../sim/camera';
+import { s16, wrap16 } from '../fixed';
+import { Session } from '../traits/session';
 import { project } from '../projection';
 import { actorGround } from '../sweep';
 import type { Ctx } from '../sim/context';
@@ -61,9 +64,9 @@ export const RING_FRAMES = 92;
  * Begin the reveal for `cup` (the last free enemy). Called from the take,
  * mid-step; the caller then suspends the step with a `cupReveal` stall.
  */
-export function startReveal(world: World, ctx: Ctx, cup: import('koota').Entity, extraLead = 0): void {
+export function startReveal(world: World, ctx: Ctx, cup: import('koota').Entity): void {
   const { x, y } = cup.get(Cell)!;
-  const ball = world.queryFirst(BallWork)!;
+  const ball = activePlayer(world);
   ball.get(BallWork)!.enemyLatch = 0; // $82:8B65: STZ $6A68,X
   const cam = world.get(Camera)!;
   // $82:8B77: kind 8; the cup is the enemy itself from now on
@@ -93,12 +96,12 @@ export function startReveal(world: World, ctx: Ctx, cup: import('koota').Entity,
   const onScreen = sx >= 0x10 && sx < 0xc8 && sy >= 0x10 && sy < 0xd4 ? 1 : 0;
   const hover = cup.has(Hover) ? cup.get(Hover)!.steps : 0;
   world.set(Reveal, {
-    stage: 'lead', t: -extraLead, total: 0,
+    stage: 'lead', t: 0, total: 0,
     cupX: x, cupY: y,
     savedX: cam.x, savedY: cam.y,
     panX: p.x, panY: p.y,
     onScreen,
-    hoverFrames: hover !== 0 && onScreen ? HOVER_DROP[hover & 7] + HOVER_DROP_EXTRA : 0,
+    hoverFrames: 0, hover, ex, ey,
     panned: 0,
   });
   const q = world.get(TomatoQueue)!;
@@ -149,12 +152,24 @@ export function tickReveal(world: World): boolean {
         return false;
       }
       case 'hover':
+        if (r.t === 0) {
+          // $82:8C4F, as the stage begins (after any pan): a hovering enemy
+          // still on screen drops (object $5C): x - the scroll in
+          // [-$30, $128), y in [-$20, $118)
+          const cam = world.get(Camera)!;
+          const sx = s16(wrap16(r.ex - cam.x));
+          const sy = s16(wrap16(r.ey - ((world.get(Session)!.ctx!.course.screenBase - cam.y) & 0xffff)));
+          const on = sx >= -0x30 && sx < 0x128 && sy >= -0x20 && sy < 0x118;
+          r.hoverFrames = r.hover !== 0 && on ? HOVER_DROP[r.hover & 7] + HOVER_DROP_EXTRA : 0;
+        }
         if (r.hoverFrames > 0 && r.t < r.hoverFrames) {
           world.set(Reveal, r);
           return false;
         }
         advance('ring');
-        r.t = r.panned ? 1 : 0; // after a pan the ring's frames come one sooner (measured)
+        // after a pan the ring's frames come one sooner (measured), unless
+        // a hover drop came between (demo 19: the ring's end at 2667)
+        r.t = r.panned && r.hoverFrames === 0 ? 1 : 0;
         continue;
       case 'ring':
         if (r.t === RING_SFX_AT) emitEvent(world, 'cup-reveal', 0x1c);

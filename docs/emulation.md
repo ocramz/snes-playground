@@ -182,6 +182,9 @@ script at the next vblank.
 | `dance.txt` | title menu → DANCE SELECT → 1PLAY DANCE → DANCE01: Kirby's dance on the scene-8 stage, then the title; needs the medal-flag pokes |
 | `play_extra.txt` | from a finished-game save: 1PLAY GAME → PLAY EXTRA COURSE → member 1 → extra course 1 (hole at 2279) |
 | `ranking.txt` | members list → RANKING (scene 2) → A on entry 01 → its RESULT card (scene 3); needs a save with a cleared course |
+| `web_pause.txt`, `web_pause_quit.txt` | hole 1's pause menu: the cursor, B, CONTINUE; QUIT to the title (port_v2 phase 7) |
+| `web_look.txt`, `web_bspin.txt`, `web_lr.txt`, `web_cancel.txt`, `web_idle.txt` | hole 1's aim: Y's look, B's spin preset, L/R's snaps, B's cancel in the spin stage, the idle timer's score panel |
+| `web_card.txt`, `web_select.txt` | web_hole through its RESULT card into hole 2; SELECT's mid-course card on hole 1 |
 
 Facts the scripts depend on, found with the stepper:
 
@@ -310,6 +313,14 @@ Two options change WRAM so a script can reach states its inputs cannot:
   (`sub_set_hole_index $82:B0A4`) builds the requested one. All 232 hole
   indices load this way; `ram_hole_index3 $7E:ABB6` reads back 3x the
   requested index in every case.
+  The course slot `$7E:6A5C` (2 × course), which the hole's song list and
+  the water ripple's colours are indexed by, is set on the course map and
+  stays 0 under that poke: such a run plays course 1's songs and ripple on
+  every course. Poke it too (`2050:$7E:6A5C=<2 × course>`), as
+  `tools/check_hole_palette.py`, `tools/snesstep/trace_enemies.py` and the
+  web_boost scenarios do (notes/port-v2-phase1-courses.md). The scenery and
+  the course's palette list use `$6A5A`, so they were right in the earlier
+  runs.
 - `--poke-at-pc PC,ADDR=VAL` writes each time the instruction at PC is about
   to run, which forces a branch. `--poke-at-pc '$80:F37A,$7E:D956=0001'`
   takes the holed path of the main flow (`$80:F37A`: `LDA $D956 / BNE`) and
@@ -320,6 +331,30 @@ Two options change WRAM so a script can reach states its inputs cannot:
   for the NMI to drain the ring, which the NMI skips while the main loop is
   mid-frame (`$4B` set, `$80:81B8`). The course-end screens are reached
   instead by real hole-outs (tools/snesstep/autoplay.py, physics.md).
+
+## The DEMOPLAY demos
+
+DEMO PLAY (title → DEMO PLAY, `$ED5B` = 1) plays a record from `$88:C880`
+[k × 4]: `$83:DA41` copies a 20-word header (the course and hole, the
+random state, the lives, the tomatoes, the stocks carried in) to the
+addresses of `$83:DA7C`, then the stream: (pad, count) word pairs, a count
+of 0 ending it. Demos 10-19 are the copy abilities on holes 160-169, each
+taking its enemy on the first shot. `$83:DAAA`, called only from the vblank
+wait `$80:845F` (`$80:8491`), ticks the stream once per wait while it is
+armed (`$C0`, set by `$82:B2E7` just before the hole's first aim): every
+call of the frame helper `$80:8F78`, every frame of a nested wait (the
+hit-stops, the take's 4 frames, the transformation's 48), and the lighter
+`$80:8F5B`'s. A lag frame does not tick it. It writes held `$0067` and
+pressed `$006B` (the edge against the last pair); a real A, B or START
+ends the demo. The help texts (`$82:F7EE`, from the frame helper while
+`$ED5B` is set) stop everything but the vblank: no thread, no physics, no
+tick (demo 10: 1091-1693). tools/export_web.py exports the records
+(`tables.json` `demos`, `demoHeader`); the engine's
+`test/trace-demos.test.ts` gets the game's pad on every tick of the ten
+streams (notes/port-v2-phase5-abilities.md "The demo clock").
+
+The scripts `tools/snesstep/inputs/web_demo10.txt`-`web_demo19.txt` reach
+them from power-on with no pokes.
 
 ## Progress and the ending
 

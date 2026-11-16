@@ -16,6 +16,7 @@
 import { isEnemyTile, ENEMY_LIST_MAX, TEE_TILE } from './sweep';
 import { buildOcclusion, fromOcclusionJson, type OcclusionJson, type OcclusionTable } from './occlusion';
 import { sweepWarps } from './sim/warp';
+import { HOLE_SONG } from './traits/flow';
 
 export interface CourseData {
   /** The hole's name (the ROM's MAPnn, or the authored file's). */
@@ -41,6 +42,12 @@ export interface CourseData {
    */
   screenBase: number;
   /**
+   * $8B98 = header word 4 x 8 ($82:B1FA-$82:B200): the course bitmap's
+   * width in pixels, the look's right bound ($81:B8F7). Authored courses
+   * use the bitmap's width, 32 (w + h).
+   */
+  mapWidth: number;
+  /**
    * The hole's enemies as placed (the actor list's cells, $B538/$B578), in
    * the enemy list's order `$69DE`: the load-time sweep's, rows from the
    * top and each row from its last column ($82:B320; src/core/sweep.ts).
@@ -53,14 +60,24 @@ export interface CourseData {
    * authored hole the one `buildOcclusion` makes.
    */
   occlusion: OcclusionTable;
+  /**
+   * The hole's song number (the request byte - $7E), which `$80:C967` plays
+   * at the hole's start, after a lost ball and when Kirby wakes: a ROM hole's
+   * from `$80:C99D`'s per-course list (course.json `song`), the authored and
+   * generated holes course 1's HOLE_SONG.
+   */
+  song: number;
 }
 
 /** Optional course fields; authored courses that omit them get defaults. */
 export interface CourseExtras {
   name?: string;
   screenBase?: number;
+  mapWidth?: number;
   /** Table 10; absent: built from the shape layer (buildOcclusion). */
   occlusion?: OcclusionTable;
+  /** The hole's song; absent: HOLE_SONG. */
+  song?: number;
 }
 
 /** The exported ROM hole (tools/export_web.py --only course). */
@@ -82,6 +99,8 @@ export interface CourseJson {
   edgeTiles: number[];
   /** Table 10 (tools/export_web.py `occlusion_table`); older exports lack it. */
   occlusion?: OcclusionJson;
+  /** The hole's song, `$80:C99D`[course] -> [hole] - $7E; older exports lack it. */
+  song?: number;
 }
 
 const N = (v: number): number => {
@@ -120,9 +139,11 @@ export function courseData(
     // the bitmap is 224 lines taller than the origin row on hole 1 (456 =
     // 232 + 224); authored courses without a header use the same relation
     screenBase: extras.screenBase ?? originY + 224,
+    mapWidth: extras.mapWidth ?? 32 * (w + h),
     enemies: enemyCells(tile, w, h),
     name: extras.name ?? '',
     occlusion: extras.occlusion ?? buildOcclusion(w, h, shapes),
+    song: extras.song ?? HOLE_SONG,
   };
 }
 
@@ -141,8 +162,10 @@ export function enemyCells(tile: ArrayLike<number>, w: number, h: number): Array
 export function fromRomCourse(json: CourseJson): CourseData {
   return courseData(json.w, json.h, json.shape, json.elev, json.walls, json.tile, json.tee, json.word7, {
     screenBase: (json.header[5] ?? 0) * 8,
+    mapWidth: (json.header[4] ?? 0) * 8,
     name: json.name,
     occlusion: json.occlusion === undefined ? undefined : fromOcclusionJson(json.occlusion, json.w, json.h),
+    song: json.song,
   });
 }
 

@@ -32,7 +32,8 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   compressed asset uses, and the two decompressor entry points.
 - [docs/audio.md](docs/audio.md) — N-SPC driver upload, BRR samples,
   33 songs and 125 effects, how the standalone `.spc` files are built, the
-  sequencer's timing, and how the WAV renderer was validated.
+  sequencer's timing, how the WAV renderer was validated, and the stems
+  (per voice and per sample, wet and dry).
 - [docs/graphics.md](docs/graphics.md) — tiles, tilemaps, palettes, the
   metasprite/OAM pipeline, the VRAM transfer queue, and how sprite sheets
   are rendered.
@@ -44,7 +45,9 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
 - [docs/terrain.md](docs/terrain.md) — the playfield: elevation, the 28
   terrain shapes, the surface equation, and how gaps work.
 - [docs/tiles.md](docs/tiles.md) — the special-tile layer: the dispatch
-  tables, friction overrides, boost panels, kickers, warp panels and hazards.
+  tables, friction overrides, boost panels, kickers, arrow, snap and warp
+  panels, the water (sinking, skims and skips), the swirls and the two
+  switches (the toggles' and the water's, with its dissolve), and hazards.
 - [docs/scenes.md](docs/scenes.md) — the 20 screen setup blocks, the four
   loader jump tables, and which graphics and palette each screen loads.
 - [docs/text.md](docs/text.md) — the font-tile encoding, the control codes,
@@ -63,6 +66,9 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   the shot thread's stages and the shot panel's timing, the roll's end, the
   tomato queue, lives and strokes, running out of tomatoes, the lost ball and
   the hole-out's timeline.
+- [docs/save.md](docs/save.md) — the battery RAM: its layout, the rules that
+  write it (members, rounds, medals, the cleared count, the ranking), and the
+  engine's JSON of it.
 - [docs/engine.md](docs/engine.md) — the Koota × Phaser 4 reimplementation in
   `engine/`: how to run and test it, the dependency rules, the event model,
   the frame (every system with the routine it ports), the traits, the hole

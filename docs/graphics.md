@@ -284,6 +284,14 @@ not follow. A `context` frame can look convincing and still be the right
 layout over another object's tiles. **Unconfirmed until that link is
 traced.**
 
+That link was read later (2026-11-15; [tiles.md](tiles.md) "Actors"): the
+enemy's species is its tile − `$40` (`$591C`), and `$82:B730` gives each
+species on the hole a VRAM slot in first-seen order (`$A0 $A5 $C0 $C5 $CA $E0
+$E5 $EA`, at most 8), copies its part lists to a fixed WRAM block with the
+slot's base added to each tile (`$82:B769`) and queues its tiles
+(`$82:B8B6`). So one species' pictures have other tile numbers from hole to
+hole; `tools/snesstep/trace_enemies.py` compares them by their pixels.
+
 ### From live state
 
 The static sheets above have to prove each tile and flag what they cannot.

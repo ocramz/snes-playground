@@ -9,6 +9,7 @@
  * The seed and the difficulty are kept in the page's URL.
  */
 import Phaser from 'phaser';
+import { Save } from '../../core/traits/save';
 import { SceneKeys } from '../scene-keys';
 import { startCourse, startHole } from '../../core/actions';
 import {
@@ -148,7 +149,8 @@ export class RandomMenuScene extends Phaser.Scene {
     const r = host.random!;
     this.startWhenReady = false;
     host.set = randomCourseSet(holes, r.seed);
-    startCourse(host.world, host.rules!, host.set.holes.map((h) => h.data));
+    host.world.get(Save)!.member = -1; // random holes keep no save
+    startCourse(host.world, host.rules!, host.set.holes.map((h) => h.data), -1);
     const first = host.flags.hole;
     if (first !== null && first > 1 && first <= holes.length) startHole(host.world, first - 1);
     if (!this.scene.isActive(SceneKeys.Hud)) this.scene.launch(SceneKeys.Hud, { host });

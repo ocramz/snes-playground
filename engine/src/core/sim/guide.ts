@@ -19,7 +19,10 @@
  *
  * The guide's own step, $81:AF82-$81:B44B, is a separate routine built on
  * the same primitives (probe, edges, wall and step bounce, reflection, the
- * spin impulse, the outline wall); it is NOT ported. The engine runs the
+ * spin impulse, the outline wall); it is NOT ported, except its water
+ * ($81:B0C4, $81:B285: sim/water.ts, which the dispatch reaches with
+ * `presentation` false; the guide starts from the block's $D872 through the
+ * live work copy, $81:A9D6). The engine runs the
  * kernel entries of BALL_STEP instead (plans/port_v1_koota_phaser4.md),
  * silently ($6AC0 = 0). docs/web-demo.md found the guide's ends to match
  * that for 105 of 110 aims; test/flow.test.ts measures the engine's.
@@ -54,6 +57,20 @@ export interface GuideResult {
    * first steps — start from this value. The caller writes it back.
    */
   wallCode: number;
+  /** $6A28 and $DA0A as the guide left them (written back for the boost hum, systems/boost-hum.ts). */
+  boostFlash: number;
+  tile: number;
+  /**
+   * $DA3A and $6A72 as the guide's last rolling step left them, or null when
+   * it never rolled. The guide's own rolling step sets them with its own
+   * rule ($81:B23A-$81:B24C: class 0 on surface code 0, else class 1, mode
+   * ignored), not the real step's ($81:80C5); the real step recomputes them
+   * on every rolling frame, so they matter only to a ball that rolls on the
+   * frame it lands: a snap panel's landing (sim/dispatch.ts snapLand, the
+   * friction of web_snap_land's landing frame, $07B0).
+   */
+  rollMu: number | null;
+  classIndex: number;
 }
 
 /** $81:AA3E: the step limit by shot kind. */
@@ -86,25 +103,31 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
   w.z = w.ground; // $81:BB3D
   copyPrev(w); // $81:8751
 
-  const out: GuideResult = { points: [], ends: [], steps: 0, wallCode: 0 };
+  const out: GuideResult = { points: [], ends: [], steps: 0, wallCode: 0, boostFlash: 0, tile: 0, rollMu: null, classIndex: 0 };
   let max = MAX_STEPS[Math.min(2, Math.max(0, shot.kind))];
   let dotIn = 1; // $6AD4
   let gapPending: GuideEnd | null = null; // $6AD0 and the slot $81:AC3D saved
   let rolling = shot.kind !== 2;
   const dot = (): void => {
-    out.points.push({ xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z, air: w.air });
+    out.points.push({ xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z, air: w.air, wet: w.onOverlay });
   };
   const end = (): void => {
     // $81:AD97: the pending gap end, else the ball where it is
     const e = gapPending ?? at(w.xc, w.xf, w.yc, w.yf, w.z);
     gapPending = null;
     const p = project(origin, e.xc, e.xf, e.yc, e.yf, e.z);
-    out.ends.push({ ...e, sx: p.x, sy: p.y });
+    out.ends.push({ ...e, sx: p.x, sy: p.y, wet: w.onOverlay });
   };
 
   for (;;) {
     out.steps += 1; // $B744
+    const rolling0 = w.air === 0;
     runKernelStep(gctx, w);
+    if (rolling0) {
+      // $81:B23A: X = 0 on surface code 0, else 2; $DA3A = $80:DC49,X
+      out.classIndex = w.code !== 0 ? 2 : 0; // STX $6A72
+      out.rollMu = ctx.rules.table('rollFriction')[out.classIndex >> 1];
+    }
     const airChanged = w.air !== w.pAir;
     if (rolling) {
       // $81:AA46-$81:AAEE
@@ -178,11 +201,13 @@ export function simulateGuide(ctx: Ctx, live: Work, shot: GuideShot, origin: Pro
     }
   }
   out.wallCode = w.wallCode;
+  out.boostFlash = w.boostFlash;
+  out.tile = w.tile;
   return out;
 }
 
 function at(xc: number, xf: number, yc: number, yf: number, z: number): GuideEnd {
-  return { xc, xf, yc, yf, z, sx: 0, sy: 0 };
+  return { xc, xf, yc, yf, z, sx: 0, sy: 0, wet: 0 };
 }
 
 /** $81:8751's copy, as begin-ball-step does it. */

@@ -28,10 +28,13 @@ import { BallScreen } from '../traits/pose';
 import { BallWork, StillCount, BallMode, BallHoled } from '../traits/ball';
 import { Stall } from '../traits/stall';
 import type { Ctx } from '../sim/context';
+import { thaw } from '../sim/water';
 import { panStep, followStep } from '../sim/camera';
 import { project } from '../projection';
-import { ball, emitEvent, phaseNow } from './flow-util';
+import { emitEvent, phaseNow } from './flow-util';
 import { PAN_DELAY } from './panel';
+import { activePlayer } from '../traits/player';
+import { AimUi } from '../traits/aim-ui';
 
 /** The song request's APU handshake, measured (web_fly 3252 -> 3256). */
 export const APU_LAG_FRAMES = 4;
@@ -39,6 +42,9 @@ export const APU_LAG_FRAMES = 4;
 export function updateCamera(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase === 'Aim' && t > 0) {
+    // $81:A7B5: only when the aim iteration got there (not in the pause,
+    // the look, or the preset with the look; port_v2 phase 7)
+    if (world.get(AimUi)!.pan === 0) return;
     const cam = { ...world.get(Camera)! };
     panStep(cam, cam.targetX, cam.targetY);
     world.set(Camera, cam);
@@ -64,12 +70,12 @@ export function updateCamera(world: World, ctx: Ctx): void {
 export function rollLoopPresents(world: World): boolean {
   const { phase, t } = phaseNow(world);
   if (phase === 'Rolling') return true;
-  return phase === 'RollEnd' && t === 0 && ball(world).get(BallHoled)!.holed >= 2;
+  return phase === 'RollEnd' && t === 0 && activePlayer(world).get(BallHoled)!.holed >= 2;
 }
 
 /** $81:A121, the roll loop's presentation (see the header). */
 function presentRoll(world: World, ctx: Ctx): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   const w = e.get(BallWork)!;
   const sc = e.get(BallScreen)!;
   // $81:A46F: the work copy's position (after the step)
@@ -78,7 +84,12 @@ function presentRoll(world: World, ctx: Ctx): void {
   const k = { x: p.x, xf: p.xf, y: p.y, yf: p.yf, px: sc.px, pxf: sc.pxf, py: sc.py, pyf: sc.pyf };
   if ((w.lost & 1) !== 0) {
     if (w.fallTimer === 0xf0) {
-      // $81:A16C-$81:A190: the first frame of the fall
+      // $81:A16C-$81:A190: the first frame of the fall: the ice thawed ($82:D9C2)
+      if (w.waterFreeze !== 0) {
+        thaw(w);
+        for (const sfx of w.abilitySfx) emitEvent(world, 'ability', sfx);
+        w.abilitySfx = [];
+      }
       const mode10 = e.get(BallMode)!.mode === 0x0a;
       emitEvent(world, 'song', (mode10 ? 0x8f : 0x90) - 0x7e);
       w.lost = 1;

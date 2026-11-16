@@ -41,6 +41,12 @@ from a per-course list by hole: on course 1, songs 11, 11, 11, 11, 7, 7, 7 and
 - **The target** is the free enemy nearest the ball (`$82:8E41`), by the squared distance of the 8.8 positions; a tie goes to the first in the enemy list. From hole 1's tee, (8,3) and (6,5) tie and (8,3) wins (dis., stepper watch). Once the cup is revealed, the target is the cup's centre (`$82:8B5C`; physics.md "Enemies and the cup").
 - `$80:C5F1` and the head of `$81:A619` follow. The aim loop starts on the set-up's fourth frame.
 - `$80:C60A` stores pose 4 through an X that the calls before it leave. No flow trace shows a state change from it; the first aim iteration sets 4 or 5.
+- **From the water** (web_water_shot, course 1 hole 7: the second set-up at 2942 with the ball on the pond's bed). Nothing in the set-up or the shot changes:
+  - `$80:C670` copies the block's in-the-water flag `$D872` into the work copy's `$D9EE`;
+  - the guide starts from it (`$81:A9D6`) and draws its pictures from the water;
+  - Kirby stands in his wet palette, and the bubbles (object 67) rise from his head by his facing while `$D842` is set, from the set-up to the roll's start ([animation.md](animation.md) "The water's objects").
+
+  The ball leaves through the surface (3176, `$49`) or over the rim ([tiles.md](tiles.md) "Water").
 - **Tired** (`$80:C79A`): at the turn top with 1 or 2 tomatoes left, these come before the set-up's `$80:C4FF`:
   1. the turn's load;
   2. a pan toward Kirby (`$80:C8A8`: a frame, then `$81:BA8A` each frame until it arrives);
@@ -75,11 +81,48 @@ A stepper watch shows these values set at `$83:DFC0`: `$6ACC` = 3, `$6B3C` = 63 
 
 The tick `$53` is requested after the guide, so it sounds on the lag's last frame (`$81:A977` → `$81:A98B`). The measured "held 17 frames → 3° every 3 frames" is the hold counter plus this lag; every aim value of web_flow lands on the game's frame. Shorter rolling guides and the full fly guide's lag on other shots are unverified.
 
-Not read for the port:
-- B, the overview (`$83:B214`);
-- Y, look around (`$81:B9A2`, the score panel);
-- Start (`$83:AFA7`);
-- the idle timer `$6AC2`.
+**The other inputs** (read for port_v2 phase 7, 2026-11-16; traced by
+`tools/snesstep/inputs/web_{pause,look,bspin,lr,cancel,idle,select}.txt`;
+notes/port-v2-phase7-shell.md). The iteration's full order:
+
+| step | when | does |
+|---|---|---|
+| `$81:BCB6` | SELECT pressed | the mid-course card (below); the iteration blocks in it |
+| `$81:A683` | the pause open (`$EA7E`) | `$81:BDAD`, then the pose |
+| `$81:A691` | `$6B38` ≠ 0 | one less, and B is skipped (20 after a cancel) |
+| `$81:A69B` | B held, or the preset up (`$EA80`) | `$83:B214`, the spin preset; with Y the look too; the release ends it (`$80:E060`, `INC $691A`) |
+| `$81:A6E7` | Y held | the idle timer 90; with the d-pad the look (`$81:B9A2`); Y alone shows the score panel |
+| `$81:A73E` | the look on, Y released | the pan back to the aim's target; on arrival the look ends |
+| `$81:A771` | Start pressed | `$83:AFA7`, the pause menu |
+| `$81:A780` | A pressed | the shot (above) |
+| `$81:A7A5` | otherwise | the d-pad and L/R, the facing |
+| `$81:A7B5`, `$81:A7BF` | | the pan; the idle timer (90 quiet iterations show the score panel, a change or the look hides it) |
+
+- **The pause menu** (`$83:AFA7`): CONTINUE / COURSE SELECT SCREEN / QUIT,
+  the cursor `$6AC4`. B or Start closes it; A on COURSE SELECT longjmps to the
+  map (`$80:843E` with `$16E3`), on QUIT to the title (`$16D9`). The hole goes
+  on underneath: the threads, the pose and the guide run. No sound.
+- **The spin preset** (`$83:B214`): the panel at (`$24`, `$BF`); Left/Right
+  step `$D9B8` (the side, 0-12), Up/Down `$D9BA` (0-12) in a fly shot; a step
+  redraws the guide; a held direction repeats every 11 iterations (`$6B5C`
+  counts to 12). The spin stage keeps the side and resets the top/back to 6.
+- **The look** (`$81:B9A2`): the camera moves (6, 3) a frame inside x in
+  [−32, `$8B98`] and y in [0, `$8B9A` + `$E0`]; its arrows blink 20 on, 10
+  off, one for each way it can still move (`$81:B908`).
+- **L/R** (`$81:B6C3`): the aim becomes 45 × a nibble of `$81:B729`[aim] (the
+  low one for L, the high one for R).
+- **B in the spin stage** (`$81:BFBB` → `$81:C089`): Kirby uncurls (pose 7),
+  the panel goes after `$22` frames, and `$80:C5F1` and the aim's head run
+  again without a stroke (web_cancel: B at 2560, the aim at 2598).
+- **SELECT** (`$81:BCB6` → `$83:C8DD`): fade out (16 frames), the BEST and
+  YOUR SCORE cards (the holes finished, and the course's best record), fade
+  in (15); SELECT closes it: fade out, the hole back, fade in with the hole's
+  song requested again (web_select: 2500 → 2545; 2700 → 2740).
+- **The score panel** (`$EA7C`) is shown by `$83:AEEB` and hidden by
+  `$83:AF82`, or silently by `$83:AF96`, which also stops the HUD thread
+  (`$691A` = 0). The sites are listed in the note; in the aim it is the idle
+  timer and Y, in the roll the HUD thread's tomato display, and the lost
+  ball, the out-of-tomatoes sleep and the hole-out each show it.
 
 ## The shot thread `$81:BE91`
 
@@ -157,6 +200,23 @@ The camera's formula is the Camera row of web-demo.md "Measured with the stepper
   The retake reloads the shot's own elevation, because `$80:F3A6` is skipped. In 1P the fall queues no tomato −1: `$82:C085` does so only when `$17FF` is set ([tiles.md](tiles.md) "Hazards").
 - **holed** (`$80:F48C`): the hole-out, below.
 
+The turn's end (`$80:F445`) and the hole-out (`$80:F48C`) each add 1 to
+`$D76C`, which ends the copy ability's objects; the hole-out also loads
+palette set 2 (`$80:F495`), Kirby's colours back to set 3.
+
+**A copy ability in the roll** ([physics.md](physics.md) "Copy abilities").
+B newly pressed while the ball moves, with a stock and the shot's latch
+unused, runs the trigger `$82:C875` in the roll loop: the latch is spent,
+Kirby's state 8 and object 21 come up, sfx `$2E`, and the step waits 48
+frames inside the iteration (`$80:8FB6`), the threads running. Then the
+ability's setup. The game reads the B one frame after the press (the stream
+or the pad writes it at the vblank; demos 10-19: B at 2017, the trigger
+2018). A second B in the same shot is refused (web_ab_c1 3090). The set-up
+`$80:C538` clears worn, mode and latch every shot; the stock is kept across
+shots and holes (`$DA90`), and lost with the ball out of bounds or a life.
+A take of an ability enemy stocks it at once (`$D852`), so it can be used in
+the shot that took it.
+
 ## Tomatoes, lives and strokes
 
 **The tomato queue** (`$83:ABC5` −1, `$83:ABAD` +1, the ring `$68FA`):
@@ -205,3 +265,18 @@ From C, the same offsets hold on web_hole and on c1n (C = 3150 there):
 The hole-in-one frames come from c1n's recording only; the 1UP's and the bonus's are the least certain.
 
 The star warp's rise moves the world camera (web_hole 4196-4260). That is the cutscene's camera track, recorded with the intro and the hole-out in web-demo.md "The intro and the hole-out (measured with the stepper)".
+
+**The RESULT card** (`$83:D3ED`, after every hole but the course's last;
+web_card): from the blank at C + 410 it builds a screen of its own with no
+scene request (BG1 the card's window in the course's palette, BG3 the
+hole's scenery, the number objects `$8C`, the warp star with Kirby), fades
+in from C + 424 to C + 438, and waits, with no time limit, for A, B or Start
+held (`$004F`: a button already down passes at once). From the press P: the
+fade out to the blank at P + 16, the music stops, the next hole's load at
+P + 80. The course's last hole has no card: `$83:C787` (song 19) and the
+course's end follow.
+
+**The night** of a hole in one is `$6A2E` = 1: palette set `$11` (the
+scenery's alternate colours `$80:D527`) and the course's alternate list
+`$80:D8AB` (`$80:D82B` entry 1). Computed from them, hole 1's night equals
+c1n's recording but for the two cycling colours.

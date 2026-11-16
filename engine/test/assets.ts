@@ -10,8 +10,9 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readJson, type CourseJson } from './fixtures';
 import type {
-  AtlasJson, AudioJson, CutscenesJson, HudJson, LayersJson, UiJson,
+  AtlasJson, AudioJson, CutscenesJson, HudJson, LayersJson, ManifestJson, UiJson,
 } from '../src/game/assets/schema';
+import { holeDir } from '../src/game/assets/keys';
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 const assetsDir = resolve(here, '../../build/engine/assets');
@@ -20,7 +21,7 @@ export const haveAssets = existsSync(resolve(assetsDir, 'manifest.json'));
 
 export type {
   AtlasFrame, AtlasClip, AtlasJson, UiJson, AudioEntry, AudioJson, CutsceneCue, CutsceneWindow,
-  CutscenesJson, LayersJson, HudJson,
+  CutscenesJson, LayersJson, HudJson, ManifestJson,
 } from '../src/game/assets/schema';
 
 export function assetPath(rel: string): string {
@@ -29,6 +30,15 @@ export function assetPath(rel: string): string {
 
 export function assetExists(rel: string): boolean {
   return existsSync(assetPath(rel));
+}
+
+export function loadManifest(): ManifestJson {
+  return readJson(assetPath('manifest.json'));
+}
+
+/** The exported ROM holes' indices, in course order (the manifest's `courses`). */
+export function exportedHoles(): number[] {
+  return (loadManifest().courses ?? []).flatMap((c) => c.holes.map((h) => h.index));
 }
 
 export function loadAtlas(): AtlasJson {
@@ -55,11 +65,11 @@ export function loadCutscenes(): CutscenesJson {
   return readJson(assetPath('cutscenes.json'));
 }
 
-/** hole is the 1P course-1 hole number 0-7; the directory is holes/0N. */
-export function loadHoleCourse(hole: number): CourseJson {
-  return readJson(assetPath(`holes/0${hole}/course.json`));
+/** `index` is the ROM hole index (course * 8 + hole); the directory is holes/NNN. */
+export function loadHoleCourse(index: number): CourseJson {
+  return readJson(assetPath(`${holeDir(index)}/course.json`));
 }
 
-export function loadHoleLayers(hole: number): LayersJson {
-  return readJson(assetPath(`holes/0${hole}/layers.json`));
+export function loadHoleLayers(index: number): LayersJson {
+  return readJson(assetPath(`${holeDir(index)}/layers.json`));
 }

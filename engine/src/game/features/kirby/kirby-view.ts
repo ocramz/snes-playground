@@ -13,6 +13,14 @@
  * is cut off below the rim (`setCut`); in a warp his sprite is off while the
  * warp's objects take his place (features/warp).
  *
+ * His OBJ palette 0's colours 2-8 are core's (`AbilityFx.colours`,
+ * core/sim/kirby-colours.ts): dry, the frame as the atlas has it; the wet
+ * set (`$82:8604`), the frame's twin `<frame>_w` (tools/kirbyanim.py
+ * `wet_palettes`); any other (the copy abilities' sets, the transformation's
+ * flash, the outline's green flash), the dry frame repainted
+ * (kirby-recolour.ts). The choice replaces the frame the clip shows, on each
+ * of its updates and when the colours change.
+ *
  * Kirby's OAM priority is the core's `BallSprite.prio` ($D96A, `$82:F4FD`):
  * at 3 he sorts with the other actors (sync-depth); at 1 or 2 he is behind
  * the course, under both of its layers or under the front one only
@@ -22,17 +30,22 @@ import Phaser from 'phaser';
 import type { Entity } from 'koota';
 import { Tex } from '../../assets/keys';
 import { playClip } from '../../assets/atlas';
-import { BallAir, BallHoled, BallPos, BallWork } from '../../../core/traits/ball';
+import { BallAir, BallHoled, BallMode, BallPos, BallWork } from '../../../core/traits/ball';
 import { BallScreen, BallSprite, Pose, PRIO_OVER } from '../../../core/traits/pose';
 import { Tomatoes } from '../../../core/traits/counters';
 import { HoleFlow } from '../../../core/traits/flow';
 import { Warp } from '../../../core/traits/warp';
+import { AbilityFx, DRY_COLOURS } from '../../../core/traits/ability-fx';
+import { KirbyRecolour } from './kirby-recolour';
 import { kirbyPoint, worldOf } from '../../bridge/placement';
 import type { View, ViewCtx } from '../../bridge/view';
 import { kirbyDepth, shadowShown } from './sprite-rules';
 import { KEEP, poseClip } from './pose-clips';
 import { SHADOW_FRAME } from '../catalog-data';
 import { rowsAboveCut } from '../enemies/cup-mask';
+
+/** The atlas's `_w` twins: set 3 in the water (`$98:C796`) on colours 2-6, the outline at rest. */
+const WET_COLOURS = [0x312f, 0x45d4, 0x5e76, 0x72f8, 0x7fba, 0x0c63, 0x18e2];
 
 /** What Kirby shows before core has set a pose (state 0 holds the last one): facing the camera. */
 const FIRST_CLIP = 'aim_facing3';
@@ -46,10 +59,37 @@ export class KirbyView implements View {
   private lastTimer = 0;
   /** $D96A as of the last `place`. */
   private prio = PRIO_OVER;
+  /** Kirby's colours 2-8 as of the last `place`. */
+  private colours: readonly number[] = DRY_COLOURS;
+  private coloursKey = DRY_COLOURS.join(',');
+  private readonly recolour: KirbyRecolour;
 
   constructor(scene: Phaser.Scene) {
     this.sprite = scene.add.sprite(0, 0, Tex.atlas).setVisible(false);
+    this.recolour = new KirbyRecolour(scene, Tex.atlas);
     this.shadow = scene.add.image(0, 0, Tex.atlas, SHADOW_FRAME).setVisible(false);
+    this.sprite.on(Phaser.Animations.Events.ANIMATION_START, this.applyPalette, this);
+    this.sprite.on(Phaser.Animations.Events.ANIMATION_UPDATE, this.applyPalette, this);
+  }
+
+  /** The frame shown in Kirby's colours: the atlas's (dry), its wet twin, or repainted. */
+  private applyPalette(): void {
+    const base = this.sprite.anims.currentFrame?.textureFrame ?? this.sprite.frame.name;
+    const name = String(base);
+    const dry = name.endsWith('_w') ? name.slice(0, -2) : name;
+    const atlas = this.sprite.scene.textures.get(Tex.atlas);
+    if (!atlas.has(dry)) return;
+    const c = this.colours;
+    if (c.every((v, i) => v === DRY_COLOURS[i])) {
+      if (this.sprite.texture.key !== Tex.atlas || this.sprite.frame.name !== dry) this.sprite.setFrame(atlas.get(dry), false, false);
+      return;
+    }
+    if (c.every((v, i) => v === WET_COLOURS[i]) && atlas.has(dry + '_w')) {
+      this.sprite.setFrame(atlas.get(dry + '_w'), false, false);
+      return;
+    }
+    const f = this.recolour.frame(dry, DRY_COLOURS, c);
+    if (f) this.sprite.setFrame(f, false, false);
   }
 
   place(ctx: ViewCtx, e: Entity): number | null {
@@ -68,6 +108,13 @@ export class KirbyView implements View {
       this.shadow.setVisible(false);
     }
     this.prio = e.get(BallSprite)!.prio;
+    const colours = ctx.world.get(AbilityFx)?.colours ?? DRY_COLOURS;
+    const key = colours.join(',');
+    if (key !== this.coloursKey) {
+      this.coloursKey = key;
+      this.colours = [...colours];
+      this.applyPalette();
+    }
     const shown = this.clip !== null && !hidden;
     this.sprite.setVisible(shown);
     return shown ? p.y : null;
@@ -82,6 +129,9 @@ export class KirbyView implements View {
       variant: pose.variant,
       tomatoes: e.get(Tomatoes)!.n,
       air: e.get(BallAir)!.air,
+      mode: e.get(BallMode)!.mode,
+      abilityVar: pose.abilityVar,
+      abilityDir: pose.abilityDir,
     });
     const restart = pose.timer > this.lastTimer;
     this.lastTimer = pose.timer;
@@ -129,6 +179,7 @@ export class KirbyView implements View {
     if (!this.sprite.scene.anims.exists(clip)) return;
     this.clip = clip;
     playClip(this.sprite, clip);
+    this.applyPalette();
   }
 
   /** The actor band's depth at priority 3; under the course's layers at 1 or 2. */
@@ -141,5 +192,6 @@ export class KirbyView implements View {
   destroy(): void {
     this.sprite.destroy();
     this.shadow.destroy();
+    this.recolour.destroy();
   }
 }

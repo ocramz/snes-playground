@@ -14,7 +14,7 @@ import { startCourse } from '../src/core/actions';
 import { RomRules } from '../src/core/rules';
 import { fromRomCourse } from '../src/core/course-data';
 import { BallScreen } from '../src/core/traits/pose';
-import { BallWork } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { Course, courseEntity } from '../src/core/traits/course';
 import { cellCorner, kirbyPoint, teePad, teePadPoint } from '../src/game/bridge/placement';
 import {
@@ -57,7 +57,7 @@ describe.skipIf(!haveAssets || !haveRules)('cutscene anchors', () => {
     worlds.push(world);
     startCourse(world, rules, [fromRomCourse(loadHoleCourse(0))]);
     const course = courseEntity(world).get(Course)!;
-    const kirby = kirbyPoint(course, world.queryFirst(BallWork)!.get(BallScreen)!);
+    const kirby = kirbyPoint(course, activePlayer(world).get(BallScreen)!);
     const { anchors } = loadCutscenes();
     // the intro's camera [-128, -111] from the tee pad is the hole's start
     // camera (Kirby at screen (128, 112)): the pad is Kirby's point, 1 px up
@@ -113,6 +113,10 @@ describe.skipIf(!haveAssets)('cutscene timing and cues', () => {
     const cs = loadCutscenes();
     const intro = cueEvents('intro', cs.windows.intro, 0, cs.windows.intro.length, 7);
     expect(intro.filter((e) => e.kind === 'song').map((e) => e.romSfx)).toEqual([11, 11]);
+    // another hole's intro plays its own song at the same cues (course 1 hole 5: song 7)
+    const five = cueEvents('intro', cs.windows.intro, 0, cs.windows.intro.length, 7, loadHoleCourse(4).song);
+    expect(five.filter((e) => e.kind === 'song').map((e) => e.romSfx)).toEqual([7, 7]);
+    expect(five.filter((e) => e.kind === 'cue').map((e) => e.romSfx)).toEqual([100, 98, 47]);
     expect(intro.filter((e) => e.kind === 'cue').map((e) => e.romSfx)).toEqual([100, 98, 47]);
     for (const name of ['outro', 'outroHio'] as WindowName[]) {
       const w = cs.windows[name];

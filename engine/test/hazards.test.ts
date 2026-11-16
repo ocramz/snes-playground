@@ -13,7 +13,8 @@ import { CourseDriver, loadTestCourses } from './course-driver';
 import { haveRules, loadTables } from './fixtures';
 import { RomRules } from '../src/core/rules';
 import { courseEntity, Course } from '../src/core/traits/course';
-import { BallAir, BallVel, BallWork } from '../src/core/traits/ball';
+import { BallAir, BallVel } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { Pose } from '../src/core/traits/pose';
 import { TomatoQueue } from '../src/core/traits/counters';
 import { Hazards } from '../src/core/traits/hazards';
@@ -77,11 +78,11 @@ describe.skipIf(!haveRules)('the hazards on t7', () => {
     // $82:9728 brings the speed to $0800 first; the reflect ($82:E6B4, the
     // box's side as a plane) then turns it back and sheds some (the game's
     // web_haz94 on the bobbing box: -1788 -> +1145)
-    const v = d.world.queryFirst(BallWork)!.get(BallVel)!;
+    const v = activePlayer(d.world).get(BallVel)!;
     expect(s16(v.vx)).toBeLessThan(0);
     expect(d.world.get(TomatoQueue)!.pushed).toBe(pushed + 1); // $83:ABC5
     d.step(1);
-    expect(d.world.queryFirst(BallWork)!.get(Pose)!.state).toBe(HURT_POSE); // $D780 = $14
+    expect(activePlayer(d.world).get(Pose)!.state).toBe(HURT_POSE); // $D780 = $14
     // the latch ($6A22) holds while the ball stays in the box: one hit only
     d.step(20);
     expect(sfx(d, 0x6f, from)).toHaveLength(1);
@@ -94,7 +95,7 @@ describe.skipIf(!haveRules)('the hazards on t7', () => {
     // above the box's cube (its centre $3B00 over the ground, half $58E0)
     placeBall(d.world, { xc: 11, xf: 0x8000, yc: 7, yf: 0x8000, z: STEP + 0x3b00 + 0x5a00, vx: 0, vy: 0, vz: 0, air: 1 });
     d.until(() => sfx(d, 0x6f, from).length > 0, 60, 'the landing on the box');
-    const e = d.world.queryFirst(BallWork)!;
+    const e = activePlayer(d.world);
     expect(s16(e.get(BallVel)!.vz)).toBeGreaterThanOrEqual(0x0300); // $82:EF9B
     expect(e.get(BallAir)!.air).not.toBe(0);
   });
@@ -108,7 +109,7 @@ describe.skipIf(!haveRules)('the hazards on t7', () => {
     d.until(() => sfx(d, 0x6f, from).length > 0, 60, 'the $05 tile');
     expect(sfx(d, 0x6f, from)[0].kind).toBe('tile'); // $82:A5A3, the step's tail
     d.step(1); // the reaction ($82:DB9A) runs after the step
-    const e = d.world.queryFirst(BallWork)!;
+    const e = activePlayer(d.world);
     expect(e.get(BallAir)!.air).toBe(1);
     const v = e.get(BallVel)!;
     expect(s16(v.vz)).toBeGreaterThan(0x0800); // $0880, less a frame's gravity at most

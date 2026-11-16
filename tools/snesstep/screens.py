@@ -56,6 +56,9 @@ NAMED = [
     ("dance", "dance/f001110"),
     ("ranking", "ranking/f001100"),
     ("ranking_result_card", "ranking/f001300"),
+    # port_v2 phase 7: the aim's other inputs
+    ("look_arrows", "web_look/f002455"),        # Y: the look's four arrows
+    ("spin_preset", "web_bspin/f002620"),       # B held: the panel's preset
 ]
 
 # The title menu's hidden items (MAP SELECT, SOUND ROOM, DANCE SELECT) are
@@ -83,6 +86,8 @@ SCRIPTS = {
     "sound_room": (900, [750], MEDAL_FLAGS),
     "dance": (1800, [640, 700, 780] + list(range(870, 1700, 60)), MEDAL_FLAGS),
     "ranking": (2000, [930, 1100, 1300, 1400], ["--sram", COURSE1_SRAM]),
+    "web_look": (2460, [2455]),
+    "web_bspin": (2622, [2620]),
 }
 
 

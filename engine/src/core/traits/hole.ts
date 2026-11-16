@@ -27,7 +27,7 @@ export const IsTee = trait();
  * the enemy list `$69DE` (the sweep's row-major order, up to 16).
  */
 export const IsEnemy = trait();
-export const EnemyKind = trait({ tile: 0, ability: 0, listIndex: 0 });
+export const EnemyKind = trait({ tile: 0, species: 0, ability: 0, listIndex: 0 });
 /** $5B1C: the hover height in height steps ($82:B69F; 0 for most enemies). */
 export const Hover = trait({ steps: 0 });
 /**

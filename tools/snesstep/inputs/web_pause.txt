@@ -1,0 +1,23 @@
+# The pause menu over hole 1 (port_v2 phase 7): Start opens it, the cursor
+# moves, B closes it, Start opens it again, A on CONTINUE closes it; then a shot.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> PLAY COURSE
+600 A 2         # members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map
+1500 A 2        # enter course 1 -> intro
+2100 A 2        # start hole 1 (the aim from 2335)
+2500 START 2    # the pause menu, cursor on CONTINUE
+2560 DOWN 2     # cursor -> COURSE SELECT SCREEN
+2600 DOWN 2     # cursor -> QUIT
+2640 DOWN 2     # (stays on QUIT)
+2680 UP 2       # cursor -> COURSE SELECT SCREEN
+2740 B 2        # B closes it
+2820 START 2    # open again: the cursor back on CONTINUE
+2880 A 2        # CONTINUE
+2960 A 2        # the shot: the pan, the panel
+3040 A 2
+3100 A 2

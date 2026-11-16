@@ -64,6 +64,10 @@ TOMATO = (352,)
 # the aim stage's guide: a dot (115), and the cone at the end of the path (142 on top of 158)
 DOT, CONE_TOP, CONE_BOTTOM = 115, 142, 158
 GUIDE_FRAME = 2702           # web_flow, aim stage held at 328 degrees: four dots and the cone
+# the spin preset's snapshot (tools/snesstep/screens.py: web_bspin 2620)
+PRESET_DIR = os.path.join(ROOT, "build", "emu", "screens", "web_bspin", "f002620")
+PRESET_FRAME = 2620
+PRESET_ANCHOR = (36, 162)
 UI_TILES = set(RULER + MARKER + GAUGE + BASE + ONE + TOMATO + (DOT, CONE_TOP, CONE_BOTTOM))
 
 
@@ -131,7 +135,7 @@ def read(frame, base=None):
                      "w": wd, "rgba": np.dstack([rgb, a]),
                      "hf": hf, "vf": vf})
     return {"f": frame, "side": w16(m, 0x6B50), "tb": w16(m, 0x6B52), "meter": w16(m, 0x6B3A),
-            "ents": ents}
+            "ents": ents, "ax": ax, "ay": ay}
 
 
 def build(outdir):
@@ -223,6 +227,34 @@ def build(outdir):
     out["guide"] = {"dot": pic(dot), "cone": "u_cone",
                     "note": "the dot's 8x8 centre sits at the path point + (-3, 0); the cone's top-left at the "
                             "path end + (-6, -15) (measured: 31 aim angles, tools/snesstep/trace_flow.py)"}
+    # ... and from the water: with $D9EE set the guide draws palette 0's own
+    # pictures ($81:ACF6: $89:8F52 for a rolling dot, $81:ADF6: $89:8F6B for the
+    # end; same offsets as the dry lists), in the wet palette: drawn from the
+    # aim in the pond of web_water_shot (export_web_sprites.py's snapshot)
+    from export_web_sprites import WATER_REF_AIM, draw_list, water_ref_snapshot
+    wet = water_ref_snapshot(WATER_REF_AIM)
+    atlas.add("u_dot_wet", draw_list(wet, 0x8F52)[0], 0, 0, trim=False)
+    atlas.add("u_cone_wet", draw_list(wet, 0x8F6B)[0], 0, 0, trim=False)
+    out["guide"]["dotWet"] = "u_dot_wet"
+    out["guide"]["coneWet"] = "u_cone_wet"
+
+    # --- the spin preset (B held in the aim, $83:B214; port_v2 phase 7) ------------
+    # object $10 at a fixed screen point, in its own palette: the face, the ruler at
+    # the side, tile 58 at the top/back; offsets from the anchor (36, 162), the face's
+    # top-left minus (-24, 5) (web_bspin 2620: build/emu/screens, tools/snesstep/screens.py)
+    if os.path.isdir(PRESET_DIR):
+        ps = read(PRESET_FRAME, os.path.dirname(PRESET_DIR))
+        ax, ay = PRESET_ANCHOR
+        rel = lambda e: (int(round(e["x"] + ps["ax"] - ax)), int(round(e["y"] + ps["ay"] - ay)))
+        face = sorted((e for e in ps["ents"] if e["tile"] in FACE), key=lambda e: -e["i"])
+        ruler = sorted((e for e in ps["ents"] if e["tile"] in RULER), key=lambda e: -e["i"])
+        bar = next(e for e in ps["ents"] if e["tile"] == 58)
+        out["preset"] = {
+            "anchor": list(PRESET_ANCHOR),
+            "face": [{"f": pic(e), "x": rel(e)[0], "y": rel(e)[1]} for e in face],
+            "ruler": [{"f": pic(e), "dx": rel(e)[0] - sx(ps["side"]), "y": rel(e)[1]} for e in ruler],
+            "bar": {"f": pic(bar), "dx": rel(bar)[0] - sx(ps["side"]), "dy": rel(bar)[1] - 2 * (ps["tb"] - 6)},
+        }
 
     # --- timings, from the frames of web_ui (A = 2800) -----------------------------
     # the "1" bobs: -40 from +46, -39 from +54, then from +70 a 32 frame cycle

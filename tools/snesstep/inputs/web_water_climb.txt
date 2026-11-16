@@ -1,0 +1,17 @@
+# Course 1 hole 7 (index 6): the ball in the water ($D872 = 1) on the bed of the
+# pond at (8,9), rolling east at vx +$1400. Up the rim $67 at (9,9) with the drag
+# ($82:8344) until it leaves the region ($82:8000: x >= $E000), which clears
+# $D9EE and restores the dry palette.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's 180)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

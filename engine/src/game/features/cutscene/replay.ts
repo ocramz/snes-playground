@@ -87,7 +87,10 @@ export function outroIndex(f: number, holedAt: number, arrivedAt: number): numbe
  * requests every song and the holed effect $21 on the same frames, so those
  * cues are dropped (the replay only adds what no core system emits: $1D the
  * ball rising, $67 the star flying off, $3E the fireworks, $2D the 1UP).
- * The intro is all the replay's: the hole's song, $64, $62, $2F.
+ * The intro is all the replay's: the hole's song, $64, $62, $2F. Its song
+ * cues (at the hole's start, $80:C499, and 13 frames on, $82:B0E8) were
+ * recorded on course 1 hole 1; `cueEvents` plays the current hole's song
+ * there instead.
  */
 export function ownCue(window: WindowName, cue: CutsceneCue): boolean {
   if (window === 'intro') return true;
@@ -95,19 +98,24 @@ export function ownCue(window: WindowName, cue: CutsceneCue): boolean {
   return cue[2] !== 0x21;
 }
 
-/** The cues with from <= index < to, as events for play-feedback. */
+/**
+ * The cues with from <= index < to, as events for play-feedback. `song`, if
+ * given, replaces the intro's recorded hole song (the hole being played's).
+ */
 export function cueEvents(
   window: WindowName,
   w: CutsceneWindow,
   from: number,
   to: number,
   frame: number,
+  song?: number,
 ): GameEvent[] {
   const out: GameEvent[] = [];
   for (const cue of w.cues) {
     if (cue[0] < from || cue[0] >= to || !ownCue(window, cue)) continue;
+    const id = window === 'intro' && song !== undefined ? song : cue[2] - SONG_BASE;
     out.push(cue[1] === 'song'
-      ? { id: -1, kind: 'song', frame, seq: -1, romSfx: cue[2] - SONG_BASE, subject: 0 }
+      ? { id: -1, kind: 'song', frame, seq: -1, romSfx: id, subject: 0 }
       : { id: -1, kind: 'cue', frame, seq: -1, romSfx: cue[2], subject: 0 });
   }
   return out;

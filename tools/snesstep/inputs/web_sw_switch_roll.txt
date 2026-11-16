@@ -1,0 +1,20 @@
+# Course 2 hole 3 (index 10, MAP12): the toggles' switch $5B at (10,9), rolled
+# onto (port_v2 phase 6). The hole loads with $6A2A = 1 ($5B and no $5A,
+# $82:BC59), so its seven $75 swirls are on. At the roll's first frame a poke
+# puts the ball on the $75 at (12,9), rolling west at vx -$A00: it is swirled
+# across (12,9) and (11,9) (the hit side, $82:9F2B), then flips the switch at
+# (10,9) ($82:A175: $6A2A 1 -> 0, sfx $6B, the latch $6A2C), leaves its gate
+# west (the latch cleared) and bounces off the outline at (9,9).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

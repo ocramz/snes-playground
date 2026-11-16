@@ -1,0 +1,14 @@
+# DEMOPLAY SELECT demo 17: Hi-Jump on hole 160 (tools/snesstep/demos.py script(17)).
+# Title -> DEMO PLAY -> the cursor to row 3, column 2 -> A at 800. From then
+# the game plays the demo's own input stream ($88:C880[17] -> $83:DAAA), armed
+# at the hole's set-up (about frame 1030); the run ends with the hole-out.
+400 START 2
+450 DOWN 2
+480 DOWN 2
+520 START 2
+700 RIGHT 2
+712 RIGHT 2
+724 DOWN 2
+736 DOWN 2
+748 DOWN 2
+800 A 2

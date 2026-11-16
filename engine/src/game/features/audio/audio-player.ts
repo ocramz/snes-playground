@@ -74,6 +74,15 @@ export class AudioPlayer {
     if (this.music) this.music.gain.gain.value = 0;
   }
 
+  /**
+   * The music's volume, 0-1 (`$80:B5F4`'s byte / $FF: object 112 lowers it
+   * to $82 while it hums). Like the mute it holds for the song playing; a new
+   * song starts at full volume.
+   */
+  setMusicVolume(v: number): void {
+    if (this.music) this.music.gain.gain.value = Math.max(0, Math.min(1, v));
+  }
+
   playEffect(id: number): void {
     const key = sfxKey(id);
     if (!this.game.cache.audio.exists(key)) return;

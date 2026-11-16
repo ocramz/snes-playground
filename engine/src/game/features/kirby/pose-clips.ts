@@ -19,12 +19,69 @@ export interface PoseInput {
   tomatoes: number;
   /** $D8A6: the hop clip switches on it */
   air: number;
+  /** $D85A, the ball mode (the ability number while one is on): the transformation's clip switches on it */
+  mode?: number;
+  /** $D75A, the ability poses' variant */
+  abilityVar?: number;
+  /** $D75E, the ability poses' direction index */
+  abilityDir?: number;
 }
+
+/** The copy abilities by number ($D85A; clips.json's arm names). */
+export const ABILITY_NAMES = ['none', 'stone', 'parasol', 'fireball', 'needle', 'tornado', 'wheel', 'spark', 'hijump', 'freeze', 'ufo'] as const;
 
 /** Keep showing whatever was last shown (states 0 and 2: the script is a bare halt). */
 export const KEEP = 'keep' as const;
 
 const pad2 = (n: number): string => String(n).padStart(2, '0');
+
+/**
+ * A switch's arm, or -1 past its last: the script's switch has `arms`
+ * entries and jumps through whatever follows the table beyond them.
+ */
+const arm = (v: number | undefined, arms: number): number => {
+  const x = v ?? 0;
+  return x >= 0 && x < arms ? x : -1;
+};
+
+/** An ability pose by its switches (clips.json: `var` $D75A, `dir` $D75E), KEEP off their arms. */
+function abilityPose(p: PoseInput): string | typeof KEEP | null {
+  const v2 = arm(p.abilityVar, 2);
+  const d9 = arm(p.abilityDir, 9);
+  const d16 = arm(p.abilityDir, 16);
+  const varDir9 = (name: string): string | typeof KEEP => (v2 < 0 || d9 < 0 ? KEEP : `${name}_var${v2}_dir${d9}`);
+  switch (p.state) {
+    case 8: {
+      const m = p.mode ?? 0;
+      return `ability_gained_${ABILITY_NAMES[m] ?? 'none'}`;
+    }
+    case 20: return varDir9('stone');
+    case 21: return d16 < 0 ? KEEP : `fireball_dir${pad2(d16)}`;
+    case 22: return varDir9('needle');
+    case 23: return varDir9('needle_alt');
+    case 24: return v2 < 0 || d16 < 0 ? KEEP : `hijump_takeoff_var${v2}_dir${pad2(d16)}`;
+    case 25: return d16 < 0 ? KEEP : `hijump_air_dir${pad2(d16)}`;
+    case 26: return d16 < 0 ? KEEP : `wheel_start_dir${pad2(d16)}`;
+    case 27: return d16 < 0 ? KEEP : `wheel_roll_dir${pad2(d16)}`;
+    case 28: return 'wheel_stop';
+    case 29: return 'parasol_open';
+    case 30: return 'parasol_float';
+    case 31: return 'parasol_pose';
+    case 32: return 'tornado_start';
+    case 33: return 'tornado_spin';
+    case 34: return 'tornado_slow';
+    case 35: return 'tornado_stop';
+    case 36: return d9 < 0 ? KEEP : `freeze_dir${d9}`;
+    case 37: {
+      const v8 = arm(p.abilityVar, 8);
+      return v8 < 0 ? KEEP : `ufo_var${v8}`;
+    }
+    case 38: return KEEP; // a bare halt (the UFO's end path)
+    case 39: return 'ufo_end';
+    case 50: return 'ball_plain';
+    default: return null;
+  }
+}
 
 /**
  * The clip for a pose; null hides Kirby (state 1, holed: his sprite is gone,
@@ -78,10 +135,18 @@ export function poseClip(p: PoseInput): string | null | typeof KEEP {
       return 'hit_burn_spark';
     case 49:
       return 'dizzy';
+    case 8:
+    case 20: case 21: case 22: case 23: case 24: case 25: case 26: case 27: case 28: case 29:
+    case 30: case 31: case 32: case 33: case 34: case 35: case 36: case 37: case 38: case 39:
+    case 50:
+      return abilityPose(p);
     default:
       return KEEP;
   }
 }
 
 /** Every pose state the 1-player engine can set (for the catalog test). */
-export const ENGINE_POSE_STATES = [0, 1, 3, 4, 5, 6, 11, 12, 13, 14, 15, 16, 40, 49] as const;
+export const ENGINE_POSE_STATES = [
+  0, 1, 3, 4, 5, 6, 8, 11, 12, 13, 14, 15, 16, 19, 20, 21, 22, 24, 25, 26, 27, 28, 29, 30, 31,
+  32, 33, 34, 35, 36, 37, 39, 40, 49,
+] as const;

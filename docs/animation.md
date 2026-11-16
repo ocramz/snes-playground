@@ -347,20 +347,58 @@ slot, 86 are tables and 8 are lists; the bytes tell them apart, see
 ### The helpers in RAM
 
 `$80:E67F` copies twelve small routines from `$80:E732`-`$80:E96B` to WRAM
-`$1018`-`$120D` at boot. Low addresses are mirrored in every bank, so code
+`$1018`-`$120E` at boot, one `MVN` each (`$80:E74A`-`$E78C` stays in ROM: it
+is the body `$1018` calls). Low addresses are mirrored in every bank, so code
 anywhere can reach them with a near `JSR`. They take their operands
-**inline**, after the call, and fix up their own return address:
+**inline**, after the call, read through `PHK` from the caller's bank, and
+fix up their own return address. Y is the slot:
 
-| call | inline bytes | effect |
+| call (ROM) | inline bytes | effect |
 |---|---|---|
-| `JSR $1030` | idx8, frames8 | set the frame index (`$FF` = hide) and yield for `frames`. **924 call sites** -- this is the animation primitive |
-| `JSR $1018` | variant8 | spawn another object of the caller's type, `variant` in `$589C` |
-| `JSR $105E` | x16, y16 | set the position |
-| `JSR $1084`, `$10A3`, `$10C2` | 3 | motion parameters |
-| `JSR $10E7` | 4 | motion parameters |
-| `JSR $1104` | 9 | all three groups at once |
-| `JSR $1151` | 0 | clear them |
-| `JSR $116A`, `$119D`, `$11D6` | 6 | pairs of groups |
+| `JSR $1030` (`$E78D`) | idx8, frames8 | set the frame index (`$FF` = hide), the resume address and the wait, and return to the scheduler (`RTL`): it must be called at the thread's top level. **924 call sites** -- this is the animation primitive |
+| `JSR $1018` (`$E732`) | variant8 | spawn another object of the caller's type (`$80:E74A`): `variant` in `$589C`, the parent's position, `$581C` = the parent's slot, `$611C`-`$629C` zeroed, `$5D9C` = `$FFFF` |
+| `JSR $105E` (`$E7BB`) | x16, y16 | set the position `$5F1C`, `$5F9C`; the fractions `$601C`, `$609C` = 0 |
+| `JSR $1084` (`$E7E1`) | a8, rate16 | angle 1: `$5A1C` = a << 8, its turn per tick `$5A9C` |
+| `JSR $10A3` (`$E800`) | s8, rate16 | speed 1: `$5B1C` = s << 8 (8.8 px a tick), its change per tick `$5B9C` |
+| `JSR $10C2` (`$E81F`) | a8, acc16 | angle 2: `$5C1C` = a << 8, the acceleration along it `$5D1C`; its speed `$5C9C` = 0 |
+| `JSR $10E7` (`$E844`) | vx16, vy16 | a constant velocity `$591C`, `$599C` |
+| `JSR $1104` (`$E861`) | 9 | `$1084`, `$10A3` and `$10C2` at once |
+| `JSR $1151` (`$E8AE`) | 0 | clear the three groups (not `$591C`/`$599C`) |
+| `JSR $116A`, `$119D`, `$11D6` | 6 | pairs: `$1084`+`$10A3`, `$1084`+`$10C2`, `$10A3`+`$10C2` |
+
+The bytes land in the high byte (`AND #$FF / XBA`), unsigned; the words are
+signed 8.8. `$80:E710` (`JSL`) clears all of them and `$639C`. Nothing in
+the slot's per-frame handler moves the object: the draw routines
+`$80:E96C` (world) and `$80:E974` (screen) do, through `$80:E97C`, before
+`$80:E55A`/`$80:E5A2` integrate and draw:
+
+```
+v = 0
+if $5B1C: v = polar($5B1C, $5A1C >> 8)
+if $5A1C | $5B1C: $5A1C += $5A9C; $5B1C += $5B9C        ; after the use
+if $591C | $599C: v += ($591C, $599C)
+if $5D1C: v += polar($5C9C, $5C1C >> 8); $5C9C += $5D1C
+$80:E5E2: {$5F9C:$609C} += sext(v.y), then {$5F1C:$601C} += sext(v.x)   ; 16.16, carry through
+
+polar(r, a) ($80:EA26): r6 = r >> 6 (arithmetic);
+  dx = (low 16 bits of r6 * T[a]) >> 2, dy = (... * T[a + 64]) >> 2 (arithmetic)
+  T = $80:EABA, 320 signed words (cos by angle 0-255, 256 = 1); $80:EA76 builds
+  the 16-bit product from three 8x8 products of $4202/$4203
+```
+
+Angle 0 is right, `$40` up (y grows down the screen). T is a table, not a
+formula: T[63] = 2 and T[319] = 0. The motion runs every tick the slot draws,
+hidden or not; the exit tick (`$80:E060` frees the slot before the draw pass)
+does neither. `$80:E55A` draws at the position minus the scroll (`$86`,
+`$88`) and skips it outside [-48, 296) × [-32, 280) or with `$5D9C` < 0.
+
+**The scheduler's timing** (`$80:E0C0`, once per main-loop iteration): for
+each list, the threads whose wait `$529C` underflows (`DEC`/`BPL`) resume,
+then every slot's per-frame handler and draw routine run. A list that grew
+during the tick gets both passes again for the new slots only. So a yield
+of n (`$80:E445` stores n) resumes n + 1 ticks later, `JSR $1030 idx,n`
+shows idx for n + 1 ticks, and a slot spawned before or during the tick
+(`$80:DFBA` sets its wait to 0) runs its thread and its draw in that tick.
 
 A disassembler that does not know these runs straight into the operand
 bytes; that, not interleaved data, is why linear disassembly of banks
@@ -402,6 +440,163 @@ pairs its frame index with its tile uploads during play. Two sites in bank
 `$87` do it with parallel tables (`$87:9E7A`: `LDA $87:9EA5,X / STA $0B7E`
 then `LDA $87:9EC5,X / JSL $80:8696`), which is the pattern to look for;
 the rest is in the `$08` hook code that has not been read.
+
+### Objects 61 and 62: the snap panels' stars
+
+Read 2026-11-15 (notes/port-v2-phase3-snaps.md); ported as
+`engine/src/core/sim/snap-stars.ts`, checked against the slots recorded
+with `tools/snesstep/trace_actors.py --types 61,62` (`snap-stars.test.ts`).
+Both are on list 3 (`$80:EE2E`).
+
+**Object 61** (`$85:CF2D`), spawned by the snap push once a pass
+([tiles.md](tiles.md) "Snap panels"), never draws (`$519C` stays 0):
+
+```
+loop: $699A = $FFFF; $6998 = $551C,Y (the player x 2)
+      JSR $CF4E                        ; the burst
+      yield 7                          ; 8 ticks
+      if $699A == 0: loop              ; a push cleared it meanwhile
+      exit
+```
+
+`$CF4E`: the work copy's tile `$DA0A` in `$18-$1B` and the block's
+velocity along the panel's arrow (`$18` `$D87E` < 0, `$19` `$D87A` ≥ 0,
+`$1A` `$D87E` ≥ 0, `$1B` `$D87A` < 0, by `$6998`), else nothing. Then four
+object 62s through `$80:E4F2`, `$531C` = 3, 2, 1, 0, each given:
+- `$589C` = `$D9DE`, the heading in 16ths;
+- `$5F1C`/`$5F9C` = `$091E,X`/`$093E,X`, Kirby's projected point (`$81:A21E`:
+  `$DA58`, `$8B9A` - `$DA5C`, course-bitmap pixels);
+- the OAM queue `$5E9C` = Kirby's `$0B1E,X`, + 1 when the heading is < 3 or
+  ≥ 11;
+- the draw routine `$80:E96C`.
+
+The stars do not follow the ball after that. If the latch re-arms while an
+object 61 lives, a second one shares `$6998`/`$6996`/`$699A` with it.
+
+**Object 62** (`$85:CFE1`): `$80:E710`, then `JMP ($CFF2,X)` by `$589C` and
+a 13-byte dispatcher on `$531C` (`LDA $531C,Y / CMP #4 / BCS self / ASL /
+TAX / JMP (tbl,X)`) into one of 64 scripts packed at `$85:D027`-`$E08D`, no
+two alike. Each sets table `$89:9485`, then uses only `JSR $1104` (turn
+rate and speed change always 0: a launch at speed s along angle 1, plus an
+acceleration along angle 2) and `JSR $1030`, and exits through `$80:E060`.
+Some start hidden for 2-12 ticks; a star is drawn for 18-26 ticks, then freed. The engine
+reads them from the ROM (tables.json `snapStars`, `tools/export_web.py`'s
+`snap_star_scripts`, which fails on any other form).
+
+Pictures: table `$89:9485` indices 0-4, one 8×8 part each, tiles `$005`,
+`$004`, `$003` (palette 2) and `$001`, `$002` (palette 3). Lists 0-2 open
+with `$7E $DA74`, Kirby's priority, so those frames go behind the course
+with him; 3 and 4 stay at priority 3. The emulated sheet is
+`build/sprites/emu/obj_062.json`. `obj_061.json` is not object 61's: it
+never draws, and emusheets caught a stale `$5E1C` in its slot (it does not
+skip a draw routine of 0).
+
+*Emulated* (web_snap, the first burst at 2498, dir 12): variants 1 and 0
+rise from (907, 179) at once, 3 and 2 wait hidden, all four are freed 20
+ticks on (2518), and the next burst comes 8 ticks after the first (2506).
+
+### The water's objects: 53-58 and 67
+
+Read 2026-11-15 (notes/port-v2-phase4-water.md); ported as
+`engine/src/core/sim/water-fx.ts`, checked against the slots recorded with
+`tools/snesstep/trace_actors.py --types 53,54,55,56,57,58,67`
+(`engine/test/water-fx.test.ts`). The water's handlers spawn them
+([tiles.md](tiles.md) "Water") through `$80:E4F2`, `$531C` = the player.
+
+**The splashes** (`$85:8E5A`-`$85:8FFB`, list 6, frame table `$89:94DB`)
+are straight lines. At their first run each takes Kirby's projected point
+(`$091E,X`/`$093E,X`, as the stars do) and his OAM queue `$0B1E,X`, then
+shows frames and yields, and ends. A wait of n shows n + 1 ticks.
+
+| object | spawned by | frames × ticks |
+|---|---|---|
+| 53 | a slow skim, the modifier's bounce | queue + 1: 5 × 6, 3 × 5 |
+| 54 | a skip, a fast skim | 4 × 3, then queue + 1, 4 × 3, 5 × 5, 3 × 5 |
+| 55 | an entry or a way out with \|vz\| < `$110` | 0 × 6, 1 × 5, 3 × 5 |
+| 56 | the same, \|vz\| from `$110` | 0 × 6, 1 × 5, 2 × 5, 3 × 5 |
+| 57 | the same, from `$1F0` | spawns 58 at its point, then 56's code |
+| 58 | 57 | 6 × 3, then 7-12 × 5 each: the drops |
+
+tables.json `waterFx` keeps them as ops (`tools/export_web.py`
+`water_fx_scripts`, which fails on any other form).
+
+**Object 67** (`$85:E76B`) is a bubble emitter. An entry spawns two
+(`$82:85DD`), with `$539C` = 4 and 12, its first wait. After it the emitter
+installs its hook `$85:E836`, which sets `$549C` once the block's `$D872` is
+clear, and loops (`$85:E78D`):
+
+    $549C set: exit
+    the water iced ($69DA & $D872) or no tomatoes: wait 1 tick
+    Kirby standing ($D842, the set-up to the roll's start):
+        a bubble at his point + $85:E845/$E855[facing], queue + $85:E865[facing]
+    the ball airborne: wait 1 tick
+    else: a bubble at the ball (his point)
+
+A bubble (`$85:E8FC`) is the slot itself, offset by a random pair
+(`$80:87DD` & 7, `$85:EA2F`). The point is added as
+`CLC / ADC point / ADC offset`, so the first add's carry counts.
+Then it runs the rise (`$85:E934`):
+- frames 0-3 of `$89:952B`, with velocities that slow the rise to −0.75 px a
+  tick and sway x by ±0.5;
+- hidden;
+- the continuation `$85:E800`: a random wait of `$85:E87D`[`$85:E875`[rng &
+  7] × 2 + 6 × toggle], then the loop.
+
+The index × 2 runs past the six-byte table into the code after it, so the
+waits alternate between {120, 60, 30} and {185, 83, 69} ticks.
+
+Its draw routine is `$80:E55A` (from `$80:E4F2`). It integrates the velocity
+every tick, y then x, and the fractions carry from bubble to bubble.
+
+*Emulated*, every scenario and web_water_shot: each splash's frames and
+point, and each bubble's, with the engine's random state seeded from the
+recording at the set-up. In a 1P hole only the bubbles and the hole's
+opening (`$84:B871`) call `$80:87DD`.
+
+Pictures: all palette 0, the same as Kirby's, but only colours 8-15, so
+the water's palette swap leaves them as they are (notes). They are
+priority 3. In Kirby's queue they cover him: the entry's crown is over his
+lower half (web_water_shot 2763, `tools/ppu_render.py`). One queue back
+they are behind him.
+
+**Kirby in the water.** `$82:8604` writes OBJ palette 0's colours 2-8 from
+`$98:C796` (wet) or `$98:C77A` (dry; player 2's `$98:C7A4`/`$C788` at `$92`)
+whenever `$D9EE` changes in a handler. The thread hook `$84:9A38` rewrites
+colour 7 (the outline) every frame from `$98:D4A8`: `$0C63` in mode 0 and
+whenever the ball is in the water. So only colours 2-6 change on screen.
+The shot guide in the water draws `$89:8F52` (a rolling dot), `$89:8F39`
+(airborne) and `$89:8F6B` (the end) in palette 0, instead of the dry
+lists' palettes 3 and 1 (`$81:ACDB`, `$81:ACF6`, `$81:ADF6`).
+
+### The switches' objects: 117, 118 and 127
+
+Read 2026-11-15 (notes/port-v2-phase6-switches.md); ported in
+`engine/src/core/systems/switches.ts` and checked against the game's CGRAM
+writes and uploads on the iteration clock (`engine/test/switches.test.ts`).
+None of them draws a sprite. They write the BG's colours and tiles under
+the switches and the swirls ([tiles.md](tiles.md), [courses.md](courses.md)
+"The switches' objects").
+
+**Objects 116, 117 and 118** (`$84:8586`, `$84:85FB`, `$84:864C`) are one
+pattern with three flags: `$6A2E`, `$6A2A` and `$69CA`. The thread sets
+`$531C` = 0, `$539C` = 1 and `$541C` = the flag's base, then yields one
+tick at a time (`$80:E445` with A = 0) until the flag changes, and starts
+over with the other base. The hook `$84:869D` runs every tick:
+
+    DEC $539C; at 0: $539C = 4, write set $531C ($541C + 8 x set, 4 colours
+    to $549C), $531C ^= 1
+
+So a change shows set 0 in the same scheduler pass, and then a new set
+every 4 ticks. 116 also ends once `$6A3A` (the uses) is 0, after writing
+`$98:D552`.
+
+**Object 127** (`$84:DB6A`; hook `$84:DB97`, by its variant `$531C`): one
+per swirl pair. Its init sets `$541C` = `$FFFF` and `$549C` = 1, so the
+first tick uploads frame 0. While the pair's group is on, each tick counts
+`$549C` down. At 0 it steps `$541C` through `$84:DC42` (ten 4s) or
+`$84:DC4D` (ten 6s), back to 0 at the `$FF`, and uploads the record
+`$84:DC58`[`$541C` × 2 + `$539C`] through `$80:8696`. While the group is
+off the hook returns at once, so the tiles keep the last frame.
 
 ## Finding more scripts
 
@@ -468,7 +663,7 @@ same tile slots under the same layout. The variables:
 |---|---|---|
 | `$7E:D7C4` | 8 | Kirby's facing: aiming, waiting (states 4, 5, 9). From the aim phi: `$81:BB4A` stores `(472 - phi) mod 360` in `$6ABE`, `$81:BCA0` reads `$81:8E98[$6ABE]` (32 sectors of 11.25°; the table is also the heading → 32 directions table) and keeps `>> 2`. phi 0 (+x) gives 2, phi 90 gives 0, 180 gives 6, 270 gives 4. Screen direction `45 - 45·v` degrees (0 = right, counter-clockwise): 0 up-right, 1 right, 2 down-right, 3 down (faces the camera), 7 up. *Emulated*: 340 frames of an aim sweep match the table exactly |
 | `$7E:D7CC` | 16 | the shot's angle: the curl and the unroll (6, 7). The same 32-sector value `>> 1` (phi 0 gives 5, phi 90 gives 1, 180 gives 13, 270 gives 9), so `k` is the facing `k >> 1` refined to half octants; screen direction about `45 - 22.5·k` degrees. *Emulated*, same sweep |
-| `$7E:D85A` | 11 | the copy ability (state 8): 0 none, 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. The order is `$82:C90A`'s jump table, which sets each ability's state, and matches demos 10-19. Values 12-21 are hit codes (below) |
+| `$7E:D85A` | 11 | the ball mode's block copy (`$D9C8`'s, `$82:F17A`), which is the copy ability's number while one is on (state 8): 0 none, 1 Stone, 2 Parasol, 3 Fireball, 4 Needle, 5 Tornado, 6 Wheel, 7 Spark, 8 Hi-Jump, 9 Freeze, 10 UFO. The order is `$82:C90A`'s jump table, which sets each ability's state, and matches demos 10-19. Values 12-21 are hit codes (below) |
 | `$7E:D7F0` | 3 | Kirby's health (state 11): 4 at a hole's start, -1 per shot (`$83:AC12`), +1 per enemy (`$83:AC01`) -- *emulated*, hole1long |
 | `$7E:D8A6` | 2 | 0 on the ground, 1 airborne (state 13) |
 | `$7E:D78C` | 5 | hit code - 12 (state 40): 0 Fireball, 3 Spark reach it |
@@ -510,7 +705,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 5 | aim, turning | play | `$7E:D7C4` (8) | 8 script | `$81:A804` while the d-pad or L/R is held (`$67` & `$0F00`, `$6B` & `$30`); alternates with 4 in d01-d04 |
 | 6 | curl into the ball at the shot | play | `$7E:D7CC` (16) | 16 live | `$81:BEF1` at the shot (hole 1 frame 2823); switch on the shot angle `$7E:D7CC`; drawn by object type 26 while it runs |
 | 7 | unroll after the ball stops | play | `$7E:D7CC` (16) | 16 script | `$81:C08F` when the ball comes to rest (d00 frame 1876, d05 2912): squash, Kirby unrolls, stands; then 4. **Not reached in a normal 1P shot** (web_flow, hole 1: state 14 until `$81:A804` sets 4, 35 frames after the shot is over; only the DEMOPLAY demos go through 7) |
-| 8 | copy ability gained | play | `$7E:D85A` (11) | 11 live | `$82:D9E9` on swallowing an enemy (demos 10-19); switch on the ability `$7E:D85A`; flashes and the ability's first pose; ends in 2 |
+| 8 | copy ability gained | play | `$7E:D85A` (11) | 11 live | `$82:D9E9` in the transformation `$82:D9D2`, which the B trigger `$82:C875` runs when the stocked ability is used mid-roll (demos 10-19; a take only stocks it, `$82:8A4F`); switch on the mode `$7E:D85A`; flashes (black at its ticks 4 and 12, the second set from 36, Spark's 28, the UFO's 24) and the ability's first pose; ends in 2 |
 | 9 | stand and wait for the next turn | play | `$7E:D7C4` (8) | 8 script | `$80:C756` at the end of a shot, dropping the copy ability unless `$80:DEFD` keeps it; 2P run frame 2744 (player 1 waits while player 2 shoots), held 183+ frames; switch on the facing `$7E:D7C4` |
 | 10 | fall asleep | forced | - | 1 script | `$80:C7E6` at the end of a shot when health `$7E:D7F0` is 0 and `$6932` is 0; not reached in play; forced: eyes closed, slow breathing 48/8/64/8 frames, sfx 51 three times |
 | 11 | tired, panting (low health) | play | `$7E:D7F0` (3) | 3 script | `$80:C7AE` at the end of a shot when health `$7E:D7F0` is 1 or 2; hole1long 5598 (health 2: one pant) and 6356 (health 1: four pants); switch on `$7E:D7F0` |
@@ -521,7 +716,7 @@ code. The `STATES` table in `tools/kirbyanim.py` is the source.
 | 16 | ball rolling, medium spin | play | - | 1 script | `$82:C843` when that maximum is exactly 3; web_fly latches top/back 3 and rolls in 16 (the engine's flow test); also forced: ball with spin streaks |
 | 17 | ball rolling, fast (1-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; script: blocks `$87:ABD8-$ABF3`, 1 frame each |
 | 18 | ball rolling (2-frame steps) | forced | - | 1 script | no writer found in the ROM; not seen in play; same blocks as 17, 2 frames each |
-| 19 | ball sinking | forced | - | 1 script | `$82:D87A` (on the $60-$6F surface overlay: `$69DA`, `$69D8` set, `$69CA` clear), `$82:D936`, `$82:E1B0`, each counting `$D76C`; not reached in play; forced in a roll: a dark disc rises over the ball in 4 steps of 4 frames, then 14 |
+| 19 | ball sinking | forced | - | 1 script | the ball goes into the water with its ability lost, each counting `$D76C`: `$82:D87A`, Freeze's ice under the ball (`$69DA`, `$69D8` set, `$69CA` clear) gives way, `$D9EE` = 1; `$82:D936`/`$82:E1B0`, an ability active (`$D9C6` 1-11) as the ball enters the water (`$82:CDC5`/`$82:DE3B`: `$D9EE` set, `$DA0E` clear), mode and `$D9C6` back to 0 (read 2026-11-15, tiles.md "Water"); never in mode 0; not reached in play; forced in a roll: a dark disc rises over the ball in 4 steps of 4 frames, then 14 |
 | 20 | stone | play | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | `$82:C95B` (ability 1, d10 2065), then 20/2 alternate every frame (`$82:D5D5` and the script's store) |
 | 21 | fireball | play | `$7E:D75E` (16) | 16 script | `$82:CA4D` (d12 2233); switch on `$7E:D75E` |
 | 22 | needle | play | `$7E:D75A` (2), `$7E:D75E` (9) | 18 script | `$82:CAF7` (d13 2109) |
@@ -582,8 +777,10 @@ Notes on what the table rests on:
   21 (`$82:A4DB`) gives 50. 41, 47 and 48 are the attacker's side, from
   `$82:DE54` (Fireball/Spark) and `$82:E00D` (Stone).
 * **The scripts store the frame index too**: `store $7E:D95E, n` (player 2:
-  `$D960`) is a show, because `$82:F0F8` copies that word into the drawing
-  slot's `$0B7E` each frame while the ball is in play. 50 stores and 10
+  `$D960`) is a show: `$82:F0F8` loads that word into the work copy's
+  `$DA6A` each roll iteration and the camera's tail `$81:A231` writes `$DA6A`
+  to the drawing slot's `$0B7E` (not `$82:F0F8` itself, as read first),
+  each frame while the ball is in play. 50 stores and 10
   store-switches do this. A `store $7E:D7D4, n` is a state change, taken
   on the next frame (19, 35, 13 and 49 hand over to 14; 8 and 20 to 2).
 
@@ -699,6 +896,6 @@ first switch), `live_state_NN.png` (the frames seen in play),
 **Unknown.** What the 11
 squash variants of `$7E:D8D2`/`$6A6E` mean; the degrees of the
 copy-ability directions `$7E:D75E`; where states 17, 18 and 23 are set
-(no writer found); what situation 19 (ball sinking, on the `$60`-`$6F`
-surface overlay) and 31 (parasol) are in play; 10, 19, 31, 35, 41-48
-and 50 were only seen forced.
+(no writer found); what situation 31 (parasol) is in play; 10, 19, 31,
+35, 41-48 and 50 were only seen forced (19 is the water's with an ability,
+above).

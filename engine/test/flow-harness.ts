@@ -14,6 +14,7 @@
 import { readFileSync } from 'node:fs';
 import { createGameWorld } from '../src/core/world';
 import { runCoreFrame } from '../src/core/schedule';
+import { isIterationFrame } from '../src/core/demo';
 import { startCourse } from '../src/core/actions';
 import { RomRules } from '../src/core/rules';
 import { fromRomCourse } from '../src/core/course-data';
@@ -25,8 +26,12 @@ import { Camera } from '../src/core/traits/camera';
 import { HoleFlow } from '../src/core/traits/flow';
 import { Course, courseEntity } from '../src/core/traits/course';
 import { Pose, BallScreen, BallSprite } from '../src/core/traits/pose';
-import { BallPos, BallVel, BallAir, BallSpin, BallWork, StillCount, BallHoled } from '../src/core/traits/ball';
-import { Tomatoes, Strokes, Stars, Career, TomatoQueue } from '../src/core/traits/counters';
+import { BallPos, BallVel, BallAir, BallSpin, BallWet, StillCount, BallHoled, BallMode, BallAbility } from '../src/core/traits/ball';
+import { GameRng } from '../src/core/traits/water';
+import { AimUi, ScorePanel } from '../src/core/traits/aim-ui';
+import { Screen } from '../src/core/traits/screen';
+import { activePlayer } from '../src/core/traits/player';
+import { Tomatoes, Strokes, Stars, Career, TomatoQueue, StockedAbility } from '../src/core/traits/counters';
 import { s16 } from '../src/core/fixed';
 import type { World } from 'koota';
 import type { Ctx } from '../src/core/sim/context';
@@ -54,13 +59,15 @@ export interface FlowRun {
   phases: Array<[number, string]>;
   /** The hazard actors' pre-ticks (`alignActors`). */
   actorTicks?: number;
+  /** Per engine frame (index f - 1): the engine's iteration count, which a lag frame does not advance (core/demo.ts isIterationFrame). */
+  iters: number[];
 }
 
 /** The engine-side values of trace_flow.py's WATCH names. */
 export function sample(world: World): Record<string, number> {
   const shot = world.get(Shot)!;
   const cam = world.get(Camera)!;
-  const e = world.queryFirst(BallWork)!;
+  const e = activePlayer(world);
   const pose = e.get(Pose)!;
   const sc = e.get(BallScreen)!;
   const pos = e.get(BallPos)!;
@@ -102,11 +109,32 @@ export function sample(world: World): Record<string, number> {
     card0: Math.max(0, world.get(Career)!.card[0] ?? 0),
     tqw: (world.get(TomatoQueue)!.pushed * 2) & 0x1f,
     tqr: (world.get(TomatoQueue)!.applied * 2) & 0x1f,
+    wet: e.get(BallWet)!.wet,
+    // the copy ability (trace_flow.py's work-copy words; the block mirrors them after the store)
+    wstock: e.get(StockedAbility)!.id,
+    wworn: e.get(BallAbility)!.worn,
+    wmode: e.get(BallMode)!.mode,
+    wlatch: e.get(BallAbility)!.latch,
+    // port_v2 phase 7: the aim's other inputs and the score panel
+    panel: world.get(ScorePanel)!.shown,
+    hudon: world.get(ScorePanel)!.hudOn,
+    pause: world.get(AimUi)!.pause,
+    pcur: world.get(AimUi)!.cursor,
+    preset: world.get(AimUi)!.preset,
+    prep: shot.sideTimer,
+    gside: shot.guideSide,
+    gtb: shot.guideTB,
+    look: world.get(AimUi)!.look,
+    lookl: world.get(AimUi)!.arrows,
+    idle: shot.idle,
+    lock: world.get(AimUi)!.lockout,
+    // the brightness's low byte ($007E; bit 7 the forced blank)
+    bright: world.get(Screen)!.blank ? 0x80 : world.get(Screen)!.bright,
   };
 }
 
-function readBall(world: World, gameFrame: number): BallTraceFrame {
-  const e = world.queryFirst(BallWork)!;
+export function readBall(world: World, gameFrame: number): BallTraceFrame {
+  const e = activePlayer(world);
   const pos = e.get(BallPos)!;
   const vel = e.get(BallVel)!;
   const spin = e.get(BallSpin)!;
@@ -117,7 +145,10 @@ function readBall(world: World, gameFrame: number): BallTraceFrame {
     vx: s16(vel.vx), vy: s16(vel.vy), vz: s16(vel.vz),
     air: e.get(BallAir)!.air ? 1 : 0,
     spinx: s16(spin.sx), spiny: s16(spin.sy), spinp: spin.pending,
+    wet: e.get(BallWet)!.wet,
     aim: shot.aim, elev: shot.elev,
+    stock: e.get(StockedAbility)!.id, worn: e.get(BallAbility)!.worn,
+    mode: e.get(BallMode)!.mode, latch: e.get(BallAbility)!.latch,
   };
 }
 
@@ -135,6 +166,8 @@ export function runFlowScript(
     text?: string;
     /** A ROM hole (build/engine/rom-test/holes/<n>) instead of hole 1. */
     hole?: number;
+    /** More ROM holes after the first (the course goes on: the RESULT card, the next hole). */
+    more?: number[];
     /** Apply tools/snesstep/inputs/<script>.pokes (the ball's block words) at their frames. */
     pokes?: boolean;
     /**
@@ -143,6 +176,8 @@ export function runFlowScript(
      * (alignActors below). Returns the tick count in `actorTicks`.
      */
     alignActors?: number;
+    /** Seed the game's random numbers ($0079/$007B) from flow_<script>.json at the set-up. */
+    seedRng?: boolean;
   } = {},
 ): FlowRun {
   const offset = opts.offset ?? GAME_OFFSET;
@@ -150,9 +185,12 @@ export function runFlowScript(
   const course = fromRomCourse(opts.hole !== undefined ? loadRomHole(opts.hole)! : loadRomCourse());
   const pokes = opts.pokes ? loadBallPokes(script) : new Map<number, Array<[number, number]>>();
   const world = createGameWorld();
-  const ctx = startCourse(world, rules, [course]);
+  const extra = (opts.more ?? []).map((h) => fromRomCourse(loadRomHole(h)!));
+  const ctx = startCourse(world, rules, [course, ...extra]);
+  if (opts.seedRng) seedRngFromFlow(world, script, offset + 1);
   const entries = parseInputScript(opts.text ?? readFileSync(inputScriptPath(script), 'utf8'));
-  const run: FlowRun = { world, ctx, events: [], ball: [], emitted: [], phases: [] };
+  const run: FlowRun = { world, ctx, events: [], ball: [], emitted: [], phases: [], iters: [] };
+  let iter = 0;
   const last = new Map<string, number>();
   for (let i = 0; i < frames; i++) {
     const gameFrame = world.get(Time)!.frame + 1 + offset;
@@ -161,6 +199,7 @@ export function runFlowScript(
     if (opts.alignActors === gameFrame - 1) run.actorTicks = alignActors(world, ctx, script, gameFrame - 1);
     const poke = pokes.get(gameFrame);
     if (poke) pokeBlock(world, poke);
+    if (isIterationFrame(world)) iter += 1;
     runCoreFrame(world); // the session's context: a hole change mid-run takes effect
     for (const ev of drainEvents(world)) run.emitted.push({ ...ev, gameFrame });
     const s = sample(world);
@@ -171,16 +210,37 @@ export function runFlowScript(
       }
     }
     run.ball.push(readBall(world, gameFrame));
+    run.iters.push(iter);
     run.phases.push([gameFrame, world.get(HoleFlow)!.phase]);
     if (opts.until?.(world, gameFrame)) break;
   }
   return run;
 }
 
+/** The random state the game had at `frame` (trace_flow.py's rnga/rngb), into GameRng. */
+function seedRngFromFlow(world: World, script: string, frame: number): void {
+  const path = romTestPath(`flow_${script}.json`);
+  if (!existsSync(path)) return;
+  const events = (JSON.parse(readFileSync(path, 'utf8')) as { events: FlowEvent[] }).events;
+  let a = -1;
+  let b = -1;
+  for (const [f, k, v] of events) {
+    if (f > frame) break;
+    if (k === 'rnga') a = Number(v);
+    else if (k === 'rngb') b = Number(v);
+  }
+  if (a >= 0 && b >= 0) world.set(GameRng, { a: a & 0xffff, b: b & 0xffff });
+}
+
 /** The ball block's words the stepper's pokes write ($7E:D8xx -> the block traits). */
 const BLOCK_WORDS: Record<number, string> = {
   0xd8aa: 'xf', 0xd8ae: 'xc', 0xd8b2: 'yf', 0xd8b6: 'yc', 0xd8ba: 'zlo', 0xd8be: 'zhi',
   0xd87a: 'vx', 0xd87e: 'vy', 0xd882: 'vz', 0xd8a6: 'air',
+  0xd866: 'spinx', 0xd86a: 'spiny', 0xd86e: 'spinp', 0xd872: 'wet',
+  // not the block: the top/back selector latched at the shot (Shot.rollTB)
+  0x6b58: 'rollTB',
+  // the stock (StockedAbility; the step's load copies it into $D9C4)
+  0xd852: 'stock',
 };
 
 /** tools/snesstep/inputs/<name>.pokes -> {frame: [[addr, value]]}, the ball block's words only. */
@@ -208,10 +268,12 @@ export function loadBallPokes(name: string): Map<number, Array<[number, number]>
  * fields stay as they were, as the block's ($D8C2-$D8DE) do in the game.
  */
 function pokeBlock(world: World, words: Array<[number, number]>): void {
-  const e = world.queryFirst(BallWork)!;
+  const e = activePlayer(world);
   const pos = { ...e.get(BallPos)! };
   const vel = { ...e.get(BallVel)! };
   const air = { ...e.get(BallAir)! };
+  const spin = { ...e.get(BallSpin)! };
+  const wet = { ...e.get(BallWet)! };
   let zlo = pos.z & 0xffff;
   let zhi = (pos.z >>> 16) & 0xffff;
   for (const [a, v] of words) {
@@ -221,11 +283,19 @@ function pokeBlock(world: World, words: Array<[number, number]>): void {
     else if (k === 'zhi') zhi = v;
     else if (k === 'vx' || k === 'vy' || k === 'vz') vel[k] = v;
     else if (k === 'air') air.air = v;
+    else if (k === 'spinx') spin.sx = v;
+    else if (k === 'spiny') spin.sy = v;
+    else if (k === 'spinp') spin.pending = v;
+    else if (k === 'wet') wet.wet = v;
+    else if (k === 'rollTB') world.set(Shot, { ...world.get(Shot)!, rollTB: v });
+    else if (k === 'stock') e.set(StockedAbility, { ...e.get(StockedAbility)!, id: v });
   }
   pos.z = ((zhi << 16) | zlo) | 0;
   e.set(BallPos, pos);
   e.set(BallVel, vel);
   e.set(BallAir, air);
+  e.set(BallSpin, spin);
+  e.set(BallWet, wet);
 }
 
 /** A recorded actor slot: build/engine/rom-test/actors_<name>.json, by slot. */

@@ -16,7 +16,7 @@ emulator or other build/ output):
     manifest  ROM hash, exporter version
     font      the 8x8 font as a glyph sheet
     sprites   the atlas (tools/export_web_sprites.py; needs the stepper)
-    objects   the hazard actors' pictures from build/sprites/emu (the engine's
+    objects   the thread objects' pictures from build/sprites/emu (the engine's
               second atlas; tools/export_web_sprites.py build_objects)
     ui        the shot panel sprites (tools/export_web_ui.py; needs the stepper)
     audio     music (cut at its loop end), the hole-out songs and effects via ffmpeg
@@ -25,7 +25,9 @@ emulator or other build/ output):
     tables    every ROM constant the TypeScript physics needs, each with its
               $bank:addr so a number in the browser can be traced to the ROM
     layers    the isometric course bitmap as RGBA, split by tile priority,
-              the water's ripple overlays on a water hole, and the BG3 scenery
+              the palette cycles' overlays (the water's ripple, the boost
+              and warp/snap panels'), the outline's two masks, and the BG3
+              scenery
     golden    terrain.py's surface_z sampled over every cell (a test fixture)
 
 Facts used here, and where they come from:
@@ -53,12 +55,13 @@ sys.path.insert(0, HERE)
 
 from courses import ENTRIES, default_entries, entry, header  # noqa: E402
 from coursemap import (  # noqa: E402
-    EMPTY, backdrop, hole_page, hole_palette, unpack, water_ripple, BG3_MAP_TILES)
+    EMPTY, backdrop, hole_cgram, hole_page, hole_palette, palette_cycles, unpack, BG3_MAP_TILES,
+    switch_state, surface_kind, SWIRL_FRAMES, WATER_FIRST_TILE, WATER_GFX_BYTES)
 from halcomp import decompress  # noqa: E402
 from lorom import snes_to_file  # noqa: E402
 from romcheck import EXPECTED_SHA1, RomError, load_rom  # noqa: E402
 from terrain import Tables, Z_UNIT, load_hole, tile_table  # noqa: E402
-from tiles import decode_tiles  # noqa: E402
+from tiles import decode_tiles, snes_color  # noqa: E402
 
 VERSION = 1
 OUT_DEFAULT = os.path.join(ROOT, "build", "web")
@@ -101,6 +104,215 @@ OUTLINE_PAL, OUTLINE_COLOUR = 7, 15
 OUTLINE_TABLE = (0x98, 0xD3E6)      # 15 colours; the cycle walks it ping-pong
 OUTLINE_WALK = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 13, 14, 13,
                 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0]   # emulated, 3 frames each
+# The same object (111, the outline walker $84:8160) has a per-frame hook
+# $84:81B7 that steps BG palette 7 colour 1 every 6 frames through 4 colours
+# of $98:D4C8 (written at $84:81E6). Emulated on holes 0 and 17
+# (--watch-write '$7E:04E2-$7E:04E3'): 18D7 253B 295E 253B 18D7 0019 ...,
+# i.e. the walk below; notes/port-v2-phase1-courses.md. Masked like the
+# outline: the "glow" pixels, which every hole may use.
+GLOW_PAL, GLOW_COLOUR = 7, 1
+GLOW_TABLE = (0x98, 0xD4C8)
+GLOW_WALK = [1, 2, 3, 2, 1, 0]
+GLOW_STEP = 6
+# The per-course song lists: $80:C967 plays $80:C99D[$6A5C] -> [$6A5E, the
+# hole] (docs/audio.md). $6A5C is 2 * course whenever the course was picked
+# on the map (measured for courses 0-16), so the list is $80:C99D + 2 * course.
+SONG_LISTS = (0x80, 0xC99D)
+SONG_BASE = 0x7E
+# $84:DD34 gives objects 76 and 77 their frame table at spawn: $84:DD55[tile -
+# $80] (24 words, tiles $80-$97; tiles.md), the run's direction from $84:DD85.
+HAZARD_FRAME_TABLES = (0x84, 0xDD55)
+# Object 62, the snap panels' stars (docs/animation.md "Objects 61 and 62"):
+# its jump table by the 16-direction heading, and the polar table its draw
+# routine's motion ($80:E97C -> $80:EA26) reads, cos by angle 0-255 plus the
+# quarter turn the sine reads (T[a + 64]).
+SNAP_STAR_DIRS = (0x85, 0xCFF2)
+# DEMOPLAY's records: the pointer table ($83:DB2D reads it by $ED5D x 4) and the
+# header's address list ($83:DA41 copies one record word into each, to $FFFF)
+DEMO_RECORDS = (0x88, 0xC880)
+DEMO_HEADER = (0x83, 0xDA7C)
+POLAR_TRIG = (0x80, 0xEABA)
+# The water's effect objects (docs/animation.md "The water's objects"): the
+# splashes 53-58 (list 6, frame table $89:94DB) by type, from tbl_thread_types
+# $80:ED3A; and object 67's bubble (the rise at $85:E934, then the
+# continuation $641C).
+THREAD_TYPES = (0x80, 0xED3A)
+WATER_SPLASH_TYPES = (53, 54, 55, 56, 57, 58)
+WATER_BUBBLE_RISE = (0x85, 0xE934)
+
+
+def demo_records(d):
+    """The 20 DEMOPLAY records, flat: a directory of 20 offsets into the data
+    that follows it, then each record as its 20 header words (in the order of
+    `demoHeader`, $83:DA7C) and its (pad, count) pairs up to and including the
+    pair whose count is 0, which ends the stream ($83:DAAA: the pad then holds
+    0). $83:DA41 copies the header and starts the stream at the record + 42;
+    $83:DB2D's pointers are long (word address, bank word)."""
+    def w(bank, addr):
+        o = snes_to_file(bank, addr)
+        return d[o] | d[o + 1] << 8
+
+    hb, ha = DEMO_HEADER
+    n_head = 0
+    while w(hb, ha + 2 * n_head) != 0xFFFF:
+        n_head += 1
+    if n_head != 20:
+        raise SystemExit("demo header: {} words, not 20".format(n_head))
+    directory, data = [], []
+    for k in range(20):
+        lo = w(DEMO_RECORDS[0], DEMO_RECORDS[1] + 4 * k)
+        bank = w(DEMO_RECORDS[0], DEMO_RECORDS[1] + 4 * k + 2)
+        directory.append(20 + len(data))
+        data += [w(bank, lo + 2 * i) for i in range(n_head)]
+        y = 2 * n_head + 2   # $83:DA61: INY INY past the header
+        while True:
+            pad, count = w(bank, lo + y), w(bank, lo + y + 2)
+            data += [pad, count]
+            y += 4
+            if count == 0:
+                break
+    return directory + data
+
+
+def snap_star_scripts(d):
+    """Object 62's 64 scripts ($85:CFE1), flat: a directory of 64 offsets
+    (dir16 * 4 + variant $531C) into the op list that follows it.
+
+    Each script is `LDA #$9485 / STA $5E1C,Y`, then `JSR $1104` + 9 bytes
+    (angle1, its turn rate (word), speed, its change (word), angle2, the
+    acceleration along it (word); $80:E861) and `JSR $1030` + idx, n (show
+    idx, yield n; $80:E78D), then `LDY $D2 / JML $80:E060`. Ops:
+    [1, a1, a1Rate, speed, speedRate, a2, accel], [2, idx, n], [0].
+    Anything else fails the export.
+    """
+    def b(bank, addr):
+        return d[snes_to_file(bank, addr)]
+
+    def w(bank, addr):
+        return b(bank, addr) | b(bank, addr + 1) << 8
+
+    def expect(bank, addr, want):
+        got = bytes(b(bank, addr + i) for i in range(len(want)))
+        if got != bytes(want):
+            raise SystemExit("snap stars: ${:02X}:{:04X} is {} not {}".format(
+                bank, addr, got.hex(), bytes(want).hex()))
+
+    bank, base = SNAP_STAR_DIRS
+    directory, ops = [], []
+    for k in range(16):
+        sub = w(bank, base + 2 * k)
+        # $85:D012 etc.: LDA $531C,Y / CMP #4 / BCS self / ASL / TAX / JMP (tbl,X)
+        expect(bank, sub, [0xB9, 0x1C, 0x53, 0xC9, 0x04, 0x00, 0xB0, 0xFE, 0x0A, 0xAA, 0x7C])
+        tbl = w(bank, sub + 11)
+        for v in range(4):
+            a = w(bank, tbl + 2 * v)
+            directory.append(len(ops))
+            expect(bank, a, [0xA9, 0x85, 0x94, 0x99, 0x1C, 0x5E])
+            a += 6
+            while True:
+                if bytes(b(bank, a + i) for i in range(3)) == bytes([0x20, 0x04, 0x11]):
+                    o = a + 3
+                    ops += [1, b(bank, o), w(bank, o + 1), b(bank, o + 3), w(bank, o + 4),
+                            b(bank, o + 6), w(bank, o + 7)]
+                    a += 12
+                elif bytes(b(bank, a + i) for i in range(3)) == bytes([0x20, 0x30, 0x10]):
+                    ops += [2, b(bank, a + 3), b(bank, a + 4)]
+                    a += 5
+                else:
+                    expect(bank, a, [0xA4, 0xD2, 0x5C, 0x60, 0xE0, 0x80])
+                    ops.append(0)
+                    break
+    return [len(directory) + o for o in directory] + ops
+
+
+def water_fx_scripts(d):
+    """The water's straight-line thread objects, flat: a directory of 6
+    offsets (objects 53-58, by type - 53) into the op lists that follow it,
+    then the bubble's rise (object 67, `$85:E934`) after the last.
+
+    A splash opens with `LDX $531C,Y / LDA $0B1E,X / [INC A] / STA $5E9C,Y /
+    LDA $091E,X / STA $5F1C,Y / LDA $093E,X / STA $5F9C,Y / LDA #tbl /
+    STA $5E1C,Y` (Kirby's OAM queue, + 1 with the INC, and his point); its
+    list starts [queueAdd, table]. Object 57 first spawns 58 with its own
+    `$531C` (`LDA #$3A / JSL $80:E4F2 / LDX $D2 / LDA $531C,X / STA $531C,Y /
+    TXY`) and falls into 56's code. Ops:
+      [1, f]  LDA #f / STA $5D9C,Y   show frame f ($FFFF: -1, hidden)
+      [2]     TYX / INC $5D9C,X      the next frame
+      [3]     TYX / INC $5E9C,X      one OAM queue further back
+      [4, n]  LDA #n / JSL $80:E445  yield n (resumes n + 1 ticks on)
+      [5, k, v] LDA #v / STA field,Y the velocity: k 0 $611C (x, whole),
+              1 $621C (x, fraction), 2 $619C (y), 3 $629C
+      [6, t]  spawn object t at the same point (57's 58)
+      [0]     LDY $D2 / JML $80:E060  the end
+      [7]     LDA $641C,Y ... JML [$1EDE]  the bubble's continuation
+    Anything else fails the export.
+    """
+    def b(bank, addr):
+        return d[snes_to_file(bank, addr)]
+
+    def w(bank, addr):
+        return b(bank, addr) | b(bank, addr + 1) << 8
+
+    def at(bank, addr, want):
+        return all(b(bank, addr + i) == v for i, v in enumerate(want))
+
+    fields = {0x611C: 0, 0x621C: 1, 0x619C: 2, 0x629C: 3}
+
+    def body(bank, a, ops, end):
+        acc = None  # the last LDA #imm, which a run of STAs stores
+        while True:
+            if at(bank, a, [0xA9]) and at(bank, a + 3, [0x22, 0x45, 0xE4, 0x80]):
+                ops += [4, w(bank, a + 1)]
+                a += 7
+            elif at(bank, a, [0xA9]):
+                acc = w(bank, a + 1)
+                a += 3
+            elif acc is not None and at(bank, a, [0x99, 0x9C, 0x5D]):
+                ops += [1, -1 if acc == 0xFFFF else acc]
+                a += 3
+            elif acc is not None and b(bank, a) == 0x99 and w(bank, a + 1) in fields:
+                ops += [5, fields[w(bank, a + 1)], acc]
+                a += 3
+            elif at(bank, a, [0xBB, 0xFE, 0x9C, 0x5D]):
+                ops.append(2)
+                a += 4
+            elif at(bank, a, [0xBB, 0xFE, 0x9C, 0x5E]):
+                ops.append(3)
+                a += 4
+            elif end == 0 and at(bank, a, [0xA4, 0xD2, 0x5C, 0x60, 0xE0, 0x80]):
+                ops.append(0)
+                return
+            elif end == 7 and at(bank, a, [0xB9, 0x1C, 0x64, 0x85, 0xDE, 0xB9, 0x9C, 0x64,
+                                           0x85, 0xE0, 0xDC, 0xDE, 0x1E]):
+                ops.append(7)
+                return
+            else:
+                raise SystemExit("water objects: ${:02X}:{:04X} is {}".format(
+                    bank, a, bytes(b(bank, a + i) for i in range(6)).hex()))
+
+    tb, ta = THREAD_TYPES
+    directory, ops = [], []
+    for t in WATER_SPLASH_TYPES:
+        a = w(tb, ta + 4 * t)
+        bank = b(tb, ta + 4 * t + 2)
+        directory.append(len(ops))
+        if at(bank, a, [0xA9]) and at(bank, a + 3, [0x22, 0xF2, 0xE4, 0x80, 0xA6, 0xD2, 0xBD, 0x1C,
+                                                    0x53, 0x99, 0x1C, 0x53, 0x9B]):
+            spawn = [6, w(bank, a + 1)]
+            a += 16
+        else:
+            spawn = []
+        inc = at(bank, a + 6, [0x1A])
+        head = [0xBE, 0x1C, 0x53, 0xBD, 0x1E, 0x0B] + ([0x1A] if inc else []) + [
+            0x99, 0x9C, 0x5E, 0xBD, 0x1E, 0x09, 0x99, 0x1C, 0x5F, 0xBD, 0x3E, 0x09, 0x99, 0x9C, 0x5F, 0xA9]
+        if not at(bank, a, head) or not at(bank, a + len(head) + 2, [0x99, 0x1C, 0x5E]):
+            raise SystemExit("water objects: type {} at ${:02X}:{:04X} has no splash prologue".format(t, bank, a))
+        ops += [1 if inc else 0, w(bank, a + len(head))] + spawn
+        body(bank, a + len(head) + 5, ops, 0)
+    rise = len(ops)
+    body(WATER_BUBBLE_RISE[0], WATER_BUBBLE_RISE[1], ops, 7)
+    n = len(directory) + 1
+    return [n + o for o in directory] + [n + rise] + ops
 
 
 # --------------------------------------------------------------------------
@@ -131,6 +343,21 @@ def build_tables(d):
     # per-shape flag: a surface-code change inside the cell throws the ball
     # ($81:980B, the no-edge-crossing case)
     put("crestShape", 0x81, 0x9B45, rom_bytes(d, 0x81, 0x9B45, 28), 1)
+    # the crest test's edge crossings ($81:9831-$81:9A0C; docs/physics.md "The
+    # crest"): per crossing type 0-3, a list address by (old quadrant x 4 + new
+    # quadrant) ($81:985D, $988F, $98C1, $98F3; 0 = none); the corner crossings'
+    # list addresses, two per type 4-7 (the immediates of $81:9913-$81:994B);
+    # the lists themselves, words (quadrant | the cell's selector << 8: 2 the
+    # old cell $DA1C, 4 the new $D9FC, 8 the corner's $6A76), $FFFF-ended,
+    # $81:9A0D-$81:9B44; and the cross-cell crest bytes, by code1 x 36 +
+    # quadrant1 x 9 + code2 ($81:9C3D, through $81:9C23 and $81:9C35)
+    put("crestCross", 0x81, 0x985D,
+        sum((rom_words(d, 0x81, a, 16) for a in (0x985D, 0x988F, 0x98C1, 0x98F3)), []), 2)
+    put("crestDiag", 0x81, 0x9913,
+        [rom_words(d, 0x81, a, 1)[0] for a in (0x9914, 0x991C, 0x9921, 0x992C,
+                                                0x9931, 0x993C, 0x9941, 0x9949)], 2)
+    put("crestLists", 0x81, 0x9A0D, rom_words(d, 0x81, 0x9A0D, (0x9B45 - 0x9A0D) // 2), 2)
+    put("crestStep", 0x81, 0x9C3D, rom_bytes(d, 0x81, 0x9C3D, 9 * 36), 1)
     put("degToDir32", 0x81, 0x8E98, rom_bytes(d, 0x81, 0x8E98, 361), 1)
 
     put("frictionClass", 0x81, 0x8C12, rom_words(d, 0x81, 0x8C12, 13), 2)
@@ -253,11 +480,13 @@ def build_tables(d):
         (0x82, 0x9E1F): "boostW",           (0x82, 0x9D76): "boostWHit",      # $33 $36 $3B
         (0x82, 0x8967): "enemy",            # $40-$52, $57 on land; $40-$4C, $57 on roll
         (0x82, 0x8963): "enemyRollAlt",     # $4D-$52 on roll (no owner test)
-        (0x82, 0xA25D): "unk58",            (0x82, 0xA2F5): "unk58Hit",       # $58, $59 (undocumented)
-        (0x82, 0xA1B1): "unk5a",            (0x82, 0xA175): "unk5aHit",       # $5A, $5B (undocumented)
-        (0x82, 0xA3EB): "unk5c",            (0x82, 0xA43E): "unk5cHit",       # $5C, $5D (undocumented)
+        (0x82, 0xA25D): "switch58",         (0x82, 0xA2F5): "switch58Hit",    # $58, $59: the $6A2E switch (2P holes only; read, not ported)
+        (0x82, 0xA1B1): "switch",           (0x82, 0xA175): "switchHit",      # $5A, $5B: the toggles' switch $6A2A
+        (0x82, 0xA3EB): "waterSwitch",      (0x82, 0xA43E): "waterSwitchHit", # $5C, $5D: the water switch $69CA
         (0x82, 0x80F6): "overlay",          (0x82, 0x8000): "overlayHit",     # $60-$6F
-        # $70-$7B: the toggled directional impulse, one handler per tile
+        # $70-$7B: the swirls, one handler per tile: (tile - $70) >> 2 is
+        # always / while $6A2A is set / while it is clear, bit 1 the weak
+        # magnitude, bit 0 the other way round (docs/tiles.md "Toggles")
         (0x82, 0x9FE3): "toggle70", (0x82, 0x9F0B): "toggle70Hit",
         (0x82, 0xA01A): "toggle71", (0x82, 0x9F3D): "toggle71Hit",
         (0x82, 0x9FFF): "toggle72", (0x82, 0x9F24): "toggle72Hit",
@@ -355,6 +584,18 @@ def build_tables(d):
                                  "step every 3 frames; emulated (object "
                                  "$84:81A3), not ROM data",
                         "values": list(OUTLINE_WALK)}
+    # Object 111's second colour, BG palette 7 colour 1 (GLOW_* above).
+    assert all(0 <= i < 4 for i in GLOW_WALK), "glow walk outside the table"
+    put("glowColours", GLOW_TABLE[0], GLOW_TABLE[1],
+        rom_words(d, GLOW_TABLE[0], GLOW_TABLE[1], 4), 2)
+    t["glowWalk"] = {"about": "order into glowColours, one step every {} "
+                              "frames; emulated (object 111's hook $84:81B7, "
+                              "holes 0 and 17), not ROM data".format(GLOW_STEP),
+                     "stepFrames": GLOW_STEP,
+                     "values": list(GLOW_WALK)}
+    # The hazard actors' frame tables by spawn tile ($84:DD34).
+    put("hazardFrameTables", HAZARD_FRAME_TABLES[0], HAZARD_FRAME_TABLES[1],
+        rom_words(d, HAZARD_FRAME_TABLES[0], HAZARD_FRAME_TABLES[1], 24), 2)
 
     def scalar(key, bank, addr, signed=False):
         t.setdefault("consts", {})[key] = {
@@ -399,11 +640,145 @@ def build_tables(d):
     # arrow panel per-mode gates ($82:A6C7/$82:A70B land, $82:A74F/$82:A783 hit), 22 words each
     put("arrowMode", 0x80, 0xDE4D, rom_words(d, 0x80, 0xDE4D, 22), 2)
     put("arrowModeHit", 0x80, 0xDE79, rom_words(d, 0x80, 0xDE79, 22), 2)
-    # toggled impulse ($70-$7B): the two magnitudes (tiles.md)
-    scalar("toggleImpulseBig", 0x80, 0xDDED)
-    scalar("toggleImpulseSmall", 0x80, 0xDDEF)
+    # the swirls $70-$7B ($82:9EF9-$82:A174; docs/tiles.md "Toggles"): the
+    # push's magnitudes, rolled through (hit) and landed on, strong (bit 1
+    # clear) and weak; and the disc where they act, a 64 x 64 quarter disc
+    # by |f - $8000| >> 9 ($82:A086, LSB first), read one byte past its last
+    # row by a fraction of 0 (521 bytes)
+    scalar("toggleHitStrong", 0x80, 0xDDED)
+    scalar("toggleLandStrong", 0x80, 0xDDEF)
+    scalar("toggleHitWeak", 0x80, 0xDDF1)
+    scalar("toggleLandWeak", 0x80, 0xDDF3)
+    put("toggleDisc", 0x88, 0x9190, rom_bytes(d, 0x88, 0x9190, 521), 1)
+    # the shell (port_v2 phase 7): L/R in the aim snap by 45 degrees through
+    # $81:B6C3: a byte per aim degree, its low nibble the next octant up (L),
+    # its high nibble the next down (R); the aim becomes nibble x 45
+    put("aimSnap", 0x81, 0xB729, rom_bytes(d, 0x81, 0xB729, 360), 1)
+    # the save's rules (port_v2 phase 7): the medals' thresholds, 16 courses x
+    # [bronze, silver, gold, 0] ($81:C775 counts those >= the score), and the
+    # ranking's five built-in records per course ($81:CAB7 -> 14 bytes each:
+    # member 5-9, score, rounds, the tie-break id 40-44, the 8 holes' strokes)
+    put("medalThresholds", 0x81, 0xC735, rom_bytes(d, 0x81, 0xC735, 64), 1)
+    ptrs = rom_words(d, 0x81, 0xCAB7, 16)
+    builtins = []
+    for c in range(16):
+        raw = rom_bytes(d, 0x81, ptrs[c], 70)
+        for k in range(5):
+            r = raw[14 * k:14 * k + 14]
+            builtins += [r[0], r[1] | (r[2] << 8), r[3] | (r[4] << 8), r[5]] + list(r[6:14])
+    put("rankingBuiltins", 0x81, 0xCAD7, builtins, 2)
+    # object 127, the swirls' tiles ($84:DB97): the frames' waits, two
+    # $FF-ended lists of ten ($84:DC42 the strong pairs', $84:DC4D the weak)
+    put("swirlWaits", 0x84, 0xDC42, rom_bytes(d, 0x84, 0xDC42, 22), 1)
+    # objects 117 and 118, the switches' colours ($84:869D, 4 colours to CGRAM
+    # $4C / $5C, two sets alternating by 4 frames): 117 by $6A2A, set then
+    # clear ($98:D55A, $D562 | $D56A, $D572); 118 by $69CA, set (the water
+    # off) then clear ($98:D57A, $D582 | $D58A, $D592). BGR555 words
+    put("toggleSwitchColours", 0x98, 0xD55A, rom_words(d, 0x98, 0xD55A, 16), 2)
+    put("waterSwitchColours", 0x98, 0xD57A, rom_words(d, 0x98, 0xD57A, 16), 2)
+    # the water's dissolve ($80:9208): step k sets or clears the pixel
+    # $80:9271[k] (row v >> 3, column v & 7) of every water tile
+    put("dissolveOrder", 0x80, 0x9271, rom_bytes(d, 0x80, 0x9271, 64), 1)
     # rough/hazard-05 recovery launch ($82:93DA)
     scalar("hazard05Div", 0x80, 0xDD89)
+    # the snap panels' stars, object 62 ($85:CFE1), and its motion's table
+    put("snapStars", SNAP_STAR_DIRS[0], SNAP_STAR_DIRS[1], snap_star_scripts(d), 2)
+    put("polarTrig", POLAR_TRIG[0], POLAR_TRIG[1],
+        rom_words(d, POLAR_TRIG[0], POLAR_TRIG[1], 320, True), 2)
+    # DEMOPLAY SELECT's 20 records ($88:C880; docs/emulation.md "DEMOPLAY"): the
+    # header's addresses, and the records (demo_records)
+    # --- the copy abilities (port_v2 phase 5; notes/port-v2-phase5-abilities.md) ---
+    # the airborne gravity each ability's setup loads into $DA38, by the
+    # ability ($82:C921 reads $DC1F for 1, ..., word 0 the reverts' $FFC0)
+    put("abilityGravity", 0x80, 0xDC1D, rom_words(d, 0x80, 0xDC1D, 11), 2)
+    # the end of a shot keeps the mode when 0 ($80:C73A, by the mode)
+    put("modeKeep", 0x80, 0xDEFD, rom_words(d, 0x80, 0xDEFD, 22), 2)
+    # Fireball's sprite index by the 16-way heading ($82:CA14)
+    put("fireballIndex", 0x82, 0xCA95, rom_bytes(d, 0x82, 0xCA95, 16), 1)
+    # Tornado's pose by speed ($82:D6E8): the first speed bound under max(|vx|, |vy|),
+    # then (state - $20) << 8 | the script's speed $D776
+    put("tornadoSpeed", 0x82, 0xD790, rom_words(d, 0x82, 0xD790, 6), 2)
+    put("tornadoPose", 0x82, 0xD79C, rom_words(d, 0x82, 0xD79C, 6), 2)
+    # the UFO's sprite index by the 8-way heading ($82:CCF8)
+    put("ufoIndex", 0x82, 0xCDB3, rom_bytes(d, 0x82, 0xCDB3, 8), 1)
+    # the UFO's step climb ($82:D388) by (old shape - 2) x 4 + the old quadrant:
+    # 0 none, $FF z + $200, else the elevation's base + 1
+    put("ufoClimb", 0x82, 0xD3CD, rom_bytes(d, 0x82, 0xD3CD, 56), 1)
+    # --- Kirby's colours (OBJ palette 0, CGRAM 130-136 = colours 2-8; engine
+    # core/sim/kirby-colours.ts), BGR555 words, player 1's sets ---
+    put("kirbyDry", 0x98, 0xC77A, rom_words(d, 0x98, 0xC77A, 7), 2)       # $80:D3AD set 3, dry
+    put("kirbyWet", 0x98, 0xC796, rom_words(d, 0x98, 0xC796, 7), 2)       # ... in the water
+    put("kirbyFire", 0x98, 0xC7B2, rom_words(d, 0x98, 0xC7B2, 6), 2)      # set 5 ($82:CA43), 2-7
+    put("kirbyBurnt", 0x98, 0xC7BE, rom_words(d, 0x98, 0xC7BE, 36), 2)    # object 29's six fades, 2-7
+    put("kirbySpark", 0x98, 0xC86E, rom_words(d, 0x98, 0xC86E, 28), 2)    # object 36's four sets, 2-8
+    put("kirbySparkStand", 0x98, 0xC8A6, rom_words(d, 0x98, 0xC8A6, 28), 2)   # ... once standing
+    put("kirbyFreeze", 0x98, 0xC916, rom_words(d, 0x98, 0xC916, 6), 2)    # state 36's script, 2-7
+    put("kirbyFlash", 0x98, 0xCC26, rom_words(d, 0x98, 0xCC26, 7), 2)     # state 8's script, 2-8
+    put("kirbyUfo", 0x98, 0xCB2E, rom_words(d, 0x98, 0xCB2E, 4), 2)       # object 50, 2-5
+    put("kirbyUfoLight", 0x98, 0xCB3E, rom_words(d, 0x98, 0xCB3E, 3), 2)  # its colour 6, cycling
+    put("kirbyUfoLightEnd", 0x98, 0xCB4A, rom_words(d, 0x98, 0xCB4A, 7), 2)   # ... wearing off
+    # the warning's stages s = 2, 1, 0 ($84:8B4D, player 1; player 2's follow
+    # each): 3, 4, 4 sets ($84:8B4A by s) of colours 2-5
+    put("kirbyUfoWarn2", 0x98, 0xCB66, rom_words(d, 0x98, 0xCB66, 12), 2)
+    put("kirbyUfoWarn1", 0x98, 0xCB96, rom_words(d, 0x98, 0xCB96, 16), 2)
+    put("kirbyUfoWarn0", 0x98, 0xCBD6, rom_words(d, 0x98, 0xCBD6, 16), 2)
+    put("kirbyUfoWarnEnd", 0x98, 0xCC16, rom_words(d, 0x98, 0xCC16, 4), 2)
+    put("ufoWarnTicks", 0x84, 0x8AF8, rom_bytes(d, 0x84, 0x8AF8, 3), 1)  # each stage's length, by s
+    put("ufoWarnPeriod", 0x84, 0x8B47, rom_bytes(d, 0x84, 0x8B47, 3), 1)  # ticks per set, by s
+    put("ufoWarnSets", 0x84, 0x8B4A, rom_bytes(d, 0x84, 0x8B4A, 3), 1)    # sets in the cycle, by s
+    put("ufoLightEndTicks", 0x84, 0x8BEC, rom_bytes(d, 0x84, 0x8BEC, 8), 1)
+    put("ufoLightTicks", 0x84, 0x8BEA, rom_bytes(d, 0x84, 0x8BEA, 2), 1)  # by $D77A
+    # the HUD's draw ($84:99FA): the outline's 42-tick phase table ($FF-ended)
+    # into its four colours, the icon ground's 32-tick one into its colours
+    put("outlinePhase", 0x84, 0x9DDB, rom_bytes(d, 0x84, 0x9DDB, 43), 1)
+    put("outlineColour", 0x98, 0xD4A8, rom_words(d, 0x98, 0xD4A8, 4), 2)
+    put("iconPhase", 0x84, 0x9D97, rom_bytes(d, 0x84, 0x9D97, 33), 1)
+    put("iconGround", 0x98, 0xD4B8, rom_words(d, 0x98, 0xD4B8, 8), 2)
+    # the icon's pictures, as upload descriptors in bank $84 ($84:9B88 -> $80:8696):
+    # by the stock x 2 + 1 when the latch is spent (the pairs are equal up to 11);
+    # the UFO's and its countdown's digits by the seconds left ($84:A4E6), player 1's
+    put("hudIcon", 0x84, 0x9E07, rom_words(d, 0x84, 0x9E07, 24), 2)
+    put("ufoIcon", 0x84, 0xA554, rom_words(d, 0x84, 0xA554, 24)[0::2], 2)
+    put("ufoDigits", 0x84, 0xA584, rom_words(d, 0x84, 0xA584, 20)[0::2], 2)
+    put("ufoCountdown", 0x84, 0xA5AC, rom_bytes(d, 0x84, 0xA5AC, 37), 1)
+    put("demoHeader", DEMO_HEADER[0], DEMO_HEADER[1],
+        rom_words(d, DEMO_HEADER[0], DEMO_HEADER[1], 20), 2)
+    put("demos", DEMO_RECORDS[0], DEMO_RECORDS[1], demo_records(d), 2)
+    # --- the water $60-$6F ($82:80F6 land, $82:8000 hit; docs/tiles.md "Water") ---
+    # the skips ($82:8256), by the count 0-2: speed along the heading and vz,
+    # the selector $6B58 < 7 (topspin) or >= 7 (backspin)
+    put("waterSkipSpeed", 0x82, 0x8324, rom_words(d, 0x82, 0x8324, 3), 2)
+    put("waterSkipVz", 0x82, 0x832A, rom_words(d, 0x82, 0x832A, 3), 2)
+    put("waterSkipSpeedBack", 0x82, 0x8330, rom_words(d, 0x82, 0x8330, 3), 2)
+    put("waterSkipVzBack", 0x82, 0x8336, rom_words(d, 0x82, 0x8336, 3), 2)
+    # the A/Y modifier's bounce at count 0, by $DA76 (0 A, 2 Y) / 2: x/y, z
+    put("waterModBounce", 0x82, 0x833C, rom_words(d, 0x82, 0x833C, 2), 2)
+    put("waterModBounceZ", 0x82, 0x8340, rom_words(d, 0x82, 0x8340, 2), 2)
+    # the skim's x/y factor with the modifier armed ($82:852B), by $DA76 / 2
+    put("waterSkimMod", 0x82, 0x8589, rom_words(d, 0x82, 0x8589, 2), 2)
+    scalar("waterLevelOffset", 0x82, 0x83C8)    # $82:83C7 LDA #$57AD: the level over the base
+    scalar("waterDrag", 0x80, 0xDD69)           # $82:836E: v -= v x 6 / 256, three axes
+    scalar("waterDragRoll", 0x80, 0xDD6B)       # $82:8344: x and y
+    scalar("waterSkimFactor", 0x82, 0x8529)     # $82:8528 LDA #$E180
+    scalar("waterSkimFactorZ", 0x82, 0x8555)    # $82:8554 LDA #$E800 (negated)
+    scalar("waterSkimVzMax", 0x82, 0x84E5)      # $82:84E4 CMP #$0980
+    scalar("waterSkimSpeedMin", 0x82, 0x8501)   # $82:8500 CMP #$07C0
+    scalar("waterSkimBig", 0x82, 0x850D)        # $82:850C CMP #$0B00: object 54, else 53
+    scalar("waterSplashBig", 0x82, 0x8611)      # $82:8610 CMP #$01F0: object 57
+    scalar("waterSplashMid", 0x82, 0x8619)      # $82:8618 CMP #$0110: object 56, else 55
+    scalar("waterSinkSlow", 0x82, 0x81E4)       # $82:81E3 CPX #$FEA0: sound $49, else $4C
+    # the splash objects 53-58 and the bubble's rise (water_fx_scripts)
+    put("waterFx", THREAD_TYPES[0], THREAD_TYPES[1], water_fx_scripts(d), 2)
+    # object 67, the bubbles ($85:E76B): the offsets by Kirby's facing while he
+    # stands (dx, dy, the OAM queue's), the random offsets (dx, dy by rng & 7),
+    # the wait's index by rng & 7 and the waits ($85:E87D, read past its six
+    # bytes into the code that follows: the ROM's index is x 2)
+    put("bubbleFacingDx", 0x85, 0xE845, rom_words(d, 0x85, 0xE845, 8, True), 2)
+    put("bubbleFacingDy", 0x85, 0xE855, rom_words(d, 0x85, 0xE855, 8, True), 2)
+    put("bubbleFacingQueue", 0x85, 0xE865, rom_words(d, 0x85, 0xE865, 8, True), 2)
+    put("bubbleOffset", 0x85, 0xEA2F, rom_words(d, 0x85, 0xEA2F, 16, True), 2)
+    put("bubbleWaitIndex", 0x85, 0xE875, rom_bytes(d, 0x85, 0xE875, 8), 1)
+    put("bubbleWait", 0x85, 0xE87D, rom_bytes(d, 0x85, 0xE87D, 11), 1)
 
     return t
 
@@ -471,8 +846,13 @@ def build_course(d, defaults, index):
             edges.append({"x": x, "y": y, "tile": tile})
 
     map_w, map_h = fields[4], fields[5]
+    course, hole = divmod(index, 8)
+    songs = rom_words(d, SONG_LISTS[0], SONG_LISTS[1] + 2 * course, 1)[0]
+    song = rom_bytes(d, SONG_LISTS[0], songs + hole, 1)[0] - SONG_BASE
     return {
         "index": index, "name": name, "header": list(fields),
+        "song": song, "songSource": "{} -> {}".format(
+            src(SONG_LISTS[0], SONG_LISTS[1] + 2 * course), src(SONG_LISTS[0], songs + hole)),
         "w": w, "h": h,
         "bitmap": {"w": map_w * 8, "h": map_h * 8},
         "word7": fields[7],
@@ -489,11 +869,12 @@ def build_course(d, defaults, index):
 # layers
 # --------------------------------------------------------------------------
 
-def blit_rgba(img, pal, tiles, word, y, x, outline=None):
+def blit_rgba(img, pal, tiles, word, y, x, masks=None):
     """Draw one tilemap cell into an (H, W, 4) array; colour 0 is transparent.
 
-    With `outline` (an (H, W, 4) array), the outline colour goes there as
-    white instead of into `img`.
+    `masks` maps (palette, colour) to an (H, W, 4) array: those pixels go
+    there as white instead of into `img` (the outline's colours, which an
+    object cycles and the browser tints).
     """
     import numpy as np
     idx = word & 0x3FF
@@ -509,14 +890,59 @@ def blit_rgba(img, pal, tiles, word, y, x, outline=None):
     if view.shape[0] != 8 or view.shape[1] != 8:
         return
     mask = cell != 0
-    colours = np.array(pal[(word >> 10) & 7], dtype=np.uint8)
-    if outline is not None and ((word >> 10) & 7) == OUTLINE_PAL:
-        ol = cell == OUTLINE_COLOUR
-        oview = outline[y:y + 8, x:x + 8]
-        oview[ol] = 255
-        mask = mask & ~ol
+    p = (word >> 10) & 7
+    colours = np.array(pal[p], dtype=np.uint8)
+    for (mp, mc), arr in (masks or {}).items():
+        if mp != p:
+            continue
+        hit = cell == mc
+        arr[y:y + 8, x:x + 8][hit] = 255
+        mask = mask & ~hit
     view[mask, :3] = colours[cell[mask]]
     view[mask, 3] = 255
+
+
+def dissolve_map(g1, g2, tiles, want, map_w, W, H, step_of):
+    """Each pixel's dissolve step (red, alpha 255) where a water tile's opaque
+    pixel is the topmost of the layer: the step `$80:9208` writes its
+    tile-local position (flips applied, as the tile's data is what changes)."""
+    import numpy as np
+    out = np.zeros((H, W, 4), dtype=np.uint8)
+    for grid in (g2, g1):
+        for i, wd in enumerate(grid):
+            if wd == EMPTY or ((wd >> 13) & 1) != want:
+                continue
+            t = wd & 0x3FF
+            if t >= len(tiles):
+                continue
+            y, x = divmod(i, map_w)
+            water = t in WATER_TILES
+            for r in range(8):
+                for c in range(8):
+                    sr = 7 - r if (wd >> 15) & 1 else r
+                    sc = 7 - c if (wd >> 14) & 1 else c
+                    if tiles[t][sr][sc] == 0:
+                        continue
+                    if water:
+                        out[y * 8 + r, x * 8 + c] = (step_of[sr * 8 + sc], 0, 0, 255)
+                    else:
+                        out[y * 8 + r, x * 8 + c] = 0
+    return out
+
+
+# The overlay names the layers step may write (`layer_{back,front}_<name><k>.png`).
+CYCLE_NAMES = ("ripple", "boost", "panels")
+CYCLE_MAX_SETS = 4
+# The switches' objects (port_v2 phase 6; coursemap.switch_state): 117
+# writes palette 4 colours 12-15 by `$6A2A`, 118 palette 5 colours 12-15 by
+# `$69CA`, two sets each (tables.json toggleSwitchColours /
+# waterSwitchColours: the state set first).
+SWITCH_COLOURS = {"toggle": (0x98, 0xD55A, 4), "water": (0x98, 0xD57A, 5)}
+SWITCH_FIRST_COLOUR = 12
+# The water's dissolve ($80:9208): step k (1-64) sets or clears the pixel
+# `$80:9271`[k - 1] (row v >> 3, column v & 7) of each water tile.
+DISSOLVE_ORDER = (0x80, 0x9271)
+WATER_TILES = range(WATER_FIRST_TILE, WATER_FIRST_TILE + WATER_GFX_BYTES // 32)
 
 
 def build_layers(d, index, outdir):
@@ -525,41 +951,105 @@ def build_layers(d, index, outdir):
 
     _, fields, name, _ = header(d, index)
     map_w, map_h, g1, g2, _rows = unpack(d, index, fields)
-    # A water hole's own tiles and its first ripple set (coursemap.hole_page).
-    tiles = decode_tiles(hole_page(d, index), 4)
+    # The switches (port_v2 phase 6): on a hole with the water switch the
+    # layers are drawn dry and the water is a layer of its own, which the
+    # view dissolves; the switches' tiles are the load's (coursemap.hole_page).
+    sw = switch_state(d, index)
+    dissolve = sw["water"] is not None and surface_kind(d, index) == "water"
+    page_args = {"water": 1} if dissolve else {}
+    # A water hole's own tiles (coursemap.hole_page); the BG colours in play
+    # with every cycle at its first set (coursemap.hole_palette).
+    tiles = decode_tiles(hole_page(d, index, **page_args), 4)
+    wet_tiles = decode_tiles(hole_page(d, index, water=0), 4) if dissolve else tiles
     pal = hole_palette(d, index)
-    ripple = water_ripple(d, index)
+    cycles = palette_cycles(d, index)
     W, H = map_w * 8, map_h * 8
 
-    def compose(want, pal=pal):
+    def compose(want, pal=pal, tiles=tiles):
         img = np.zeros((H, W, 4), dtype=np.uint8)
-        ol = np.zeros((H, W, 4), dtype=np.uint8)
+        masks = {(OUTLINE_PAL, OUTLINE_COLOUR): np.zeros((H, W, 4), dtype=np.uint8),
+                 (GLOW_PAL, GLOW_COLOUR): np.zeros((H, W, 4), dtype=np.uint8)}
         # BG2 is behind BG1 at the same priority.
         for grid in (g2, g1):
             for i, wd in enumerate(grid):
                 if wd == EMPTY or ((wd >> 13) & 1) != want:
                     continue
                 y, x = divmod(i, map_w)
-                blit_rgba(img, pal, tiles, wd, y * 8, x * 8, outline=ol)
-        return img, ol
+                blit_rgba(img, pal, tiles, wd, y * 8, x * 8, masks=masks)
+        return img, masks[(OUTLINE_PAL, OUTLINE_COLOUR)], masks[(GLOW_PAL, GLOW_COLOUR)]
 
-    (back, ol_back), (front, ol_front) = compose(0), compose(1)
+    def overlay(arr, base):
+        over = np.zeros((H, W, 4), dtype=np.uint8)
+        diff = (arr != base).any(axis=2)
+        over[diff] = arr[diff]
+        return over
+
+    (back, ol_back, gl_back), (front, ol_front, gl_front) = compose(0), compose(1)
     out = [("layer_back.png", back), ("layer_front.png", front),
            ("layer_outline_back.png", ol_back),
-           ("layer_outline_front.png", ol_front)]
-    # The water's ripple: the layers carry set 0; set k >= 1 is an overlay of
-    # the pixels whose colour differs from set 0 in the composed layer, so a
+           ("layer_outline_front.png", ol_front),
+           ("layer_glow_back.png", gl_back),
+           ("layer_glow_front.png", gl_front)]
+    # The palette cycles (the ripple, the boost panels', the warp or snap
+    # panels'): the layers carry each cycle's set 0; set k >= 1 is an overlay
+    # of the pixels whose colour differs from set 0 in the composed layer, so a
     # BG1 tile over BG2 water stays on top. The view shows the overlay of
-    # `order[phase]` (none for set 0).
-    n_sets = len(ripple["sets"]) if ripple else 1
-    for k in range(1, 4):
-        for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
-            over = np.zeros((H, W, 4), dtype=np.uint8)
-            if k < n_sets:
-                arr, _ = compose(want, hole_palette(d, index, k))
-                diff = (arr != base).any(axis=2)
-                over[diff] = arr[diff]
-            out.append(("{}_ripple{}.png".format(stem, k), over))
+    # `order[phase]` (none for set 0). Every other overlay name is written
+    # empty, so a stale file is removed below. The ripple of a dry-drawn
+    # hole is taken over its water (the view masks it with the water).
+    have = {(c["name"], k): c for c in cycles for k in range(1, len(c["sets"]))}
+    wet = {w_: compose(w_, tiles=wet_tiles)[0] for w_ in (0, 1)} if dissolve else {0: back, 1: front}
+    for cname in CYCLE_NAMES:
+        for k in range(1, CYCLE_MAX_SETS):
+            for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+                over = np.zeros((H, W, 4), dtype=np.uint8)
+                if (cname, k) in have:
+                    t = wet_tiles if cname == "ripple" else tiles
+                    b = wet[want] if cname == "ripple" else base
+                    over = overlay(compose(want, hole_palette(d, index, {cname: k}), t)[0], b)
+                out.append(("{}_{}{}.png".format(stem, cname, k), over))
+    # The water switch's hole: the water's pixels (over the dry layer), and
+    # each one's dissolve step in red (alpha 255), from the topmost tile
+    # drawn there.
+    order = list(rom_bytes(d, DISSOLVE_ORDER[0], DISSOLVE_ORDER[1], 64))
+    step_of = {v: k for k, v in enumerate(order)}
+    for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+        water = np.zeros((H, W, 4), dtype=np.uint8)
+        steps = np.zeros((H, W, 4), dtype=np.uint8)
+        if dissolve:
+            water = overlay(wet[want], base)
+            steps = dissolve_map(g1, g2, wet_tiles, want, map_w, W, H, step_of)
+            steps[water[:, :, 3] == 0] = 0
+        out.append(("{}_water.png".format(stem), water))
+        out.append(("{}_dissolve.png".format(stem), steps))
+    # The switches' pictures: by the state (the tiles, `$80:D7B5`) and the
+    # object's set (the colours), each an overlay of the pixels that differ
+    # from the layer (the load's tiles, the course's colours: before the
+    # object's first write), `<stem>_{toggle,water}sw<state><set>.png`.
+    for which, (bank, addr, p) in SWITCH_COLOURS.items():
+        for state in (0, 1):
+            for k in (0, 1):
+                for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+                    over = np.zeros((H, W, 4), dtype=np.uint8)
+                    if sw[which] is not None:
+                        first = 0 if state else 2  # the set state's sets first
+                        cols = [snes_color(w_) for w_ in rom_words(d, bank, addr + 8 * (first + k), 4)]
+                        pal_s = [list(row) for row in pal]
+                        pal_s[p][SWITCH_FIRST_COLOUR:SWITCH_FIRST_COLOUR + 4] = cols
+                        t = decode_tiles(hole_page(d, index, **{**page_args, which: state} if which == "toggle" else page_args), 4)
+                        over = overlay(compose(want, pal_s, t)[0], base)
+                    out.append(("{}_{}sw{}{}.png".format(stem, which, state, k), over))
+    # Object 127's frames, list 0 (the first swirl pair's, VRAM $3000) and 1
+    # (the others', $3100), over the course page's tiles there.
+    lists = min(2, len(sw["swirls"]))
+    for lst in (0, 1):
+        for frame in range(SWIRL_FRAMES):
+            for want, base, stem in ((0, back, "layer_back"), (1, front, "layer_front")):
+                over = np.zeros((H, W, 4), dtype=np.uint8)
+                if lst < lists:
+                    t = decode_tiles(hole_page(d, index, swirls={lst: frame}, **page_args), 4)
+                    over = overlay(compose(want, tiles=t)[0], base)
+                out.append(("{}_swirl{}_{}.png".format(stem, lst, frame), over))
     wrote = {}
     for name_, arr in out:
         path = os.path.join(outdir, name_)
@@ -587,35 +1077,35 @@ def build_layers(d, index, outdir):
         wrote[path] = [256, 256]
 
     bg3(cols, "layer_bg3.png")
-    # The HOLE IN ONE sequence swaps the BG palettes for a night set (recorded
-    # by tools/snesstep/trace_cutscene.py; only hole 1's run is recorded).
-    # Every CGRAM entry that differs between the two recorded palettes takes
-    # its night value; the others keep the ROM colours used above.
-    night = None
-    if index == 0:
-        import export_web_sprites
-        night = export_web_sprites.night_cgram()
+    # The HOLE IN ONE sequence swaps the BG palettes for a night set: $83:D2BF
+    # sets $6A2E, loads palette set $11 (the scenery's alternate colours,
+    # $80:D527) and the course's alternate list ($80:D82B 1: $80:D8AB), the
+    # tables coursemap.hole_cgram(night=True) reads (port_v2 phase 7; on hole
+    # 1 it agrees with c1n's recorded night on every entry but the cycling
+    # glow and outline, CGRAM 113 and 127). Every BG entry that differs takes
+    # its night value; the cycles keep their own.
     night_back = None
-    if night:
-        day_cg, night_cg = night
+    day_cg = [snes_color(w) for w in hole_cgram(d, index)]
+    night_cg = [snes_color(w) for w in hole_cgram(d, index, night=True)]
+    if day_cg[:128] != night_cg[:128]:
         changed = {i: night_cg[i] for i in range(128)
                    if day_cg[i] != night_cg[i] and i != OUTLINE_PAL * 16 + OUTLINE_COLOUR}
         pal_n = [[changed.get(p * 16 + c, pal[p][c]) for c in range(16)] for p in range(len(pal))]
         for want, path in ((0, "layer_back_night.png"), (1, "layer_front_night.png")):
-            arr, _ = compose(want, pal_n)
+            arr = compose(want, pal_n)[0]
             if arr[:, :, 3].any():
                 Image.fromarray(arr, "RGBA").save(os.path.join(outdir, path))
                 wrote[path] = [W, H]
         bg3([changed.get(i, c) for i, c in enumerate(cols)], "layer_bg3_night.png")
         night_back = list(changed.get(0, cols[0]))
     # The backdrop colour behind everything is the course palette's colour 0.
-    from tiles import snes_color
     table = [snes_color(w) for w in rom_words(d, OUTLINE_TABLE[0], OUTLINE_TABLE[1], 15)]
-    rip = None
-    if ripple:
-        rip = {k: ripple[k] for k in ("source", "colours", "stepFrames", "order")}
+    keep = ("name", "object", "source", "colours", "stepFrames", "order")
     return {"files": wrote, "backColour": list(cols[0]), "name": name,
-            "nightBackColour": night_back, "ripple": rip,
+            "nightBackColour": night_back,
+            "cycles": [{k: c[k] for k in keep} for c in cycles],
+            "switches": {"toggle": sw["toggle"], "water": sw["water"], "swirlLists": lists,
+                         "dissolve": dissolve},
             "outline": {"source": src(*OUTLINE_TABLE), "stepFrames": 3,
                         "cycle": [list(table[i]) for i in OUTLINE_WALK]}}
 
@@ -691,10 +1181,195 @@ def build_hud(outdir):
     info = {"panel": [224, 32], "at": [16, 176], "tomato": list(tom.size),
             "slots": {"hole": [111, 194], "shot": [136, 193], "tomato": [164, 183],
                       "tomatoStep": 16, "stars": [200, 200], "portrait": [24, 184, 48, 208]}}
+    # the copy ability's icon over the portrait window ($84:99FA; the stepper's palette)
+    import export_web_sprites
+    icons = export_web_sprites.build_icons(outdir)
+    if icons:
+        info["ability"] = icons
+    # port_v2 phase 7: the pause menu's window and cursor, the look's arrows
+    pause = build_pause(outdir)
+    if pause:
+        info["pause"] = pause
+    arrows = build_look_arrows(outdir)
+    if arrows:
+        info["arrows"] = arrows
     # the slots as data, for the engine's HUD (engine/src/game/features/hud)
     write_json(os.path.join(outdir, "hud.json"), dict(info, about=(
         "screen pixels of the 256x224 frame; slots are the top-left of what the "
         "panel blanked (tools/export_web.py build_hud)")), compact=False)
+    return info
+
+
+PAUSE_SRC = os.path.join(ROOT, "build", "screens", "pause_menu_layers", "bg3.png")
+LOOK_SRC = os.path.join(ROOT, "build", "screens", "look_arrows_layers", "obj.png")
+
+
+def build_pause(outdir):
+    """The pause menu ($83:AFA7): its window on BG3, which does not scroll, in
+    screen pixels, with the cursor's cell blanked, and the cursor glyph
+    ($3C40). `$81:BE74` puts the cursor at buffer words $8E, $10E, $18E of the
+    window's rows (from row $11): cells (7, 19), (7, 21), (7, 23)."""
+    from PIL import Image
+    if not os.path.exists(PAUSE_SRC):
+        print("pause: {} missing (tools/snesstep/screens.py makes it); skipped".format(PAUSE_SRC))
+        return None
+    im = Image.open(PAUSE_SRC).convert("RGBA")
+    box = (16, 136, 240, 216)
+    cursors = [[56, 152], [56, 168], [56, 184]]
+    cx, cy = cursors[0]
+    glyph = im.crop((cx, cy, cx + 8, cy + 8))
+    window = im.crop(box)
+    inside = window.getpixel((cx - box[0] + 8, cy - box[1]))   # the window's interior, beside the cursor
+    for y in range(8):
+        for x in range(8):
+            window.putpixel((cx - box[0] + x, cy - box[1] + y), inside)
+    window.save(os.path.join(outdir, "pause_window.png"))
+    glyph.save(os.path.join(outdir, "pause_cursor.png"))
+    return {"at": [box[0], box[1]], "size": [box[2] - box[0], box[3] - box[1]], "cursor": cursors}
+
+
+def build_look_arrows(outdir):
+    """The look's arrows ($81:B908 -> $80:8B02, OAM frames $8EE9/$8EF3/$8F07/$8F11),
+    cut from the sprite layer of a frame that shows all four (web_look 2455):
+    up (112, 8), right (208, 64), down (112, 144), left (24, 64)."""
+    from PIL import Image
+    if not os.path.exists(LOOK_SRC):
+        print("arrows: {} missing (tools/snesstep/screens.py makes it); skipped".format(LOOK_SRC))
+        return None
+    im = Image.open(LOOK_SRC).convert("RGBA")
+    boxes = {"up": (112, 8, 144, 24), "right": (208, 64, 232, 96),
+             "down": (112, 144, 144, 160), "left": (24, 64, 48, 96)}
+    out = {}
+    for name, box in boxes.items():
+        im.crop(box).save(os.path.join(outdir, "look_{}.png".format(name)))
+        out[name] = [box[0], box[1]]
+    return out
+
+
+# The per-hole RESULT card ($83:D3ED; port_v2 phase 7): every course's window
+# from the whole game's autoplay run (build/emu/autoplay/game, its first hole's
+# card, 29 frames after $83:D3ED: the fade in done), and the number object
+# $8C's pictures from a hole in one's card left up (the same run to 3900, then
+# no button: build/emu/card_hio, 3990).
+CARD_RUN = os.path.join(ROOT, "build", "emu", "autoplay", "game")
+CARD_DIR = os.path.join(ROOT, "build", "emu", "card_courses")
+CARD_FRAMES = [3938, 17298, 30804, 44403, 57654, 71561, 85170, 99204]
+CARD_HIO_DIR = os.path.join(ROOT, "build", "emu", "card_hio")
+# SELECT's mid-course card (tools/snesstep/inputs/web_select.txt, up from 2545)
+CARD_SELECT_DIR = os.path.join(ROOT, "build", "emu", "card_select")
+CARD_SELECT_FRAME = 2600
+CARD_BEST = (16, 18, 120, 207)             # the BEST SCORE window: YOUR's, 120 px left
+CARD_HIO_FRAME = 3990
+CARD_WINDOW = (136, 18, 240, 207)          # BG1's window, screen pixels (BG1 does not scroll here)
+CARD_DRAWING = (57, 55, 87, 77)            # the member's drawing, window pixels: blanked (black)
+# $83:CD82 / $83:CD93: each hole's number (x, y) for $83:D081; $83:CD92 / $83:CDA4 the total's
+CARD_SLOTS = (0x83, 0xCD82)
+
+
+def card_capture():
+    """The stepper runs build_card reads (cached)."""
+    import subprocess
+    stepper = os.path.join(ROOT, "build", "snesstep", "release", "snesstep")
+    if not os.path.isdir(CARD_DIR) or not all(
+            os.path.isdir(os.path.join(CARD_DIR, "f%06d" % f)) for f in CARD_FRAMES):
+        subprocess.run([stepper, "--frames", str(CARD_FRAMES[-1] + 6),
+                        "--input", os.path.join(CARD_RUN, "input.txt"),
+                        "--pokes", os.path.join(CARD_RUN, "pokes.txt"),
+                        "--snap-at", ",".join(str(f) for f in CARD_FRAMES),
+                        "--no-dsp", "--quiet", "--out", CARD_DIR], check=True)
+    hio = os.path.join(CARD_HIO_DIR, "f%06d" % CARD_HIO_FRAME)
+    if not os.path.isdir(hio):
+        os.makedirs(CARD_HIO_DIR, exist_ok=True)
+        inp = os.path.join(CARD_HIO_DIR, "input.txt")
+        pk = os.path.join(CARD_HIO_DIR, "pokes.txt")
+        with open(os.path.join(CARD_RUN, "input.txt")) as f, open(inp, "w") as o:
+            o.writelines(l for l in f if l.split() and l.split()[0].isdigit() and int(l.split()[0]) < 3900)
+        with open(os.path.join(CARD_RUN, "pokes.txt")) as f, open(pk, "w") as o:
+            o.writelines(l for l in f if l.strip() and int(l.split(":")[0]) < 3900)
+        subprocess.run([stepper, "--frames", str(CARD_HIO_FRAME + 4), "--input", inp, "--pokes", pk,
+                        "--snap-at", str(CARD_HIO_FRAME), "--no-dsp", "--quiet", "--out", CARD_HIO_DIR], check=True)
+
+
+def card_select_capture():
+    import subprocess
+    if os.path.isdir(os.path.join(CARD_SELECT_DIR, "f%06d" % CARD_SELECT_FRAME)):
+        return
+    stepper = os.path.join(ROOT, "build", "snesstep", "release", "snesstep")
+    subprocess.run([stepper, "--frames", str(CARD_SELECT_FRAME + 4),
+                    "--input", os.path.join(HERE, "snesstep", "inputs", "web_select.txt"),
+                    "--snap-at", str(CARD_SELECT_FRAME), "--no-dsp", "--quiet", "--out", CARD_SELECT_DIR], check=True)
+
+
+def build_card(outdir):
+    """card_window_<n>.png (courses 1-8, the drawing blanked), card_digits.png
+    (object $8C's pictures: the digits 1-9 and 0, 8 x 16, tiles $80-$89 over
+    $90-$99 in OBJ palette 0, then the 1-stroke star, tile $05 in palette 2)
+    and card.json (the slots)."""
+    import numpy as np
+    from PIL import Image
+    import ppu_render as P
+    if not os.path.isdir(CARD_RUN):
+        print("card: {} missing (tools/snesstep/autoplay.py --frames 135000 --out build/emu/autoplay/game); "
+              "skipped".format(CARD_RUN))
+        return None
+    card_capture()
+    for n, f in enumerate(CARD_FRAMES, 1):
+        snap = os.path.join(CARD_DIR, "f%06d" % f)
+        layers = os.path.join(CARD_DIR, "l%d" % f)
+        if not os.path.exists(os.path.join(layers, "bg1.png")):
+            import subprocess
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ppu_render.py"), snap, "-o",
+                            os.path.join(CARD_DIR, "c%d.png" % f), "--layers", layers], check=True)
+        win = Image.open(os.path.join(layers, "bg1.png")).convert("RGBA").crop(CARD_WINDOW)
+        x0, y0, x1, y1 = CARD_DRAWING
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                win.putpixel((x, y), (0, 0, 0, 255))
+        win.save(os.path.join(outdir, "card_window_%d.png" % n))
+    # the BEST SCORE window of SELECT's card (course 1's colours for every
+    # course: only course 1's is captured), its drawing blanked as well
+    card_select_capture()
+    sel = os.path.join(CARD_SELECT_DIR, "f%06d" % CARD_SELECT_FRAME)
+    layers = os.path.join(CARD_SELECT_DIR, "layers")
+    if not os.path.exists(os.path.join(layers, "bg1.png")):
+        import subprocess
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ppu_render.py"), sel, "-o",
+                        os.path.join(CARD_SELECT_DIR, "select.png"), "--layers", layers], check=True)
+    best = Image.open(os.path.join(layers, "bg1.png")).convert("RGBA").crop(CARD_BEST)
+    x0, y0, x1, y1 = CARD_DRAWING
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            best.putpixel((x, y), (0, 0, 0, 255))
+    best.save(os.path.join(outdir, "card_best.png"))
+    snap = P.Snapshot(os.path.join(CARD_HIO_DIR, "f%06d" % CARD_HIO_FRAME))
+
+    def tile(t, pal):
+        pix = P.tile_at(snap, 4, P.obj_tile_word(snap, t, 0, 0))
+        idx = np.where(pix > 0, 128 + pal * 16 + pix, 0)
+        rgb = (snap.cgram5[idx] * 255 // 31).astype(np.uint8)
+        a = np.where(pix > 0, 255, 0).astype(np.uint8)
+        return Image.fromarray(np.dstack([rgb, a]), "RGBA")
+    sheet = Image.new("RGBA", (8 * 11, 16), (0, 0, 0, 0))
+    for k in range(10):                    # "1".."9", then "0"
+        sheet.paste(tile(0x80 + k, 0), (8 * k, 0))
+        sheet.paste(tile(0x90 + k, 0), (8 * k, 8))
+    sheet.paste(tile(0x05, 2), (80, 0))
+    sheet.save(os.path.join(outdir, "card_digits.png"))
+    # $83:CF08: X = $83:CD82[k] (the low byte: x), Y = the word at $83:CD93 + 2k,
+    # whose high byte is y ($83:CF26 XBA); the total: $83:CD92 and $83:CDA4
+    d = load_rom()
+    xs = rom_words(d, 0x83, 0xCD82, 9)
+    ys = [(v >> 8) & 0xFF for v in rom_words(d, 0x83, 0xCD93, 8)]
+    ty = rom_words(d, 0x83, 0xCDA4, 1)[0] & 0xFF
+    info = {"window": {"at": [CARD_WINDOW[0], CARD_WINDOW[1]], "size": [CARD_WINDOW[2] - CARD_WINDOW[0],
+                                                                         CARD_WINDOW[3] - CARD_WINDOW[1]]},
+            "holes": [[xs[k] & 0xFF, ys[k]] for k in range(8)], "total": [xs[8] & 0xFF, ty],
+            "best": {"at": [CARD_BEST[0], CARD_BEST[1]], "dx": -120},
+            "digits": {"image": "card_digits.png", "w": 8, "h": 16,
+                       "about": "cell k is the digit k + 1, cell 9 the 0, cell 10 the star (its 8 x 8 top)"},
+            "about": "$83:D081 draws a number at (x, y): its top tile at (x - 4, y - 8); tens 9 px left; "
+                     "the 1-stroke star at (x - 34, y - 4); window at `at` (screen pixels)"}
+    write_json(os.path.join(outdir, "card.json"), info, compact=False)
     return info
 
 
@@ -782,6 +1457,23 @@ def write_json(path, obj, compact=True):
             json.dump(obj, f, indent=1)
 
 
+def manifest_courses(out):
+    """The exported ROM holes under <out>/holes/NNN (course.json), grouped by
+    course (index // 8) in index order: [{course, holes: [{index, name, dir}]}]."""
+    root = os.path.join(out, "holes")
+    by = {}
+    for dname in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        path = os.path.join(root, dname, "course.json")
+        if not os.path.exists(path):
+            continue
+        with open(path) as f:
+            c = json.load(f)
+        by.setdefault(c["index"] // 8, []).append(
+            {"index": c["index"], "name": c["name"], "dir": "holes/" + dname})
+    return [{"course": k, "holes": sorted(v, key=lambda h: h["index"])}
+            for k, v in sorted(by.items())]
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -825,6 +1517,8 @@ def main():
         print("audio: {}".format(build_audio(args.out)))
     if "hud" in steps:
         print("hud: {}".format(build_hud(args.out)))
+    if "card" in steps:
+        print("card:", build_card(args.out))
     if "sprites" in steps:
         import export_web_sprites
         print("sprites: {}".format(export_web_sprites.build(args.out)))
@@ -843,7 +1537,7 @@ def main():
         files = sorted(f for f in os.listdir(args.out) if f != "manifest.json")
         write_json(os.path.join(args.out, "manifest.json"), {
             "exporter": VERSION, "hole": args.hole, "romSha1": EXPECTED_SHA1,
-            "files": files}, compact=False)
+            "files": files, "courses": manifest_courses(args.out)}, compact=False)
     return 0
 
 

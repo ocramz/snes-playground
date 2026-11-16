@@ -7,7 +7,7 @@
  */
 import type { World } from 'koota';
 import type { RomRules } from '../core/rules';
-import type { AtlasJson, AudioJson, CutscenesJson, HudJson, UiJson } from './assets/schema';
+import type { AtlasJson, AudioJson, CardJson, CutscenesJson, HudJson, UiJson } from './assets/schema';
 import type { CourseSet } from './assets/course-sets';
 import type { AudioPlayer } from './features/audio/audio-player';
 import type { Difficulty, GeneratedHole } from '../core/gen/generate';
@@ -18,6 +18,7 @@ export interface LoadedAssets {
   objects: AtlasJson | null;
   ui: UiJson | null;
   hud: HudJson | null;
+  card: CardJson | null;
   audio: AudioJson | null;
   cutscenes: CutscenesJson | null;
   /** The course art's exemplar patches (tools/terrain_style.py), for holes without bitmaps. */
@@ -31,6 +32,8 @@ export interface Flags {
   debug: boolean;
   /** ?hole=N: start the chosen course at its hole N (1-based), for debugging. */
   hole: number | null;
+  /** ?course=N: start ROM course N (1-based) straight from the menu. */
+  course: number | null;
   /** random.html ?seed=N: the random course's seed (decimal, or 0x hex). */
   seed: number | null;
   /** random.html ?difficulty=easy|normal|hard (or 0-2). */
@@ -62,10 +65,12 @@ export interface Host {
 export function readFlags(search: string): Flags {
   const q = new URLSearchParams(search);
   const hole = Number(q.get('hole'));
+  const course = Number(q.get('course'));
   return {
     nointro: q.has('nointro'),
     debug: q.has('debug'),
     hole: Number.isInteger(hole) && hole > 0 ? hole : null,
+    course: Number.isInteger(course) && course > 0 ? course : null,
     seed: parseSeed(q.get('seed')),
     difficulty: parseDifficulty(q.get('difficulty')),
   };

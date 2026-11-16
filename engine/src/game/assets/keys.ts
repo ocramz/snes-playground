@@ -24,6 +24,7 @@ export const Json = {
   objects: 'json:objects',
   ui: 'json:ui',
   hud: 'json:hud',
+  card: 'json:card',
   audio: 'json:audio',
   cutscenes: 'json:cutscenes',
   terrainStyle: 'json:terrain-style',
@@ -37,7 +38,20 @@ export const Tex = {
   font: 'tex:font',
   hudPanel: 'tex:hud-panel',
   hudTomato: 'tex:hud-tomato',
+  hudAbility: 'tex:hud-ability',
+  pauseWindow: 'tex:pause-window',
+  pauseCursor: 'tex:pause-cursor',
+  lookUp: 'tex:look-up',
+  lookRight: 'tex:look-right',
+  lookDown: 'tex:look-down',
+  lookLeft: 'tex:look-left',
+  cardDigits: 'tex:card-digits',
+  cardBest: 'tex:card-best',
+  /** The RESULT card's window of course n (1-8). */
+  cardWindow: (n: number): string => `tex:card-window-${n}`,
   terrainStyle: 'tex:terrain-style',
+  /** Course 1's BG3 scenery (holes/000/layer_bg3.png), behind the holes without bitmaps. */
+  scenery: 'tex:scenery',
 } as const;
 
 /** The bitmap font made from font.png (features/text/font.ts). */
@@ -56,6 +70,17 @@ export const AssetUrl = {
   hud: `${BASE}assets/hud.json`,
   hudPanel: `${BASE}assets/hud_panel.png`,
   hudTomato: `${BASE}assets/hud_tomato.png`,
+  hudAbility: `${BASE}assets/hud_ability.png`,
+  pauseWindow: `${BASE}assets/pause_window.png`,
+  pauseCursor: `${BASE}assets/pause_cursor.png`,
+  lookUp: `${BASE}assets/look_up.png`,
+  lookRight: `${BASE}assets/look_right.png`,
+  lookDown: `${BASE}assets/look_down.png`,
+  lookLeft: `${BASE}assets/look_left.png`,
+  card: `${BASE}assets/card.json`,
+  cardDigits: `${BASE}assets/card_digits.png`,
+  cardBest: `${BASE}assets/card_best.png`,
+  cardWindow: (n: number): string => `${BASE}assets/card_window_${n}.png`,
   font: `${BASE}assets/font.png`,
   audio: `${BASE}assets/audio.json`,
   terrainStyle: `${BASE}assets/terrain_style.json`,
@@ -67,20 +92,25 @@ export function assetUrl(file: string): string {
   return `${BASE}assets/${file}`;
 }
 
-/** The shipped ROM holes: course 1, holes 0-7, under assets/holes/0N. */
-export const ROM_HOLES = 8;
-
-export function holeJsonKey(hole: number, which: 'course' | 'layers'): string {
-  return `hole${hole}:${which}`;
+/**
+ * The shipped ROM holes are keyed by their ROM index (course * 8 + hole,
+ * `$82:B0A4`), under assets/holes/NNN; manifest.json lists them by course.
+ */
+export function holeDir(index: number): string {
+  return `holes/${String(index).padStart(3, '0')}`;
 }
 
-/** A layer bitmap's texture key, by its file name (layer_back.png -> hole0:layer_back). */
-export function holeTexKey(hole: number, file: string): string {
-  return `hole${hole}:${file.replace(/\.png$/, '')}`;
+export function holeJsonKey(index: number, which: 'course' | 'layers'): string {
+  return `hole${index}:${which}`;
 }
 
-export function holeUrl(hole: number, file: string): string {
-  return `${BASE}assets/holes/0${hole}/${file}`;
+/** A layer bitmap's texture key, by its file name (layer_back.png -> hole17:layer_back). */
+export function holeTexKey(index: number, file: string): string {
+  return `hole${index}:${file.replace(/\.png$/, '')}`;
+}
+
+export function holeUrl(index: number, file: string): string {
+  return `${BASE}assets/${holeDir(index)}/${file}`;
 }
 
 /** Audio keys: effects by their decimal number, songs by n. */

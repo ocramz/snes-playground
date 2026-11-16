@@ -17,13 +17,18 @@ import type { World } from 'koota';
 import {
   Tomatoes, TomatoQueue, Career, type TomatoQueueState, TOMATO_MAX, TOMATO_QUEUE_FRAMES, TOMATO_HUD_HIDE, LIVES_MAX,
 } from '../traits/counters';
-import { BallWork } from '../traits/ball';
+import { findActivePlayer } from '../traits/player';
+import { ScorePanel } from '../traits/aim-ui';
+import { showPanel, hidePanel } from './aim-ui';
 import { emitEvent } from './flow-util';
 import { tickHazards } from './actors';
-
-function player(world: World): import('koota').Entity | undefined {
-  return world.queryFirst(BallWork);
-}
+import { tickBoostHum } from './boost-hum';
+import { tickSnapTrail } from './snap-trail';
+import { tickWaterFx } from './water-fx';
+import { tickSwitches } from './switches';
+import { kirbyScripts } from './pose';
+import { abilityThreads } from './ability';
+import { tickAbilityHud, tickAbilityColours, tickAbilityObjects, tickKirbyScriptColours } from './ability-fx';
 
 /** `$83:ABC5` (delta -1) / `$83:ABAD` (+1): queue a tomato change. */
 export function pushTomato(world: World, delta: 1 | -1): void {
@@ -34,7 +39,7 @@ export function pushTomato(world: World, delta: 1 | -1): void {
 
 /** `$83:ABDD`'s two halves: apply a change now (sfx only when it lands). */
 export function changeTomatoes(world: World, delta: 1 | -1): void {
-  const e = player(world);
+  const e = findActivePlayer(world);
   if (e === undefined) return;
   const n = e.get(Tomatoes)!.n;
   if (delta > 0) {
@@ -50,25 +55,48 @@ export function changeTomatoes(world: World, delta: 1 | -1): void {
 
 /**
  * The thread scheduler's tick at the frame's end: the HUD thread (the
- * tomato queue) and the hazard actors. Not in a frame the cup reveal's
- * decompression wait holds it.
+ * tomato queue), the hazard actors, object 112's hum (boost-hum.ts) and the
+ * snap panels' stars, objects 61 and 62 (snap-trail.ts), and the water's
+ * splashes and bubbles, objects 53-58 and 67 (water-fx.ts), and the switches'
+ * and the swirls' objects 113, 117, 118 and 127 (switches.ts). Not in a frame the
+ * cup reveal's decompression wait holds it.
  */
 export function threadTick(world: World, ctx: import('../sim/context').Ctx): void {
   const q = world.get(TomatoQueue)!;
   if (q.hold > 0) {
+    // the reveal's decompression holds the threads; the HUD thread's tick
+    // before it took a waiting entry already (web_flow: the score panel at
+    // 3246, the +1 at 3270), so the take is made here, its count one longer
+    // (port_v2 phase 7)
+    if (q.pending === null && q.entries.length > 0 && world.get(ScorePanel)!.hudOn !== 0) {
+      takeEntry(world, q);
+      q.timer += 1;
+    }
     q.hold -= 1;
     return;
   }
   applyTomatoQueue(world);
+  tickAbilityHud(world, ctx); // the HUD object's draw ($84:99FA): list 4's first
+  abilityThreads(world);
+  tickAbilityObjects(world, ctx, 4);
+  tickAbilityColours(world, ctx);
+  tickAbilityObjects(world, ctx, 6);
+  kirbyScripts(world);
+  tickKirbyScriptColours(world, ctx);
   tickHazards(world, ctx);
+  tickBoostHum(world);
+  tickSnapTrail(world, ctx);
+  tickWaterFx(world, ctx);
+  tickSwitches(world, ctx);
 }
 
-/** The HUD thread takes the next entry: 20 ticks to its change. */
-function takeEntry(q: TomatoQueueState): void {
+/** The HUD thread takes the next entry: 20 ticks to its change; the score panel shows ($84:9928 -> $83:AF44). */
+function takeEntry(world: World, q: TomatoQueueState): void {
   q.pending = q.entries.shift()!;
   q.timer = TOMATO_QUEUE_FRAMES;
   q.visible = true; // $84:9925
   q.hideTimer = -1;
+  showPanel(world);
 }
 
 /**
@@ -78,10 +106,12 @@ function takeEntry(q: TomatoQueueState): void {
  * queued changes land 20 ticks apart (web_haz98: 2474, 2494).
  */
 export function applyTomatoQueue(world: World): void {
+  // $84:98F2: the thread waits while $691A is 0 (the pause, the B preset, a silent hide)
+  if (world.get(ScorePanel)!.hudOn === 0) return;
   const q = world.get(TomatoQueue)!;
   if (q.pending === null) {
     if (q.entries.length > 0) {
-      takeEntry(q);
+      takeEntry(world, q);
       return;
     }
     if (q.hideTimer > 0) {
@@ -89,6 +119,7 @@ export function applyTomatoQueue(world: World): void {
       if (q.hideTimer === 0) {
         q.visible = false; // $84:9990
         q.hideTimer = -1;
+        hidePanel(world); // $84:9993
       }
     }
     return;
@@ -100,16 +131,17 @@ export function applyTomatoQueue(world: World): void {
   q.applied += 1;
   q.hideTimer = TOMATO_HUD_HIDE;
   changeTomatoes(world, d > 0 ? 1 : -1);
-  if (q.entries.length > 0) takeEntry(q);
+  showPanel(world); // $84:9943
+  if (q.entries.length > 0) takeEntry(world, q);
 }
 
 export function setTomatoes(world: World, n: number): void {
-  const e = player(world);
+  const e = findActivePlayer(world);
   if (e !== undefined) e.set(Tomatoes, { n });
 }
 
 export function tomatoes(world: World): number {
-  const e = player(world);
+  const e = findActivePlayer(world);
   return e === undefined ? 0 : e.get(Tomatoes)!.n;
 }
 

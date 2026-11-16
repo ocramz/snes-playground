@@ -12,6 +12,8 @@ export interface TablesJson {
   zUnit: number;
   consts: Record<string, { source: string; value: number }>;
   outlineWalk: { about: string; values: number[] };
+  /** Object 111's second colour, BG palette 7 colour 1 (absent from older exports). */
+  glowWalk?: { about: string; stepFrames: number; values: number[] };
   [key: string]: unknown;
 }
 
@@ -28,18 +30,21 @@ export class RomRules {
   readonly consts = new Map<string, number>();
   /** The outline pulse order into outlineColours (emulated, 3 frames/step). */
   readonly outlineWalk: number[];
+  /** Object 111's hook $84:81B7: the order into glowColours and its step (emulated). */
+  readonly glowWalk: { stepFrames: number; values: number[] } | null;
   private readonly tables = new Map<string, Int32Array>();
   private readonly sources = new Map<string, string>();
 
   constructor(json: TablesJson) {
     this.zUnit = json.zUnit;
     this.outlineWalk = json.outlineWalk.values;
+    this.glowWalk = json.glowWalk ? { stepFrames: json.glowWalk.stepFrames, values: json.glowWalk.values } : null;
     for (const [key, c] of Object.entries(json.consts)) this.consts.set(key, c.value);
     if (Array.isArray(json.dispatchHandlers)) {
       this.setDispatchHandlers(json.dispatchHandlers as Array<{ id: number; name: string }>);
     }
     for (const [key, v] of Object.entries(json)) {
-      if (key === 'about' || key === 'zUnit' || key === 'consts' || key === 'outlineWalk') continue;
+      if (key === 'about' || key === 'zUnit' || key === 'consts' || key === 'outlineWalk' || key === 'glowWalk') continue;
       const t = v as RawTable;
       this.tables.set(key, Int32Array.from(t.values));
       this.sources.set(key, t.source);

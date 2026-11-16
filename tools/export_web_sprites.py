@@ -32,6 +32,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+from lorom import snes_to_file  # noqa: E402
+
 STEPPER = os.path.join(ROOT, "build", "snesstep", "release", "snesstep")
 # `python3 tools/snesstep/autoplay.py --course 0` writes build/emu/autoplay/course1
 # (a replay of course 1 played by the game's own rules); c1n is an older run of it.
@@ -40,6 +42,9 @@ REPLAY_DIR = next((d for d in (os.path.join(ROOT, "build", "emu", "autoplay", n)
                    if os.path.exists(os.path.join(d, "pokes.txt"))),
                   os.path.join(ROOT, "build", "emu", "autoplay", "course1"))
 SNAP_DIR = os.path.join(ROOT, "build", "emu", "web_hole0")
+# Every enemy species' idle clip, recorded by tools/snesstep/trace_enemies.py
+# (optional: without it only the hole-1 sheet's $4C clip is exported).
+SPECIES_DIR = os.path.join(ROOT, "build", "sprites", "enemies")
 SHEET_DIR = os.path.join(ROOT, "build", "web-sprites")
 KIRBY_CLIPS = os.path.join(ROOT, "build", "sprites", "kirby", "clips")
 
@@ -53,7 +58,11 @@ KIRBY_CLIP_NAMES = (
     "tired_health",
     # the engine's asleep (pose 3, object $BE stands in) and hazard poses
     # (49 dizzy after a bumper, 40 the volcano's throw), engine/ phase 7
-    "fall_asleep", "dizzy", "hit_burn_")
+    "fall_asleep", "dizzy", "hit_burn_",
+    # the copy abilities (port_v2 phase 5): the transformation (state 8, by
+    # the ability), the ability's poses (20-39) and the plain ball (50)
+    "ability_gained_", "stone_", "fireball_", "needle_", "hijump_", "wheel_",
+    "parasol_", "tornado_", "freeze_", "ufo", "ball_plain")
 
 
 # --------------------------------------------------------------------------
@@ -177,6 +186,11 @@ def build(outdir):
             img = Image.open(os.path.join(KIRBY_CLIPS, fr["png"])).convert("RGBA")
             key = "k_" + os.path.splitext(os.path.basename(fr["png"]))[0]
             atlas.add(key, img, -fr["x"], -fr["y"], trim=False)
+            # in the water: OBJ palette 0 colours 2-8 from $98:C796 (kirbyanim.py
+            # `png_wet`); the view picks `<key>_w` while Kirby's palette is wet
+            if fr.get("png_wet"):
+                wet = Image.open(os.path.join(KIRBY_CLIPS, fr["png_wet"])).convert("RGBA")
+                atlas.add(key + "_w", wet, -fr["x"], -fr["y"], trim=False)
             seq.append({"f": key, "d": max(1, int(fr["duration"]))})
         clips[name] = {"frames": seq, "loop": bool(clip["loop"]),
                        "loopStart": clip["loop_start"] or 0,
@@ -203,6 +217,22 @@ def build(outdir):
         img, ox, oy = enemy[16 + i]
         seq.append({"f": atlas.add("cuphole_%d" % i, img, ox, oy), "d": d})
     clips["cup_open"] = {"frames": seq, "loop": False, "loopStart": 0, "next": None}
+
+    # ---- every species' idle clip -----------------------------------------
+    # enemy_XX_idle and its frames enemy_XX_i, XX the species' tile ($40-$4F,
+    # $57; $50-$52 draw as $4D-$4F). The star and the cup's opening above are
+    # the same for every species (one picture per list over all 232 holes).
+    species = os.path.join(SPECIES_DIR, "species.json")
+    if os.path.exists(species):
+        with open(species) as f:
+            for tile, e in sorted(json.load(f)["species"].items()):
+                names = []
+                for i, p in enumerate(e["pictures"]):
+                    img = Image.open(os.path.join(SPECIES_DIR, p["png"])).convert("RGBA")
+                    names.append(atlas.add("enemy_{}_{}".format(tile, i), img, p["ox"], p["oy"]))
+                clips["enemy_{}_idle".format(tile)] = {
+                    "frames": [{"f": names[k], "d": d} for k, d in e["frames"]],
+                    "loop": True, "loopStart": 0, "next": None}
 
     ring = sheet_frames(os.path.join(SHEET_DIR, "obj_074"))
     atlas.add("cupring", *ring[0])
@@ -251,15 +281,94 @@ def build(outdir):
 
 
 # --------------------------------------------------------------------------
-# The hazard actors' pictures, for the engine (tools/export_web.py --only objects)
+# The thread objects' pictures, for the engine (tools/export_web.py --only objects)
 
 OBJECT_SHEETS = os.path.join(ROOT, "build", "sprites", "emu")
 # The bumpers 76 (rides its track) and 77 (bobs), the volcanoes 81-83
 # (docs/tiles.md; engine/src/core/sim/actors.ts). actors.tsv rates all five
 # actor ids a "match" for these types. 63 and 64 are the warp's: Kirby curls
 # up and bursts into stars at the warp he went into, stars and a flash where
-# he comes out ($82:AAE5, $82:AB6E; engine/src/core/systems/warp.ts).
-OBJECT_TYPES = (63, 64, 76, 77, 81, 82, 83)
+# he comes out ($82:AAE5, $82:AB6E; engine/src/core/systems/warp.ts). 62 is
+# the star the snap panels trail behind the ball, four at a time (object 61's
+# bursts, $85:CF4E; engine/src/core/sim/snap-stars.ts): table $89:9485,
+# indices 0-4. (obj_061.json is no picture of 61's: it never draws, and the
+# sheet caught a stale $5E1C in its slot.)
+# The copy abilities' drawn objects (port_v2 phase 5; engine/src/core/sim/
+# ability-fx.ts), from the DEMOPLAY demos' sheets (docs/tooling.md, the
+# demos' pickle): 21 the transformation ($89:93BF), 27 Freeze's frost
+# ($89:93AB), 28 Stone's dust ($89:9475), 31 Fireball's smoke ($89:942D),
+# 32 its flames ($89:93E9), 33 Tornado's whirl ($89:938B), 35 Hi-Jump's
+# trail ($89:9485), 37 Spark's aura ($89:948F), 39 its sparks ($89:94AF),
+# 49 the UFO's body ($89:94C7), 52 the parasol's puff ($89:9381), 65 and 66
+# Wheel's water ($89:951F). 34, 42-45 and 60 were never seen on screen.
+OBJECT_TYPES = (21, 27, 28, 31, 32, 33, 35, 37, 39, 49, 52, 62, 63, 64, 65, 66, 76, 77, 81, 82, 83)
+
+
+# The water (port_v2 phase 4; docs/animation.md "The water's objects"): the
+# splashes 53-58 (frame table $89:94DB) and the bubbles 67 ($89:952B), drawn
+# here from the ROM's frame lists with a snapshot of web_water_shot (course 1
+# hole 7): the first shot in the air before the pond (2740). They use OBJ
+# palette 0, Kirby's, but only its colours 8-15, which the water's swap
+# (2-6 on screen, kirbyanim.py `wet_palettes`) leaves alone: drawn with the
+# wet snapshot (2850) they are the same pixels. The aim's OBJ page holds other
+# tiles where theirs are while the ball rolls (the shot panel's). Every frame
+# drawn is one emusheets saw on screen (build/sprites/emu/obj_053-058, 067).
+# The guide's pictures from the water ($81:ACDB / $81:ACF6 / $81:ADF6 with
+# $D9EE set) do use colours 2-6: export_web_ui.py draws them from the aim in
+# the pond (3000).
+WATER_REF = os.path.join(ROOT, "build", "emu", "water_ref")
+WATER_REF_DRY, WATER_REF_WET, WATER_REF_AIM = 2740, 2850, 3000
+WATER_OBJECTS = {53: (0x94DB, (3, 5)), 54: (0x94DB, (3, 4, 5)), 55: (0x94DB, (0, 1, 3)),
+                 56: (0x94DB, (0, 1, 2, 3)), 57: (0x94DB, (0, 1, 2, 3)),
+                 58: (0x94DB, (6, 7, 8, 9, 10, 11, 12)), 67: (0x952B, (0, 1, 2, 3))}
+
+
+def water_ref_snapshot(frame):
+    """The snapshot of web_water_shot at `frame` (made once, build/emu/water_ref)."""
+    import emusheets
+    path = os.path.join(WATER_REF, "f%06d" % frame)
+    if not os.path.isdir(path):
+        inputs = os.path.join(HERE, "snesstep", "inputs")
+        subprocess.run([STEPPER, "--frames", str(WATER_REF_AIM + 1),
+                        "--input", os.path.join(inputs, "web_water_shot.txt"),
+                        "--pokes", os.path.join(inputs, "web_water_shot.pokes"),
+                        "--snap-at", "{},{},{}".format(WATER_REF_DRY, WATER_REF_WET, WATER_REF_AIM),
+                        "--no-dsp", "--quiet", "--out", WATER_REF], check=True)
+    return emusheets.load_snapshot(path)
+
+
+def draw_list(snap, addr):
+    """One frame list of bank $89 drawn with a snapshot's OBJ page and CGRAM:
+    (image, ox, oy), the origin inside the image as sheet_frames gives it."""
+    import emusheets
+    import objsheets
+    import sprites
+    from romcheck import load_rom
+    rom = load_rom()
+    parts = objsheets.frame_parts(rom, addr)
+    box = sprites.frame_bbox(parts)
+    tiles = emusheets.obj_tiles(snap)
+    img = objsheets.draw(parts, {t: tiles[t] for t in objsheets.tiles_of(parts)},
+                         emusheets.obj_palettes(snap["cgram"]), box)
+    return img, -box[0], -box[1]
+
+
+def water_objects(atlas, objects):
+    """The water's objects into the objects atlas, `oTTT_0_II` as the sheets'."""
+    from romcheck import load_rom
+    rom = load_rom()
+    snap = water_ref_snapshot(WATER_REF_DRY)
+    for t, (table, indices) in WATER_OBJECTS.items():
+        frames = []
+        for i in indices:
+            off = snes_to_file(0x89, table + 2 * i)
+            addr = rom[off] | rom[off + 1] << 8
+            while len(frames) <= i:
+                frames.append(None)
+            img, ox, oy = draw_list(snap, addr)
+            frames[i] = atlas.add("o%03d_0_%02d" % (t, i), img, ox, oy, trim=False)
+        objects[str(t)] = {"tables": ["$89:%04X" % table], "frames": [frames],
+                           "source": "ROM frame lists, build/emu/water_ref"}
 
 
 def build_objects(outdir):
@@ -293,6 +402,8 @@ def build_objects(outdir):
             row[f["index"]] = atlas.add("o%03d_%d_%02d" % (t, k, f["index"]), img, ox, oy)
         objects[str(t)] = {"tables": tables, "frames": frames,
                            "source": os.path.relpath(stem + ".json", ROOT)}
+    if os.path.exists(STEPPER):
+        water_objects(atlas, objects)
     if not objects:
         return None
     sheet, packed = atlas.pack()
@@ -450,3 +561,89 @@ if __name__ == "__main__":
     out = os.path.join(ROOT, "build", "web")
     os.makedirs(out, exist_ok=True)
     print(build(out))
+
+
+# --------------------------------------------------------------------------
+# The HUD's ability icon (port_v2 phase 5; engine core/systems/ability-fx.ts
+# `hudIcon`, game/features/hud): the HUD object's draw ($84:99FA) uploads a
+# picture's 16 tiles to OBJ tiles $1A0-$1A7/$1B0-$1B7 ($84:9B88 -> $80:8696,
+# a descriptor in bank $84: [flag][size][source, 3 bytes][VRAM word]..., $FF)
+# and draws the frame list $89:9092 at screen (36, 195): four 16x16 parts,
+# $1A0 at (-16, -16), $1A2 (0, -16), $1A4 (-16, 0), $1A6 (0, 0), OBJ palette
+# 1. Its colour 9 is the icon's ground, which the draw cycles (`iconGround`):
+# each picture is cut in two, the picture without colour 9 and colour 9 alone
+# in white for the view to tint. The palette is a snapshot's: web_demo12 at
+# 2120, the Fireball icon up with B available.
+ICON_REF = os.path.join(ROOT, "build", "emu", "icon_ref")
+ICON_REF_FRAME = 2120
+ICON_AT = (20, 179)  # the 32 x 32 icon's top-left on the 256 x 224 screen
+ICON_GROUND = 9
+
+
+def icon_descriptors(d):
+    """{descriptor: [(source file offset, VRAM word)]} of every picture the icon shows:
+    the stock's ($84:9E07, 0-11), Kirby standing ($84:9E67), the face ($84:9E78), the
+    UFO countdown's digits ($84:A584, player 1's)."""
+    def words(addr, n):
+        o = snes_to_file(0x84, addr)
+        return [d[o + 2 * i] | d[o + 2 * i + 1] << 8 for i in range(n)]
+    descs = sorted(set(words(0x9E07, 24)) | {0x9E67, 0x9E78} | set(words(0xA584, 20)[0::2]))
+    out = {}
+    for desc in descs:
+        o = snes_to_file(0x84, desc)
+        parts = []
+        while d[o] != 0xFF:
+            size = d[o + 1] | d[o + 2] << 8
+            src = d[o + 3] | d[o + 4] << 8 | d[o + 5] << 16
+            dest = d[o + 6] | d[o + 7] << 8
+            assert size == 0x100 and dest in (0x7A00, 0x7B00), "icon descriptor ${:04X}".format(desc)
+            parts.append((snes_to_file(src >> 16, src & 0xFFFF), dest))
+            o += 8
+        out[desc] = parts
+    return out
+
+
+def build_icons(outdir):
+    """hud_ability.png + the `ability` entry of hud.json: every icon picture
+    and its ground, in 32 x 32 cells (row 0 the pictures, row 1 the grounds),
+    by descriptor."""
+    import emusheets
+    from PIL import Image
+    from romcheck import load_rom
+    from tiles import decode_tiles, snes_color
+    if not os.path.exists(STEPPER):
+        return None
+    path = os.path.join(ICON_REF, "f%06d" % ICON_REF_FRAME)
+    if not os.path.isdir(path):
+        inputs = os.path.join(HERE, "snesstep", "inputs")
+        subprocess.run([STEPPER, "--frames", str(ICON_REF_FRAME + 1),
+                        "--input", os.path.join(inputs, "web_demo12.txt"),
+                        "--snap-at", str(ICON_REF_FRAME), "--no-dsp", "--quiet", "--out", ICON_REF], check=True)
+    cg = emusheets.load_snapshot(path)["cgram"]
+    pal = [snes_color(cg[2 * (144 + i)] | cg[2 * (144 + i) + 1] << 8) for i in range(16)]
+    d = load_rom()
+    d = d.d if hasattr(d, "d") else d
+    descs = icon_descriptors(d)
+    sheet = Image.new("RGBA", (32 * len(descs), 64), (0, 0, 0, 0))
+    cells = {}
+    for k, (desc, parts) in enumerate(sorted(descs.items())):
+        rows = {dest: decode_tiles(d[off:off + 0x100], 4) for off, dest in parts}
+        top, bottom = rows[0x7A00], rows[0x7B00]
+        for p, (n, ox, oy) in enumerate(((0, 0, 0), (2, 16, 0), (4, 0, 16), (6, 16, 16))):
+            for t, (tiles, tx, ty) in enumerate(((top, 0, 0), (top, 8, 0), (bottom, 0, 8), (bottom, 8, 8))):
+                tile = tiles[n + (t & 1)]
+                for y in range(8):
+                    for x in range(8):
+                        i = tile[y][x]
+                        if i == 0:
+                            continue
+                        X, Y = 32 * k + ox + tx + x, oy + ty + y
+                        if i == ICON_GROUND:
+                            sheet.putpixel((X, 32 + Y), (255, 255, 255, 255))
+                        else:
+                            sheet.putpixel((X, Y), pal[i] + (255,))
+        cells["{:04X}".format(desc)] = k
+    sheet.save(os.path.join(outdir, "hud_ability.png"))
+    return {"image": "hud_ability.png", "at": list(ICON_AT), "cell": 32, "cells": cells,
+            "about": "the icon's pictures by upload descriptor (hex): column k of row 0, "
+                     "and its ground (colour 9, white: the view tints it) in row 1"}

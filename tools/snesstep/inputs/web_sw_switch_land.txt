@@ -1,0 +1,19 @@
+# Course 4 hole 2 (index 25, MAP31): the toggles' switch $5A at (8,6), landed
+# on (port_v2 phase 6). The hole loads with $6A2A = 0 ($5A and no $5B), so its
+# three $74 swirls are off. At the roll's first frame a poke drops the ball
+# over (8,6), vz -$800: it lands inside the gate ($82:A1B1: $6A2A 0 -> 1, sfx
+# $6B) with a hit-stop, bounces, and clears the latch leaving the gate in the
+# air (the land side runs every airborne frame).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

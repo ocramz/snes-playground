@@ -1,7 +1,8 @@
 /**
  * The hole's entities (plans phase 6 §2): the load-time actor sweep
- * ($82:B320) against the exporter's lists, the hole root's teardown, and
- * what web_flow's two takes leave behind (the stars, the owners, the cup).
+ * ($82:B320) against the exporter's lists, the hole root's teardown, the
+ * one player entity that outlives it, and what web_flow's two takes leave
+ * behind (the stars, the owners, the cup).
  */
 import { describe, expect, it } from 'vitest';
 import { $internal } from 'koota';
@@ -9,13 +10,13 @@ import { RomRules } from '../src/core/rules';
 import { fromRomCourse } from '../src/core/course-data';
 import { sweepActors } from '../src/core/sweep';
 import { createGameWorld } from '../src/core/world';
-import { startCourse, startHole, nextHole } from '../src/core/actions';
+import { startCourse, startHole, nextHole, endGame, continueGame } from '../src/core/actions';
 import { InHole, IsHole, IsEnemy, IsCup, Cell, TakenBy, EnemyKind, IsPillar, IsTee } from '../src/core/traits/hole';
 import { Visual } from '../src/core/traits/visual';
 import { Course, courseEntity } from '../src/core/traits/course';
 import { Shot } from '../src/core/traits/shot';
 import { Stars, Tomatoes, Strokes } from '../src/core/traits/counters';
-import { BallWork } from '../src/core/traits/ball';
+import { IsPlayer, IsActivePlayer, activePlayer, findActivePlayer } from '../src/core/traits/player';
 import { HoleFlow } from '../src/core/traits/flow';
 import { runFlowScript } from './flow-harness';
 import { haveRules, haveRomTest, loadRomCourse, loadRomHole, loadTables } from './fixtures';
@@ -72,10 +73,28 @@ describe.skipIf(!haveRules || !haveRomTest)('the hole entities', () => {
     expect(world.get(HoleFlow)!.phase).toBe('ShotSetup');
   });
 
+  it('one player, the active one, from the first startCourse through GAME END and CONTINUE', () => {
+    const world = createGameWorld();
+    expect(findActivePlayer(world)).toBeUndefined();
+    const c0 = fromRomCourse(loadRomCourse());
+    startCourse(world, rules, [c0, c0]);
+    const p = activePlayer(world);
+    expect([...world.query(IsPlayer)]).toEqual([p]);
+    expect([...world.query(IsActivePlayer)]).toEqual([p]);
+    nextHole(world);
+    expect(activePlayer(world)).toBe(p);
+    endGame(world); // the hole root goes; the player is not under it
+    expect(findActivePlayer(world)).toBe(p);
+    continueGame(world);
+    expect([...world.query(IsPlayer)]).toEqual([p]);
+    expect(activePlayer(world)).toBe(p);
+    world.destroy();
+  });
+
   it("web_flow's takes: two stars, the owners, and (6,5) turned into the cup", () => {
     const run = runFlowScript('web_flow', 3530 - 2332);
     const w = run.world;
-    const player = w.queryFirst(BallWork)!;
+    const player = activePlayer(w);
     expect(player.get(Stars)!.n).toBe(2);
     expect(player.get(Tomatoes)!.n).toBe(4); // 4 - 1 + 1, then the second +1 is capped
     expect(player.get(Strokes)!.n).toBe(3); // the second set-up

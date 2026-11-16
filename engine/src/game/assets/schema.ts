@@ -73,7 +73,8 @@ export interface UiJson {
   gauge: Record<string, UiPart[]>;
   /** By meter value: the face's 9 tiles. */
   faces: Record<string, UiPart[]>;
-  guide: { dot: string; cone: string; note: string };
+  /** dotWet / coneWet: the pictures from the water (absent from older exports). */
+  guide: { dot: string; cone: string; note: string; dotWet?: string; coneWet?: string };
   timing: {
     one: number;
     panel: number;
@@ -84,6 +85,23 @@ export interface UiJson {
     meterStart: number;
   };
   anchorNote: string;
+  /**
+   * The spin preset's panel (port_v2 phase 7; tools/export_web_ui.py): its own
+   * palette's face, the ruler (dx from the side's x), the bar (dy from the
+   * top/back's y); offsets from `anchor`.
+   */
+  preset?: { anchor: [number, number]; face: UiPart[]; ruler: UiPart[]; bar: UiPart & { dy?: number } };
+}
+
+/** The per-hole RESULT card (tools/export_web.py build_card; port_v2 phase 7). */
+export interface CardJson {
+  window: { at: [number, number]; size: [number, number] };
+  /** Each hole's number slot (x, y) ($83:CD82 / $83:CD93) and the total's. */
+  holes: Array<[number, number]>;
+  total: [number, number];
+  digits: { image: string; w: number; h: number };
+  /** SELECT's BEST SCORE window (card_best.png): its top-left, and its slots' x offset from YOUR's. */
+  best?: { at: [number, number]; dx: number };
 }
 
 export interface AudioEntry {
@@ -136,6 +154,23 @@ export interface CutscenesJson {
   nightPalette: { day: string; night: string; frame: number };
 }
 
+/**
+ * A BG colour cycle an object runs while the hole is in play
+ * (coursemap.palette_cycles): the ripple (object 113), the boost panels'
+ * (112), the warp or snap panels' (114, 115). `colours` are the sets'
+ * addresses; set `order[phase]` shows for `stepFrames` each. The layers carry
+ * set 0; `layer_{back,front}_<name><k>.png` are the pixels that differ under
+ * set k.
+ */
+export interface PaletteCycle {
+  name: 'ripple' | 'boost' | 'panels';
+  object: number;
+  source: string;
+  colours: string[];
+  stepFrames: number;
+  order: number[];
+}
+
 export interface LayersJson {
   /** file name -> [w, h]; only files with an opaque pixel are written. */
   files: Record<string, [number, number]>;
@@ -143,13 +178,44 @@ export interface LayersJson {
   nightBackColour: [number, number, number] | null;
   name: string;
   outline: { source: string; stepFrames: number; cycle: Array<[number, number, number]> };
+  /** The hole's palette cycles (absent from older exports). */
+  cycles?: PaletteCycle[];
   /**
-   * A water hole's ripple ($84:8533): palette 4 colours 1-7 cycle through
-   * colour sets from `colours`, set `order[phase]` for `stepFrames` each.
-   * The layers carry set 0; `layer_{back,front}_ripple<k>.png` are the pixels
-   * that differ under set k. Absent from older exports; null on other holes.
+   * The switches (port_v2 phase 6; features/layers/switch-layers.ts): the
+   * load's `$6A2A` and `$69CA` (null: no such switch), how many of object
+   * 127's record lists the swirls use (0-2), and whether the layers are
+   * drawn dry with the water apart, for the water switch's dissolve.
    */
-  ripple?: { source: string; colours: string; stepFrames: number; order: number[] } | null;
+  switches?: LayersSwitches;
+}
+
+export interface LayersSwitches {
+  toggle: number | null;
+  water: number | null;
+  swirlLists: number;
+  dissolve: boolean;
+}
+
+/** One exported ROM hole: its index (course * 8 + hole), name and directory under assets/. */
+export interface ManifestHole {
+  index: number;
+  name: string;
+  dir: string;
+}
+
+export interface ManifestCourse {
+  /** 0-based course number (index // 8). */
+  course: number;
+  holes: ManifestHole[];
+}
+
+/** assets/manifest.json (tools/export_web.py --only manifest). */
+export interface ManifestJson {
+  exporter: number;
+  romSha1: string;
+  files: string[];
+  /** The exported ROM holes by course (absent from older exports). */
+  courses?: ManifestCourse[];
 }
 
 export interface HudJson {
@@ -164,4 +230,14 @@ export interface HudJson {
     stars: [number, number];
     portrait: [number, number, number, number];
   };
+  /**
+   * The copy ability's icon (tools/export_web_sprites.py build_icons): the
+   * pictures by upload descriptor (hex) in 32 x 32 cells of hud_ability.png,
+   * row 0, their ground (colour 9, white) in row 1; `at` the icon's top-left.
+   */
+  ability?: { image: string; at: [number, number]; cell: number; cells: Record<string, number> };
+  /** The pause menu's window (pause_window.png at `at`) and the cursor's three cells (port_v2 phase 7). */
+  pause?: { at: [number, number]; size: [number, number]; cursor: Array<[number, number]> };
+  /** The look's arrows (look_<dir>.png), each at its screen top-left. */
+  arrows?: { up: [number, number]; right: [number, number]; down: [number, number]; left: [number, number] };
 }

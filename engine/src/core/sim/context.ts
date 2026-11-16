@@ -26,6 +26,31 @@ export interface KernelCourse {
   occlusion?: import('../occlusion').OcclusionTable;
 }
 
+/**
+ * `$82:BC59`'s test on the counts of `$7E:B3B8` (bytes, read as the word of
+ * a pair): a pair present, and none of its first value. `$6A2A` for `$5A`/
+ * `$5B`, `$69CA` for `$5C`/`$5D` (and `$6A2E` for `$58`/`$59`, step 9).
+ */
+function secondWithoutFirst(layer2: Uint8Array, first: number): boolean {
+  let a = 0;
+  let b = 0;
+  for (const t of layer2) {
+    if (t === first) a++;
+    else if (t === first + 1) b++;
+  }
+  return (a & 0xff) === 0 && (b & 0xff) !== 0;
+}
+
+/** $82:BC59's `$69CA`: `$5D` cells and no `$5C` (the water off at the load). */
+export function waterOffAtLoad(layer2: Uint8Array): boolean {
+  return secondWithoutFirst(layer2, 0x5c);
+}
+
+/** $82:BC59's `$6A2A`: `$5B` cells and no `$5A` (the `$74-$77` swirls on at the load). */
+export function toggleOnAtLoad(layer2: Uint8Array): boolean {
+  return secondWithoutFirst(layer2, 0x5a);
+}
+
 export function kernelCourse(data: CourseData): KernelCourse {
   return {
     w: data.w,

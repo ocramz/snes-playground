@@ -6,9 +6,10 @@
 export const DEPTH = {
   bg3: 0,
   back: 10,
-  rippleBack: 10.5,
+  /** The palette cycles' overlays (the ripple, the boost and warp/snap panels'). */
+  cycleBack: 10.5,
   outlineBack: 11,
   front: 12,
-  rippleFront: 12.5,
+  cycleFront: 12.5,
   outlineFront: 13,
 } as const;

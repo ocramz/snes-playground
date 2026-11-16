@@ -1,22 +1,23 @@
 /**
  * Queues everything under build/engine (reference §7; caches are global in
  * Phaser): the rules, then — if `make engine-assets` has run — the atlases,
- * the panel, the score panel, the font, the audio, the cutscenes and the
- * eight course-1 holes (course.json, layers.json and the bitmaps it lists).
- * `create` turns the atlases into textures and global animations, builds the
- * font and the course sets, and goes to the menu. Without the rules it shows
- * what to build; without the assets only the test courses are offered.
+ * the panel, the score panel, the font, the audio, the cutscenes and course
+ * 1's scenery (behind the holes without bitmaps). The ROM holes are not
+ * loaded here: the manifest lists them by course, and the menu loads a course
+ * when it is picked (assets/course-loader.ts). `create` turns the atlases
+ * into textures and global animations, builds the font and the course sets,
+ * and goes to the menu. Without the rules it shows what to build; without
+ * the assets only the test courses are offered.
  */
 import Phaser from 'phaser';
 import { SceneKeys } from '../scene-keys';
 import {
-  AssetUrl, Json, ROM_HOLES, Rules, RulesUrl, Tex, holeJsonKey, holeTexKey, holeUrl, sfxKey, songKey, assetUrl,
+  AssetUrl, Json, Rules, RulesUrl, Tex, holeUrl, sfxKey, songKey, assetUrl,
 } from '../assets/keys';
 import { addAtlasClips, addAtlasFrames } from '../assets/atlas';
-import type { AtlasJson, AudioJson, CutscenesJson, HudJson, LayersJson, UiJson } from '../assets/schema';
-import { romCourseSet, testCourseSet } from '../assets/course-sets';
+import type { AtlasJson, AudioJson, CardJson, CutscenesJson, HudJson, ManifestJson, UiJson } from '../assets/schema';
+import { romCourseSets, testCourseSet } from '../assets/course-sets';
 import { RomRules, type TablesJson } from '../../core/rules';
-import type { CourseJson } from '../../core/course-data';
 import { buildFont } from '../features/text/font';
 import { AudioPlayer } from '../features/audio/audio-player';
 import type { Host, SceneData } from '../host';
@@ -40,12 +41,12 @@ export class PreloadScene extends Phaser.Scene {
     this.load.on(Phaser.Loader.Events.PROGRESS, (v: number) => label.setText(`loading ${Math.round(v * 100)}%`));
     this.load.json(Rules.tables, RulesUrl.tables);
     this.load.json(Json.manifest, AssetUrl.manifest);
-    this.load.once(`${Phaser.Loader.Events.FILE_KEY_COMPLETE}json-${Json.manifest}`, (_k: string, _t: string, data: { files?: string[] }) => {
-      this.queueAssets(new Set(data?.files ?? []));
+    this.load.once(`${Phaser.Loader.Events.FILE_KEY_COMPLETE}json-${Json.manifest}`, (_k: string, _t: string, data: ManifestJson | null) => {
+      this.queueAssets(new Set(data?.files ?? []), data);
     });
   }
 
-  private queueAssets(files: Set<string>): void {
+  private queueAssets(files: Set<string>, manifest: ManifestJson | null): void {
     const load = this.load;
     if (files.has('sprites.json')) {
       load.json(Json.atlas, AssetUrl.atlas);
@@ -62,6 +63,18 @@ export class PreloadScene extends Phaser.Scene {
     if (files.has('hud.json')) load.json(Json.hud, AssetUrl.hud);
     if (files.has('hud_panel.png')) load.image(Tex.hudPanel, AssetUrl.hudPanel);
     if (files.has('hud_tomato.png')) load.image(Tex.hudTomato, AssetUrl.hudTomato);
+    if (files.has('hud_ability.png')) load.image(Tex.hudAbility, AssetUrl.hudAbility);
+    if (files.has('pause_window.png')) load.image(Tex.pauseWindow, AssetUrl.pauseWindow);
+    if (files.has('card.json')) load.json(Json.card, AssetUrl.card);
+    if (files.has('card_digits.png')) load.image(Tex.cardDigits, AssetUrl.cardDigits);
+    if (files.has('card_best.png')) load.image(Tex.cardBest, AssetUrl.cardBest);
+    for (let n = 1; n <= 8; n++) {
+      if (files.has(`card_window_${n}.png`)) load.image(Tex.cardWindow(n), AssetUrl.cardWindow(n));
+    }
+    if (files.has('pause_cursor.png')) load.image(Tex.pauseCursor, AssetUrl.pauseCursor);
+    for (const d of ['Up', 'Right', 'Down', 'Left'] as const) {
+      if (files.has(`look_${d.toLowerCase()}.png`)) load.image(Tex[`look${d}`], AssetUrl[`look${d}`]);
+    }
     if (files.has('font.png')) load.image(Tex.font, AssetUrl.font);
     if (files.has('cutscenes.json')) load.json(Json.cutscenes, AssetUrl.cutscenes);
     if (files.has('terrain_style.json') && files.has('terrain_style.png')) {
@@ -75,15 +88,9 @@ export class PreloadScene extends Phaser.Scene {
         for (const [id, file] of Object.entries(a.sfx)) load.audio(sfxKey(Number(id)), [assetUrl(file), assetUrl(other(file))]);
       });
     }
-    if (files.has('holes')) {
-      for (let i = 0; i < ROM_HOLES; i++) {
-        load.json(holeJsonKey(i, 'course'), holeUrl(i, 'course.json'));
-        const key = holeJsonKey(i, 'layers');
-        load.json(key, holeUrl(i, 'layers.json'));
-        load.once(`${Phaser.Loader.Events.FILE_KEY_COMPLETE}json-${key}`, (_k: string, _t: string, l: LayersJson) => {
-          for (const file of Object.keys(l.files)) load.image(holeTexKey(i, file), holeUrl(i, file));
-        });
-      }
+    // only what the manifest lists: the e2e checks count any failed request
+    if (files.has('holes') && manifest?.courses?.some((c) => c.holes.some((h) => h.index === 0))) {
+      load.image(Tex.scenery, holeUrl(0, 'layer_bg3.png'));
     }
   }
 
@@ -119,6 +126,7 @@ export class PreloadScene extends Phaser.Scene {
       objects: this.textures.exists(Tex.objects) ? json<AtlasJson>(Json.objects) : null,
       ui: this.textures.exists(Tex.ui) ? json<UiJson>(Json.ui) : null,
       hud: json<HudJson>(Json.hud),
+      card: json<CardJson>(Json.card),
       audio: json<AudioJson>(Json.audio),
       cutscenes: json<CutscenesJson>(Json.cutscenes),
       terrainStyle: this.terrainStyle(json<TerrainStyleJson>(Json.terrainStyle)),
@@ -131,13 +139,9 @@ export class PreloadScene extends Phaser.Scene {
     if (host.assets.ui) addAtlasFrames(this.textures, Tex.ui, { ...host.assets.ui, clips: {} });
     buildFont(this);
     host.sets = [];
-    const holes: Array<{ course: CourseJson; layers: LayersJson | null }> = [];
-    for (let i = 0; i < ROM_HOLES; i++) {
-      const course = json<CourseJson>(holeJsonKey(i, 'course'));
-      if (course) holes.push({ course, layers: json<LayersJson>(holeJsonKey(i, 'layers')) });
-    }
-    // the ROM course needs its pictures: Kirby and the course bitmaps
-    if (holes.length === ROM_HOLES && host.assets.atlas) host.sets.push(romCourseSet(holes));
+    // the ROM courses need their pictures: Kirby (the atlas) and the holes the manifest lists
+    const manifest = json<ManifestJson>(Json.manifest);
+    if (host.assets.atlas && manifest?.files.includes('holes')) host.sets.push(...romCourseSets(manifest.courses ?? []));
     host.sets.push(testCourseSet(host.rules));
     host.audio = new AudioPlayer(this.game, host.assets.audio);
     this.scene.start(SceneKeys.Menu, { host });

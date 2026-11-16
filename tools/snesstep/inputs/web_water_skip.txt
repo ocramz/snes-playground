@@ -1,0 +1,18 @@
+# Course 1 hole 7 (index 6): skipping on the pond with topspin. The poke puts the
+# ball over (10,9) xf $6000 at z $1_8000, moving west at vx -$800, vz +$100, with
+# spin $D866 = $800 and the latched top/back selector $6B58 = 0 (|0 - 6| >= 6: two
+# skips, $82:8228). Each skip relaunches along the heading at $82:8324/$832A[count]
+# ($B80/$660, then $800/$420), object 54, sound $48 and Kirby's state 14.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's 180)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

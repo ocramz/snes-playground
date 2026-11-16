@@ -29,29 +29,45 @@ export const KIND_ART: Record<string, KindArt> = {
   hazard: { atlas: 'objects' },
 };
 
+/**
+ * An enemy's idle clip by its species (core's EnemyKind.species, tile - $40
+ * with $50-$52 folded onto $4D-$4F): `enemy_XX_idle`, XX the species' tile,
+ * as tools/snesstep/trace_enemies.py recorded it on a hole that has it; the
+ * hole-1 sheet's `enemy_idle` ($4C) when the atlas lacks it.
+ */
+export function enemyClip(atlas: AtlasJson | null, species: number): string {
+  const name = `enemy_${(0x40 + species).toString(16).toUpperCase().padStart(2, '0')}_idle`;
+  return atlas?.clips[name] ? name : 'enemy_idle';
+}
+
 /** The cup's ring (object 74, a still of obj_074) and the ball's shadow (obj_121). */
 export const CUP_RING_FRAME = 'cupring';
 export const SHADOW_FRAME = 'shadow';
 
 /**
  * The hazard actors' picture: objects.json lists each type's frame tables in
- * sheet order and the pictures by the thread's frame number ($5D9C).
- * Object 76's four tables are its four directions (tables 1 and 3 are the
- * mirror images of 0 and 2 in build/sprites/emu/obj_076.png), so the table is
- * the run's `dir` (0 N, 1 E, 2 S, 3 W; the order is inferred). 77's four are
- * one per look and 81-83 have one; both use the first, the one course 1 and
- * its neighbours show (unconfirmed per course).
+ * sheet order and the pictures by the thread's frame number ($5D9C). The
+ * table is fixed at the spawn by the tile: `$84:DD34` stores
+ * `$84:DD55`[tile - $80] (tables.json hazardFrameTables) in `$5E1C`, so
+ * object 76 takes table (tile - $80) >> 2 and 77 takes tile & 3, whatever the
+ * run's direction; 81-83 have one table. The sheets were checked against the
+ * holes' tiles (notes/port-v2-phase1-courses.md): tile $84 draws only
+ * `$89:CCAB`, $91/$95 only `$89:CC5F`. A table the sheet lacks falls back to
+ * its first.
  */
 export function hazardFrame(
   objects: AtlasJson | null,
+  frameTables: ArrayLike<number> | null,
   type: number,
-  dir: number,
+  tile: number,
   frame: number,
 ): string | null {
   const sheet = objects?.objects?.[String(type)];
   if (!sheet) return null;
-  const table = type === 76 ? dir & 3 : 0;
-  const row = sheet.frames[Math.min(table, sheet.frames.length - 1)] ?? [];
+  const k = tile - 0x80;
+  const addr = frameTables && k >= 0 && k < frameTables.length ? frameTables[k] : -1;
+  const at = addr >= 0 ? sheet.tables.indexOf(`$89:${addr.toString(16).toUpperCase().padStart(4, '0')}`) : -1;
+  const row = sheet.frames[Math.max(0, at)] ?? [];
   const f = frame === 0xffff || frame < 0 ? 0 : frame;
   return row[f] ?? row[0] ?? null;
 }

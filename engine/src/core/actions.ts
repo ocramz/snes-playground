@@ -14,8 +14,7 @@
  * - `placeBall`: the poke equivalent the trace tests seed from.
  */
 import type { World } from 'koota';
-import { ballEntity } from './systems/ball-step';
-import { BallPos, BallVel, BallAir, BallSpin, StillCount, Modifier, BallHoled } from './traits/ball';
+import { BallPos, BallVel, BallAir, BallWet, BallSpin, StillCount, Modifier, BallHoled } from './traits/ball';
 import { Shot } from './traits/shot';
 import { BallWork, type BallWorkFields, emptyWork } from './traits/ball';
 import { HoleFlow } from './traits/flow';
@@ -38,13 +37,22 @@ import {
   TOMATO_MAX, START_LIVES, CONTINUE_LIVES,
 } from './traits/counters';
 import { probe } from './sim/probe';
-import { kernelCourse, type Ctx } from './sim/context';
+import { kernelCourse, toggleOnAtLoad, waterOffAtLoad, type Ctx } from './sim/context';
 import { project } from './projection';
 import type { CourseData } from './course-data';
 import type { RomRules } from './rules';
 import { sweepActors, type HoleActors } from './sweep';
 import { setupHazards } from './systems/actors';
-import { spawnBall } from './world';
+import { spawnPlayer } from './world';
+import { AimUi, ScorePanel } from './traits/aim-ui';
+import { Save, touchSave } from './traits/save';
+import { beginCourse } from './save';
+import { IsPlayer, activePlayer } from './traits/player';
+import { BoostHum } from './traits/boost';
+import { SnapTrail } from './traits/snap';
+import { WaterFx, KirbyPalette } from './traits/water';
+import { resetAbilityFx } from './systems/ability-fx';
+import { resetSwitches } from './systems/switches';
 
 export interface BallPlacement {
   xc: number; xf: number; yc: number; yf: number; z: number;
@@ -56,7 +64,7 @@ export interface BallPlacement {
 }
 
 export function placeBall(world: World, p: BallPlacement, ctx?: Ctx): void {
-  const e = ballEntity(world);
+  const e = activePlayer(world);
   e.set(BallPos, { xc: p.xc, xf: p.xf, yc: p.yc, yf: p.yf, z: p.z });
   e.set(BallVel, { vx: p.vx, vy: p.vy, vz: p.vz });
   e.set(BallAir, { air: p.air });
@@ -103,18 +111,26 @@ export function sessionCtx(world: World): Ctx | null {
  * the card cleared, at least 2 lives ($80:C101), 4 tomatoes ($80:C122), the
  * tomato queue empty; then hole 0. Returns the context for its first hole.
  */
-export function startCourse(world: World, rules: RomRules, courses: CourseData[]): Ctx {
+export function startCourse(world: World, rules: RomRules, courses: CourseData[], course?: number): Ctx {
   if (courses.length === 0) throw new Error('startCourse with no holes');
   const s = world.get(Session)!;
   s.rules = rules;
   s.courses = courses;
+  if (course !== undefined) s.course = course;
+  // `$81:C52D` (after the course's intro): the member's rounds of this course + 1
+  const save = world.get(Save)!;
+  if (save.member >= 0 && s.course >= 0) {
+    beginCourse(save.data, save.member, s.course);
+    touchSave(save);
+  }
   const career = world.get(Career)!;
   career.lives = Math.max(career.lives, START_LIVES);
   career.card = courses.map(() => -1);
   const q = world.get(TomatoQueue)!;
   q.entries = []; q.pending = null; q.timer = 0; q.hold = 0;
-  if (world.queryFirst(BallWork) === undefined) spawnBall(world);
-  ballEntity(world).set(Tomatoes, { n: TOMATO_MAX });
+  if (world.queryFirst(IsPlayer) === undefined) spawnPlayer(world);
+  activePlayer(world).set(Tomatoes, { n: TOMATO_MAX });
+  activePlayer(world).set(StockedAbility, { id: 0, carry: 0 }); // $80:C128: STZ $DA90
   return startHole(world, 0);
 }
 
@@ -143,11 +159,15 @@ export function startHole(world: World, i: number): Ctx {
   };
   s.holeIndex = i;
   s.ctx = ctx;
-  if (world.queryFirst(BallWork) === undefined) spawnBall(world);
-  const e = ballEntity(world);
+  if (world.queryFirst(IsPlayer) === undefined) spawnPlayer(world);
+  const e = activePlayer(world);
   // a fresh work copy: the set-up's coefficients ($80:C688)
   e.set(BallWork, emptyWork());
   const w = e.get(BallWork)!;
+  // $82:BBAE / $82:BC59 at the load: the switches' globals by the counts
+  // ($80:C45D clears the switch's latch $6A2C)
+  w.toggleOn = toggleOnAtLoad(data.tile) ? 1 : 0;
+  w.waterOff = waterOffAtLoad(data.tile) ? 1 : 0;
   w.xc = data.tee.x; w.xf = 0x8000;
   w.yc = data.tee.y; w.yf = 0x8000;
   w.air = 0;
@@ -156,6 +176,7 @@ export function startHole(world: World, i: number): Ctx {
   e.set(BallPos, { xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z });
   e.set(BallVel, { vx: 0, vy: 0, vz: 0 });
   e.set(BallAir, { air: 0 });
+  e.set(BallWet, { wet: 0 });
   e.set(BallSpin, { sx: 0, sy: 0, pending: 0 });
   e.set(BallHoled, { holed: 0 });
   e.set(StillCount, { over: 0, frames: 0 });
@@ -163,7 +184,8 @@ export function startHole(world: World, i: number): Ctx {
   e.set(Pose, { state: 0, facing: 0, angle: 0, variant: 0, timer: 0, resume: 0 });
   e.set(Strokes, { n: 1 });
   e.set(Stars, { n: 0 });
-  e.set(StockedAbility, { id: 0 });
+  // $80:C22E: the stock the last hole-out carried
+  e.set(StockedAbility, { ...e.get(StockedAbility)!, id: e.get(StockedAbility)!.carry });
   const p = project(ctx.course, w.xc, w.xf, w.yc, w.yf, w.z);
   e.set(BallScreen, { x: p.x, xf: 0, y: p.y, yf: 0, px: p.x, pxf: 0, py: p.y, pyf: 0 });
   e.set(BallSprite, { prio: PRIO_OVER });
@@ -185,6 +207,22 @@ export function startHole(world: World, i: number): Ctx {
   world.set(Warp, { ...world.get(Warp)!, stage: 'none', t: 0, hidden: 0 });
   const actors = spawnHoleEntities(world, s.rules, data, i);
   setupHazards(world, ctx, actors); // $82:B9C7, $82:BA87 (after the sweep)
+  // $82:BCD7: a boost panel anywhere spawns object 112, whose hook hums
+  // (systems/boost-hum.ts); its $6A28 starts at 0 (the fresh work copy)
+  world.set(BoostHum, { active: data.tile.some((t) => t >= 0x30 && t < 0x3c) ? 1 : 0, counter: 0 });
+  // objects 61 and 62, the snap panels' stars (systems/snap-trail.ts)
+  const trail = world.get(SnapTrail)!;
+  trail.keep = 0xffff; trail.spawners = []; trail.stars = [];
+  // the water's splashes and bubbles (systems/water-fx.ts), Kirby's dry palette
+  const fx = world.get(WaterFx)!;
+  fx.splashes = []; fx.bubbles = [];
+  e.set(KirbyPalette, { wet: 0 });
+  resetAbilityFx(world, ctx); // Kirby's set 3, no palette object
+  resetSwitches(world, data.tile, w); // objects 127, 117 and 118 ($82:BBAE, $82:BC59)
+  // the score panel hidden at the load ($80:C1B2), and the HUD thread on
+  // (its object's start, $84:9896); the aim's other inputs cleared
+  world.set(ScorePanel, { shown: 0, hudOn: 1 });
+  world.set(AimUi, { ...world.get(AimUi)!, pause: 0, cursor: 0, preset: 0, look: 0, arrows: 0, arrowTimer: 0, lockout: 0, pan: 1, jump: 0 });
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;
@@ -199,7 +237,7 @@ function spawnHoleEntities(world: World, rules: RomRules, data: CourseData, inde
     world.spawn(
       IsEnemy,
       Cell({ x: en.x, y: en.y }),
-      EnemyKind({ tile: en.tile, ability: en.ability, listIndex: en.listIndex }),
+      EnemyKind({ tile: en.tile, species: en.species, ability: en.ability, listIndex: en.listIndex }),
       Hover({ steps: en.hover }),
       Visual({ kind: 'enemy' }),
       InHole(root),

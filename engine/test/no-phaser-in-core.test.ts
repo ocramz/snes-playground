@@ -94,3 +94,30 @@ describe('src/game reads core through traits and actions', () => {
     expect(bad).toEqual([]);
   });
 });
+
+/**
+ * port_v2 phase 2: "the player" is the one whose turn it is ($7E:1803), and
+ * code reaches it only through `activePlayer` / `findActivePlayer`
+ * (core/traits/player.ts) — never by querying for a trait the player
+ * entity happens to carry, which stops meaning "the player" once there are
+ * two (2P) or once abilities add traits.
+ */
+describe('the player is reached through its handle', () => {
+  const ON_PLAYER = [
+    'BallPos', 'BallVel', 'BallAir', 'BallSpin', 'BallMode', 'BallHoled', 'BallHeading', 'StillCount', 'Modifier',
+    'BallWork', 'Pose', 'BallScreen', 'BallSprite', 'Tomatoes', 'Strokes', 'Stars', 'StockedAbility',
+  ];
+  const lookup = new RegExp(`queryFirst\\(\\s*(?:${ON_PLAYER.join('|')})\\b`);
+  it('no file under src or test calls queryFirst on a player trait', () => {
+    const self = fileURLToPath(import.meta.url);
+    const bad: string[] = [];
+    for (const path of [...walk(resolve(here, '../src')), ...walk(here)]) {
+      if (path === self) continue;
+      const src = readFileSync(path, 'utf8');
+      src.split('\n').forEach((line, i) => {
+        if (lookup.test(line)) bad.push(`${path}:${i + 1}: ${line.trim()}`);
+      });
+    }
+    expect(bad).toEqual([]);
+  });
+});

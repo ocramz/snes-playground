@@ -16,8 +16,10 @@
  *   warp $B0-$B3         one pair, in two slots, each leaving the ball along
  *                        its arrow onto ground at its own level
  *
- * Not placed: the toggles, the overlay/water and $58-$5D (stubbed), the
- * outline $28-$2D, and the hazard actors (the solver cannot run them). The
+ * Not placed: the swirls $70-$7B and the switches $5A-$5D (their state and
+ * the water switch's block are not the solver's), $58/$59 (stubbed), the
+ * overlay/water, the outline $28-$2D, and the hazard actors (the solver
+ * cannot run them). The
  * tee and the enemies are placed first; features take only plain cells.
  */
 import type { RomRules } from '../rules';

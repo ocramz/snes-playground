@@ -44,11 +44,11 @@ The engine ([docs/engine.md](engine.md)) has its own targets, none of them part 
 
 | target | does |
 |---|---|
-| `make engine-assets` | `build/engine/assets` from the same exporters, with the `objects` step added |
+| `make engine-assets` | `build/engine/assets` from the same exporters, with the `objects` step added, the enemy species' clips (`trace_enemies.py`), and the ROM holes `ENGINE_HOLES` (0-63, courses 1-8) under `holes/NNN`, one file rule each: `make -j8 engine-assets` exports them in parallel (61 s on a built tree) |
 | `make engine-test` | the vitest suite (it needs only the rules and `build/engine/rom-test`; ROM-derived tests skip without them) |
 | `make engine-traces` | re-records the trace, flow, sound and actor fixtures into `build/engine/rom-test` (stepper runs) |
 | `make engine` | `npm ci` and `vite build` into `engine/dist` |
-| `make engine-e2e` | the browser smoke tests (index.html, random.html); they need `cd engine && npm run dev` running |
+| `make engine-e2e` | the browser smoke tests (index.html: course 1, every course's first hole; random.html); they need `cd engine && npm run dev` running |
 | `make engine-random` | the dev server, opening `random.html`: a course of random holes (docs/engine.md "Random holes") |
 
 Cleanup comes in three tiers:
@@ -116,8 +116,30 @@ python3 tools/export_web.py --golden      # ROM -> build/web/ (+ build/web-test/
 python3 tools/snesstep/trace_ball.py all  # recorded shots -> build/web-test/trace_*.json
 python3 tools/snesstep/trace_flow.py web_flow --frames 4700   # Kirby's state, aim, camera, meter per frame
 python3 tools/snesstep/trace_actors.py web_haz98 --frames 3000  # hazard actors' thread slots per frame -> actors_*.json
+python3 tools/snesstep/trace_actors.py web_snap --types 61,62 --frames 2700   # the snap stars' slots, and each slot's exit
+python3 tools/snesstep/trace_actors.py web_water_drop --types 53,54,55,56,57,58,67 --frames 2900   # the water's splashes and bubbles
+#   trace_ball.py also records the block's `wet` ($D872); trace_flow.py `wet`, `pal`
+#   (Kirby's palette, the CGRAM shadow $7E:0504), `skips` ($69DC) and the random
+#   state `rnga`/`rngb` ($0079/$007B), which the engine's water tests seed from
 #   (all three read tools/snesstep/inputs/<name>.pokes when it exists; the
 #   engine's fixtures: `make engine-traces`, into build/engine/rom-test/)
+#   The copy abilities (port_v2 phase 5): trace_ball.py records the ability's
+#   block words `stock`/`worn`/`mode`/`latch` ($D852-$D85E) as the store left
+#   them (they never cut a burst), the scanline and the burst's first pc;
+#   web_demoNN starts at frame 850 (START) and runs to FRAMES. trace_flow.py
+#   adds the work copy (`wstock`...`wlatch`), Kirby's switches and index, the
+#   ability's globals $D762-$D77A, Kirby's colours 2-8 (`pal`, `pal3`-`pal6`,
+#   `outline`, `pal8`), the HUD object's phases (`hudo`/`hudi` in slot 8 as in
+#   the demos, `hudo10`/`hudi10` in slot 10 as from the map), the pad
+#   (`pad`/`padp`) and the demo flags; and iters_<name>.json: the frame
+#   helper's calls, the trigger's pad reads, the vblank waits and the VRAM
+#   queue pushes from bank $84 (the HUD's icon, and object 127's swirl frames)
+#   The switches (port_v2 phase 6): trace_flow.py adds `togon` ($6A2A),
+#   `swlatch` ($6A2C), `wateroff` ($69CA), `latch68` ($6A68), `hsl` ($6A70) and
+#   the CGRAM shadow's colours 78 and 94 (`sw117`, `sw118`: objects 117 and
+#   118) and 66 (`ripple`, object 113); the scenarios are inputs/web_sw_*
+python3 tools/snesstep/trace_flow.py web_demo10 --frames 3910   # a DEMOPLAY demo (no pokes)
+python3 tools/snesstep/trace_actors.py web_demo17 --types 21,27,28,29,30,31,32,33,34,35,36,37,38,39,49,50,51,52,65,66 --frames 3960   # the abilities' objects
 python3 tools/snesstep/trace_cutscene.py   # hole 1's intro and hole-outs, every frame -> build/web-test/cutscene_hole0.json
 python3 tools/export_web_ui.py            # the shot panel's sprites from OAM -> build/web/ui.*
 python3 tools/check_web_ui.py             # ... and a pixel check of the browser's panel (npm run dev first)
@@ -128,10 +150,28 @@ python3 tools/check_web_ui.py --target engine   # the same against engine/'s pan
 # (the hazard actors' pictures from build/sprites/emu: objects.png/json); the `hud`
 # step also writes the score panel's slots as data (hud.json)
 python3 tools/export_web.py --only objects --out build/engine/assets
-#   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?hole=N)
+python3 tools/export_web.py --hole 17 --only course,layers --out build/engine/assets/holes/017
+#   one ROM hole (course * 8 + hole): course.json (its song), the layers drawn with
+#   the CGRAM in play and the palette cycles' overlays (docs/courses.md)
+python3 tools/check_hole_palette.py          # the exporter's BG colours vs the game's CGRAM, one hole a course
+python3 tools/check_hole_palette.py --holes 0-63   # every 1P hole (~45 s)
+python3 tools/check_switch_gfx.py            # the switches' tiles, object 127's frames and the water's
+#   dissolve (coursemap.hole_page, export_web.dissolve_map's order) vs the game's VRAM
+#   through the web_sw_* scenarios (snapshots in build/emu/switch_gfx)
+python3 tools/snesstep/trace_enemies.py      # every enemy species' idle clip -> build/sprites/enemies (~1 min)
+#   then: cd engine && npm run dev   (http://127.0.0.1:5174/; ?nointro, ?debug, ?course=N, ?hole=N)
 #   make engine-e2e                  # the browser smoke test (needs the dev server)
 #   cd engine && npm test            # = make engine-test; npm run traces = make engine-traces
 #   (the keys, the debug hook and what each test checks: docs/engine.md)
+
+# The shell (port_v2 phase 7): trace_flow.py also watches the pause, the preset, the look,
+#   the idle timer, the score panel ($EA7C, $691A), the lockout and the brightness ($007E),
+#   and logs the scene requests ($80:CABC) in iters_<name>.json; the scripts are
+#   inputs/web_{pause,pause_quit,look,bspin,lr,cancel,idle,card,select}.txt
+python3 tools/export_web.py --only card --out build/engine/assets   # the RESULT card's windows,
+#   digits and SELECT's BEST window (needs build/emu/autoplay/game; captures its snapshots)
+python3 tools/sram.py build/emu/autoplay/course1/sram.bin            # the battery RAM as the
+#   engine's save JSON (docs/save.md); make engine-traces writes rom-test/save_<run>.json
 
 # Screens: PPU setup, what each loads, and the scene bundles
 python3 tools/scenes.py blocks            # the 20 screen setup blocks
@@ -173,6 +213,11 @@ python3 tools/audio_check.py vlc                  # vs VLC's libgme, if VLC.app 
 build/spcrender/release/spcrender --selftest
 build/spcrender/release/spcrender build/spc/songs/song_06_id84.spc \
     -o build/x.wav --stems --log-kon build/x.tsv
+build/spcrender/release/spcrender build/spc/songs/song_06_id84.spc \
+    -o build/x.wav --solo-source 0x8710 --no-echo   # one sample, dry
+python3 tools/render_stems.py --song 6            # -> build/spc/stems/song_06/{wet,dry}/
+python3 tools/render_stems.py --song 6 --by sample --mix wet
+python3 tools/render_stems.py --all               # every song: 9.1 GB (make stems)
 
 # Text in the game's font encoding (not ASCII)
 python3 tools/text.py --strings                   # -> build/text/strings.tsv
@@ -185,11 +230,14 @@ S=build/snesstep/release/snesstep
 $S --frames 3400 --input tools/snesstep/inputs/play_hole1.txt --snap-at 3100 --out build/emu/x
 $S --frames 3400 --input tools/snesstep/inputs/play_hole1.txt --log-pc '$80:9F18'   # -> pclog.tsv
 $S ... --poke '2050:$7E:6A5A=0002' --poke-at-pc '$80:F37A,$7E:D956=0001'          # steer it
+$S ... --poke '2050:$7E:6A5A=0002' --poke '2050:$7E:6A5C=0004' --poke '2050:$7E:6A5E=0001'   # course 3 hole 2, its own songs and ripple
 $S ... --pokes build/emu/autoplay/game/pokes.txt --save-sram build/x/sram.bin    # replay a run, keep its save
 python3 tools/ppu_render.py build/emu/x/f003100 -o x.png --layers x_layers
 python3 tools/snesstep/oracles.py all        # emulator vs the static facts
 python3 tools/snesstep/screens.py            # every reachable screen -> build/screens/
 python3 tools/snesstep/holes.py              # play all 232 holes (~25 min)
+python3 tools/snesstep/holes.py --holes none --script web_water_drop:2478-2520 \
+    --script web_water_shallow:2466-2500   # an input script's frames into the same sheets
 python3 tools/snesstep/demos.py              # the 20 DEMOPLAY SELECT demos
 python3 tools/emusheets.py --cache build/emu/holes/emusheets.pickle \
     --merge build/emu/demos/emusheets.pickle --out build/sprites/emu

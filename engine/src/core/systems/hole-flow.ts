@@ -33,14 +33,16 @@
  *                 the RESULT card (see HOLEOUT_*)
  */
 import type { World } from 'koota';
-import { HoleFlow, HOLE_SONG } from '../traits/flow';
+import { restoreKirbyColours } from './ability-fx';
+import { HoleFlow } from '../traits/flow';
 import { Shot, METER_TOP } from '../traits/shot';
 import { Camera } from '../traits/camera';
 import { Pose, PoseState, BallScreen, BallSprite, PRIO_OVER } from '../traits/pose';
 import {
-  BallPos, BallVel, BallAir, BallHoled, StillCount, Modifier, BallWork,
+  BallPos, BallVel, BallAir, BallHoled, BallWet, StillCount, Modifier, BallWork, emptyWork, type BallWorkFields,
+  BallMode, BallAbility,
 } from '../traits/ball';
-import { Strokes, Career, STROKES_MAX, TomatoQueue } from '../traits/counters';
+import { Strokes, Career, STROKES_MAX, TomatoQueue, StockedAbility } from '../traits/counters';
 import { Session } from '../traits/session';
 import { Cell } from '../traits/hole';
 import type { Ctx } from '../sim/context';
@@ -48,12 +50,20 @@ import { aimToward, nearestEnemy, snapAim } from '../sim/aim';
 import { shotPower } from '../sim/shot';
 import { panStep } from '../sim/camera';
 import { project } from '../projection';
-import { ball, emitEvent, enterPhase, phaseNow } from './flow-util';
+import { emitEvent, enterPhase, phaseNow } from './flow-util';
 import { requestGuide } from './aim';
-import { rollPoseState } from './panel';
+import { rollPoseState, CANCEL_LATCH_AT, CANCEL_FRAMES } from './panel';
 import { freeEnemies } from './reveal';
 import { Reveal } from '../traits/reveal';
 import { changeTomatoes, gainLife, loseLife, setTomatoes, tomatoes } from './counters';
+import { activePlayer } from '../traits/player';
+import { AimUi } from '../traits/aim-ui';
+import { Pad } from '../traits/pad';
+import { aimHead, showPanel, hidePanel, silentHidePanel } from './aim-ui';
+import { Screen } from '../traits/screen';
+import { Save, touchSave } from '../traits/save';
+import { finishCourse } from '../save';
+import { PAD } from '../sim/aim';
 
 /** RollEnd: `$82:C172` runs at least one frame after the over, then tests $68F4. */
 export const ROLL_END_MIN = 2;
@@ -67,6 +77,8 @@ export const LAUNCH_FRAMES = 24;
 export const LOST_ZERO_AT = 30; // $80:F83B STZ $D7F0, song $7E ($80:F845): 3528
 export const LOST_SFX_AT = 33; // sfx $54 ($80:F84C): 3531
 export const LOST_RESET_AT = 79; // the ball back at the origin: 3577
+/** Respawn: the score panel shows as the life's part begins ($80:F8C5 -> $83:AEEB): 3608. */
+export const RESPAWN_PANEL_AT = 31;
 
 /** Respawn, from the reset frame R (web_fly 3577). */
 export const RESPAWN_SONG_AT = 3; // the hole's song again ($82:B0EC): 3580
@@ -105,6 +117,14 @@ export const OOT_LIFE_AT = 282;
 export const OOT_OBJECT_AT = 312;
 export const OOT_REFILL_FIRST = 348;
 export const OOT_SETUP_AT = 449;
+/**
+ * The score panel in OutOfTomatoes (port_v2 phase 7; the stepper's log of
+ * `$83:AEEB` / `$83:AF82` on web_tomatoes): shown at O + 19 (`$82:E24B`),
+ * O + 222 (`$80:F85C`), O + 252 (`$80:F86B`) and with every refill step
+ * (`$80:F8F0`); hidden at O + 448 (`$80:F8C0`, 30 frames after the refill).
+ */
+export const OOT_PANEL_AT = [19, 222, 252];
+export const OOT_PANEL_HIDE = 448;
 
 /**
  * HoleOut (read 2026-11-14; measured on web_hole, the hole played out with
@@ -135,13 +155,25 @@ export const HOLEOUT_WARP_AT = 147;
 export const HOLEOUT_HIO_WARP_AT = 498;
 export const HOLEOUT_FRAMES = 410;
 export const HOLEOUT_HIO_FRAMES = 760;
+/**
+ * The score panel in the hole-out (port_v2 phase 7; web_hole, the log of
+ * `$83:AEEB` / `$83:AF96`): shown after the songs (`$80:F634`, C + 35: the
+ * song request's handshake follows C + 31) and with the bonus tomato
+ * (`$80:F6A6`); hidden silently by the star warp (`$83:C76F`, C + 287). The
+ * hole in one's are placed by the same steps from its 1UP and warp
+ * (unconfirmed: c1n has no flow trace).
+ */
+export const HOLEOUT_PANEL_AT = 35;
+export const HOLEOUT_HIO_PANEL_AT = HOLEOUT_HIO_LIFE_AT;
+export const HOLEOUT_PANEL_HIDE = 287;
+export const HOLEOUT_HIO_PANEL_HIDE = HOLEOUT_HIO_WARP_AT + (HOLEOUT_PANEL_HIDE - HOLEOUT_WARP_AT);
 
 /** Schedule item 4: the phase clock's own transitions and timelines. */
 export function updateHoleFlow(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   switch (phase) {
     case 'RollEnd':
-      if (t >= ROLL_END_MIN && !world.get(TomatoQueue)!.visible) rollOutcome(world);
+      if (t >= ROLL_END_MIN && !world.get(TomatoQueue)!.visible) rollOutcome(world, ctx);
       return;
     case 'SettleWait':
       if (t === SETTLE_WAIT && tomatoes(world) === 0) {
@@ -150,7 +182,13 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
         outOfTomatoes(world, 0); // its first frame is this one (web_tomatoes 3606)
         return;
       }
-      if (t >= SETTLE_FRAMES) enterPhase(world, 'ShotSetup'); // the turn top, $80:F278
+      if (t >= SETTLE_FRAMES) {
+        // $80:F445: $D76C + 1 (the ability's objects end: Freeze's frost
+        // restores Kirby's colours, demo 18 2512), then the turn top $80:F278
+        const w = activePlayer(world).get(BallWork)!;
+        w.d76c = (w.d76c + 1) & 0xffff;
+        enterPhase(world, 'ShotSetup');
+      }
       return;
     case 'Tired':
       tired(world, t);
@@ -159,6 +197,7 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
       outOfTomatoes(world, t);
       return;
     case 'BallLost':
+      if (t === LOST_SFX_AT) showPanel(world); // $80:F850
       if (t === LOST_ZERO_AT) {
         setTomatoes(world, 0);
         emitEvent(world, 'song', 0); // $7E: no song
@@ -166,21 +205,26 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
       if (t === LOST_SFX_AT) emitEvent(world, 'ball-lost', 0x54);
       if (t >= LOST_RESET_AT) {
         resetToOrigin(world, ctx);
+        hidePanel(world); // $80:F5AA
+        // $80:F5B7 STZ $DA90, $82:F48D $D852 = $DA90: the stock is lost
+        activePlayer(world).set(StockedAbility, { id: 0, carry: 0 });
         enterPhase(world, 'Respawn');
       }
       return;
     case 'Respawn':
-      if (t === RESPAWN_SONG_AT) emitEvent(world, 'song', HOLE_SONG);
+      if (t === RESPAWN_SONG_AT) emitEvent(world, 'song', holeSong(world)); // $82:B0E8 -> $80:C967
+      if (t === RESPAWN_PANEL_AT) showPanel(world); // $80:F8C5
       if (t === RESPAWN_LIFE_AT) loseLife(world);
       if (t >= REFILL_FIRST && t < REFILL_FIRST + REFILL_STEP * REFILL_TRIES && (t - REFILL_FIRST) % REFILL_STEP === 0) {
         changeTomatoes(world, 1);
+        showPanel(world); // $80:F8F0
       }
       if (t >= RESPAWN_FRAMES) enterPhase(world, 'ShotSetup');
       return;
     case 'LaunchDelay':
       if (t >= LAUNCH_FRAMES) {
         // $82:C84E: the roll's pose from the latched selectors
-        const e = ball(world);
+        const e = activePlayer(world);
         const shot = world.get(Shot)!;
         e.set(Pose, { ...e.get(Pose)!, state: rollPoseState(shot.rollSide, shot.rollTB, shot.grounder !== 0), timer: 0 });
         enterPhase(world, 'Rolling');
@@ -188,6 +232,23 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
       return;
     case 'HoleOut':
       holeOut(world, t);
+      return;
+    case 'Card':
+      resultCard(world, t);
+      return;
+    case 'Cancel':
+      if (t === CANCEL_LATCH_AT) {
+        // $81:C0C7-$81:C0DC: the selectors latched ($6B54/$6B58)
+        const shot = world.get(Shot)!;
+        world.set(Shot, { ...shot, rollSide: shot.side, rollTB: shot.topBack });
+      }
+      if (t >= CANCEL_FRAMES) {
+        // $80:F340 BMI -> $80:F321: $80:C5F1 and the aim loop's head, with no
+        // turn load and no stroke: the set-up's third frame, this frame
+        enterPhase(world, 'ShotSetup');
+        const f = world.get(HoleFlow)!;
+        world.set(HoleFlow, { ...f, since: f.since - 2 });
+      }
       return;
     default:
       return;
@@ -199,9 +260,15 @@ export function updateHoleFlow(world: World, ctx: Ctx): void {
  * arrives, then pose 11 and the wait; at its end the set-up resumes at its
  * second frame ($80:C4FF). `length` holds the wait, then its end.
  */
+/** The hole's song ($80:C967: `$80:C99D`[course] -> [hole]), from the session's course list. */
+function holeSong(world: World): number {
+  const s = world.get(Session)!;
+  return s.courses[s.holeIndex].song;
+}
+
 function tired(world: World, t: number): void {
   const flow = world.get(HoleFlow)!;
-  const e = ball(world);
+  const e = activePlayer(world);
   const pose = e.get(Pose)!;
   if (pose.state !== PoseState.Tired) {
     const sc = e.get(BallScreen)!;
@@ -228,24 +295,31 @@ function tired(world: World, t: number): void {
  * where the ball lies.
  */
 function outOfTomatoes(world: World, t: number): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   if (t === 0) emitEvent(world, 'silence', 0); // $82:E206: JSL $80:B542 with A = 0
   if (t === OOT_POSE_AT) {
     e.set(Pose, { ...e.get(Pose)!, state: PoseState.Native, timer: 0 }); // $82:E221
     emitEvent(world, 'song', 0x8f - 0x7e); // song $8F + object $BE (Kirby asleep)
   }
   if (t === OOT_SLEEP_END) {
-    emitEvent(world, 'song', HOLE_SONG); // $82:E25F
+    emitEvent(world, 'song', holeSong(world)); // $82:E25B -> $80:C967
     if (world.get(Career)!.lives === 0) {
       enterGameOver(world); // $80:F3B5
       return;
     }
   }
-  if (t === OOT_LIFE_AT) loseLife(world);
+  if (t === OOT_LIFE_AT) {
+    loseLife(world);
+    // $80:F3C1: the stock goes with the life
+    activePlayer(world).set(StockedAbility, { ...activePlayer(world).get(StockedAbility)!, id: 0 });
+  }
   if (t === OOT_OBJECT_AT) emitEvent(world, 'life-object', 0x77); // $80:F89B
   if (t >= OOT_REFILL_FIRST && t < OOT_REFILL_FIRST + REFILL_STEP * REFILL_TRIES && (t - OOT_REFILL_FIRST) % REFILL_STEP === 0) {
     changeTomatoes(world, 1);
+    showPanel(world); // $80:F8F0
   }
+  if (OOT_PANEL_AT.includes(t)) showPanel(world);
+  if (t === OOT_PANEL_HIDE) hidePanel(world); // $80:F8C0
   if (t >= OOT_SETUP_AT) enterPhase(world, 'ShotSetup');
 }
 
@@ -263,8 +337,19 @@ function holeOut(world: World, t: number): void {
     // $83:D4F6: the card's strokes ($D82A - 1; 99 stays 99)
     const s = world.get(Session)!;
     const c = world.get(Career)!;
-    const strokes = ball(world).get(Strokes)!.n;
+    const strokes = activePlayer(world).get(Strokes)!.n;
     c.card[s.holeIndex] = strokes >= STROKES_MAX ? STROKES_MAX : strokes - 1;
+    // $80:F4D4 -> $81:C65B: on the course's last hole (1P), the save's course end
+    // ($81:C666: the medal, the cleared count, the ranking; port_v2 phase 7)
+    const save = world.get(Save)!;
+    if (s.holeIndex >= s.courses.length - 1 && save.member >= 0 && s.course >= 0) {
+      save.last = finishCourse(save.data, s.rules!, save.member, s.course, c.card);
+      touchSave(save);
+    }
+    // $80:F5EF: the stock carried into the next hole (then $80:F63F and the
+    // HUD thread write display codes 12, 15-17 into $D852: not kept)
+    const sa = activePlayer(world).get(StockedAbility)!;
+    activePlayer(world).set(StockedAbility, { ...sa, carry: sa.id });
     world.set(HoleFlow, { ...flow, length: t });
     return;
   }
@@ -272,9 +357,59 @@ function holeOut(world: World, t: number): void {
   if (c === HOLEOUT_SONG_AT) emitEvent(world, 'song', hio ? 0 : 0x97 - 0x7e);
   if (hio && c === HOLEOUT_HIO_SONG_AT) emitEvent(world, 'song', 0x98 - 0x7e);
   if (hio && c === HOLEOUT_HIO_LIFE_AT) gainLife(world);
-  if (c === (hio ? HOLEOUT_HIO_BONUS_AT : HOLEOUT_BONUS_AT)) changeTomatoes(world, 1); // $80:DD5A = 1
+  if (c === (hio ? HOLEOUT_HIO_PANEL_AT : HOLEOUT_PANEL_AT)) showPanel(world); // $80:F634
+  if (c === (hio ? HOLEOUT_HIO_BONUS_AT : HOLEOUT_BONUS_AT)) {
+    changeTomatoes(world, 1); // $80:DD5A = 1
+    showPanel(world); // $80:F6A6
+  }
+  if (c === (hio ? HOLEOUT_HIO_PANEL_HIDE : HOLEOUT_PANEL_HIDE)) silentHidePanel(world); // $83:C76F
   if (c === (hio ? HOLEOUT_HIO_WARP_AT : HOLEOUT_WARP_AT)) emitEvent(world, 'song', 0x96 - 0x7e);
-  if (c >= (hio ? HOLEOUT_HIO_FRAMES : HOLEOUT_FRAMES)) enterPhase(world, 'HoleOver');
+  if (c >= (hio ? HOLEOUT_HIO_FRAMES : HOLEOUT_FRAMES)) {
+    // $80:F4DF: not the last hole ($6A62 = 0) -> the RESULT card $83:D3ED;
+    // the last hole's course clear ($83:C787) is the shell's (piece 4)
+    const s = world.get(Session)!;
+    const last = s.holeIndex >= s.courses.length - 1;
+    enterPhase(world, last ? 'HoleOver' : 'Card');
+    if (!last) {
+      world.set(HoleFlow, { ...world.get(HoleFlow)!, length: 0 }); // the press's t, none yet
+      world.set(Screen, { bright: 0, blank: 1 });
+    }
+  }
+}
+
+/**
+ * The per-hole RESULT card, `$83:D3ED` (port_v2 phase 7; web_card, from the
+ * blank at the hole-out's end, 4330): the screen built in the blank; the fade
+ * in from t = 13 (brightness 1, web_card 4344) to 15 at t = 27 (4358); from
+ * then on `$83:D48C` waits, each frame, for A, B or Start held on the holing
+ * player's pad (`$004F,X AND #$9080`: the held word, so a button already
+ * down passes at once). From the press P: the fade out, 14 at P + 1 down to
+ * 0 at P + 15, the blank at P + 16 (4560 -> 4576); the music stops
+ * (`$80:B5D6`); the next hole's load at P + 80 (`$80:F256`, 4640): HoleOver,
+ * whose `nextHole` the host makes. `HoleFlow.length` holds P's t (0 until
+ * the press). No sound is requested.
+ */
+export const CARD_FADE_IN = 13;
+export const CARD_WAIT = 27;
+export const CARD_NEXT_HOLE = 80;
+
+function resultCard(world: World, t: number): void {
+  const flow = world.get(HoleFlow)!;
+  const press = flow.length;
+  if (press === 0) {
+    if (t >= CARD_FADE_IN) world.set(Screen, { bright: Math.min(15, t - CARD_FADE_IN + 1), blank: 0 });
+    if (t >= CARD_WAIT && (world.get(Pad)!.held & (PAD.A | PAD.B | PAD.START)) !== 0) {
+      world.set(HoleFlow, { ...flow, length: t });
+    }
+    return;
+  }
+  const k = t - press;
+  if (k >= 1 && k <= 15) world.set(Screen, { bright: 15 - k, blank: 0 });
+  if (k === 16) world.set(Screen, { bright: 0, blank: 1 });
+  if (k >= CARD_NEXT_HOLE) {
+    world.set(Screen, { bright: 15, blank: 0 });
+    enterPhase(world, 'HoleOver');
+  }
 }
 
 function enterGameOver(world: World): void {
@@ -286,7 +421,7 @@ function enterGameOver(world: World): void {
 export function setupShot(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase !== 'ShotSetup') return;
-  const e = ball(world);
+  const e = activePlayer(world);
   const shot = world.get(Shot)!;
   if (t === 0) {
     // $80:F73B: the turn's load. $D832 was set to $FFFF after a roll that
@@ -298,6 +433,7 @@ export function setupShot(world: World, ctx: Ctx): void {
   if (t === 1) {
     // $80:C79A: the turn top's tired pose first, with 1 or 2 tomatoes
     const flow = world.get(HoleFlow)!;
+    if (flow.prev === 'Respawn') hidePanel(world); // $80:F290 -> $83:9589's end
     const n = tomatoes(world);
     if (n < 3 && flow.prev !== 'Tired') {
       enterPhase(world, 'Tired');
@@ -308,12 +444,26 @@ export function setupShot(world: World, ctx: Ctx): void {
     // $80:C4FF: the shot set-up; strokes + 1 unless at 99 ($80:C506)
     const st = e.get(Strokes)!;
     if (st.n + 1 <= STROKES_MAX) e.set(Strokes, { n: st.n + 1 });
+    world.set(AimUi, { ...world.get(AimUi)!, lockout: 0 }); // $80:F313
     const w = e.get(BallWork)!;
+    setupCoefficients(w); // $80:C50E JSR $C688
     w.lost &= ~1; // $80:C519 TRB #$8001
     w.lost &= ~0x8000;
     e.set(BallSprite, { prio: PRIO_OVER }); // $80:C52F-$80:C535: $D96A = 3
     e.set(StillCount, { over: e.get(StillCount)!.over, frames: 0 }); // $80:C589
-    e.set(Modifier, { kind: -1, window: 0, timer: 0 });
+    // $80:C553: the modifier's kind only; its window and timer ($D9AA/$D9AE)
+    // are kept across shots
+    e.set(Modifier, { ...e.get(Modifier)!, kind: -1 });
+    // $80:C538-$80:C54A: the ability worn, the mode and the shot's latch, in
+    // the block and the work copy (only the stock outlives the shot); $80:C54D
+    // $D768/$D76A; $80:C55C: the enemy latch $6A68, $6A6A, $693E, the water's
+    // ride $69D8, the launch lock-out $6A7A, the enemy mark $6A0C; $80:C511
+    // ($80:C8C0): the ball's sprite index $D95E/$DA6A
+    e.set(BallMode, { mode: 0 });
+    e.set(BallAbility, { ...e.get(BallAbility)!, worn: 0, latch: 0 });
+    w.mode = 0; w.worn = 0; w.latch = 0;
+    w.enemyLatch = 0; w.waterWalk = 0; w.launchLock = 0; w.enemyHitMark = 0;
+    w.block6a = 0;
     const cam = world.get(Camera)!;
     world.set(Camera, { ...cam, mode: 2, wantX: 0, wantY: 0, lagX: 0, lagY: 0 }); // $80:C574-$80:C586
     // $82:8E41: the free enemy nearest the ball (owner 2, kind $40-$57); once
@@ -365,6 +515,7 @@ export function setupShot(world: World, ctx: Ctx): void {
     // iteration sets 4/5. The head's facing ($81:A665) comes after the
     // guide, which spills into the next frame: update-aim does it there.
     requestGuide(world, ctx, 0); // $81:A65B: no lag frame of its own
+    aimHead(world, world.get(Pad)!.held); // $81:A620-$81:A67D
     enterPhase(world, 'Aim');
   }
 }
@@ -373,7 +524,7 @@ export function setupShot(world: World, ctx: Ctx): void {
 export function detectBallOut(world: World): void {
   const { phase } = phaseNow(world);
   if (phase !== 'Rolling') return;
-  const e = ball(world);
+  const e = activePlayer(world);
   const w = e.get(BallWork)!;
   // $82:C076 (still count) set the shot over: the roll loop ends (RollEnd)
   if (e.get(StillCount)!.over === 0) return;
@@ -385,9 +536,13 @@ export function detectBallOut(world: World): void {
  * `$80:F37A`: the roll loop has exited. Holed ($D956: the sink's end set the
  * shot over, $81:A612), lost ($D876 bit 0) or settled.
  */
-function rollOutcome(world: World): void {
-  const e = ball(world);
+function rollOutcome(world: World, ctx: Ctx): void {
+  const e = activePlayer(world);
   if (e.get(BallHoled)!.holed !== 0) {
+    // $80:F48C: $D76C + 1 (the ability's objects end), palette set 2 ($80:D2FE: Kirby's set 3)
+    const w = e.get(BallWork)!;
+    w.d76c = (w.d76c + 1) & 0xffff;
+    restoreKirbyColours(world, ctx, e.get(BallWet)!.wet);
     const hio = e.get(Strokes)!.n === 2 ? 1 : 0; // $83:D2AB tests $D82A == 2
     enterPhase(world, 'HoleOut');
     world.set(HoleFlow, { ...world.get(HoleFlow)!, holeInOne: hio, length: 0 });
@@ -399,6 +554,7 @@ function rollOutcome(world: World): void {
       return;
     }
     enterPhase(world, 'BallLost');
+    showPanel(world); // $80:F830
     return;
   }
   enterPhase(world, 'SettleWait');
@@ -411,7 +567,7 @@ function rollOutcome(world: World): void {
  * them) and the camera centred on him.
  */
 function resetToOrigin(world: World, ctx: Ctx): void {
-  const e = ball(world);
+  const e = activePlayer(world);
   const shot = world.get(Shot)!;
   e.set(BallPos, { xc: shot.originXc, xf: shot.originXf, yc: shot.originYc, yf: shot.originYf, z: shot.originZ });
   e.set(BallVel, { vx: 0, vy: 0, vz: 0 });
@@ -436,4 +592,28 @@ function resetToOrigin(world: World, ctx: Ctx): void {
 /** The phase in which the ball step runs: the roll loop (the sink after holing included). */
 export function ballStepRuns(world: World): boolean {
   return phaseNow(world).phase === 'Rolling';
+}
+
+/**
+ * `$80:C688`, from every shot's set-up: the coefficients back to their
+ * resting values ($80:DD0D-$80:DD15, $80:DCFF, $80:DD01, $80:DB6D), the
+ * work copy's and both players' block copies. A tile handler's override
+ * (friction, rough, the boost's reset, the kicker's mode 6) does not outlive
+ * the shot, and `$DA3A` is `$0C00` until the aim's guide rolls (sim/guide.ts)
+ * — what a snap panel's landing rolls with.
+ */
+function setupCoefficients(w: BallWorkFields): void {
+  const rest = emptyWork(); // its coefficients are $80:C688's
+  w.rollMu = rest.rollMu; // $DA3A = $80:DD0D
+  w.bounceSrcX = rest.bounceSrcX; // $DA30 = $80:DD0F
+  w.dampXY = rest.dampXY; // $DA3C
+  w.bounceSrcZ = rest.bounceSrcZ; // $DA32 = $80:DD11
+  w.dampZ = rest.dampZ; // $DA3E
+  w.stepSrcX = rest.stepSrcX; // $DA34 = $80:DD13
+  w.stepDamp = rest.stepDamp; // $DA40
+  w.stepSrcZ = rest.stepSrcZ; // $DA36 = $80:DD15
+  w.stepDampZ = rest.stepDampZ; // $DA42
+  w.pad44 = rest.pad44; // $DA44 = $80:DCFF
+  w.restSpeed = rest.restSpeed; // $DA46 = $80:DD01
+  w.gravity = rest.gravity; // $DA38 = $80:DB6D
 }

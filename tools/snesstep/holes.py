@@ -17,6 +17,14 @@ tools/coverage.py.
     python3 tools/snesstep/holes.py                  # holes 0-231
     python3 tools/snesstep/holes.py --holes 0-63
     python3 tools/snesstep/holes.py --holes 19 --keep
+
+`--script NAME:FROM-TO` (repeatable) adds the snapshots of one of the
+input scripts (with its .pokes) to the same cache instead, one every frame
+from FROM to TO, and rewrites the sheets: the water's splashes 56-58 are on
+screen in no hole's two shots (port_v2 phase 4):
+
+    python3 tools/snesstep/holes.py --holes none \
+        --script web_water_drop:2478-2520 --script web_water_shallow:2466-2500
 """
 
 import argparse
@@ -34,6 +42,8 @@ SHOT_FRAME = 2300          # the screen to keep per hole
 
 
 def holes_arg(text):
+    if text == "none":
+        return []
     out = []
     for part in text.split(","):
         if "-" in part:
@@ -51,6 +61,8 @@ def main():
     ap.add_argument("--out", default=os.path.join(ROOT, "build", "emu", "holes"))
     ap.add_argument("--every", type=int, default=4, help="snapshot interval")
     ap.add_argument("--keep", action="store_true", help="keep the snapshots")
+    ap.add_argument("--script", action="append", default=[],
+                    help="NAME:FROM-TO, an input script's frames into the cache")
     args = ap.parse_args()
     if not os.path.exists(BIN):
         subprocess.run(["cargo", "build", "--release", "--offline", "--manifest-path",
@@ -98,6 +110,28 @@ def main():
             idx, course, hole, rows[-1][3], loaded), flush=True)
         if not args.keep:
             shutil.rmtree(run, ignore_errors=True)
+    for spec in args.script:
+        name, window = spec.split(":")
+        lo, hi = (int(v) for v in window.split("-"))
+        run = os.path.join(args.out, "s_" + name)
+        cmd = [BIN, "--frames", str(hi + 1), "--input",
+               os.path.join(HERE, "inputs", name + ".txt"),
+               "--snap-at", ",".join(str(f) for f in range(lo, hi + 1)),
+               "--no-dsp", "--quiet", "--out", run]
+        pokes = os.path.join(HERE, "inputs", name + ".pokes")
+        if os.path.exists(pokes):
+            cmd += ["--pokes", pokes]
+        subprocess.run(cmd, check=True)
+        dirs = sorted(os.path.join(run, d) for d in os.listdir(run) if d.startswith("f"))
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "emusheets.py"),
+                        "--cache", cache, "--no-write"] + dirs, capture_output=True, check=True)
+        print("script {} {}-{}: {} snapshots".format(name, lo, hi, len(dirs)), flush=True)
+        if not args.keep:
+            shutil.rmtree(run, ignore_errors=True)
+    if not args.holes:
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "emusheets.py"),
+                        "--cache", cache, "--out", os.path.join(ROOT, "build", "sprites", "emu")])
+        return 0
     cov = os.path.join(ROOT, "build", "emu", "cov", "holes.tsv")
     os.makedirs(os.path.dirname(cov), exist_ok=True)
     with open(cov, "w") as f:

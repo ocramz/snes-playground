@@ -24,8 +24,9 @@ import { Shot } from '../../../core/traits/shot';
 import { Time } from '../../../core/traits/time';
 import { Camera } from '../../../core/traits/camera';
 import { BallScreen } from '../../../core/traits/pose';
-import { BallWork } from '../../../core/traits/ball';
+import { findActivePlayer } from '../../../core/traits/player';
 import { Tomatoes } from '../../../core/traits/counters';
+import { AimUi } from '../../../core/traits/aim-ui';
 import type { CoreHistory } from '../../bridge/history';
 import type { PanelInput } from './panel-layout';
 
@@ -39,7 +40,16 @@ export const ONE_CLOSE_AT = 25;
 /** The tomato about to be spent blinks with this period, from the curl. */
 export const TOMATO_BLINK = 16;
 
-const OPEN: ReadonlySet<FlowPhase> = new Set<FlowPhase>(['Spin', 'Power', 'LaunchDelay', 'Rolling']);
+const OPEN: ReadonlySet<FlowPhase> = new Set<FlowPhase>(['Spin', 'Power', 'LaunchDelay', 'Rolling', 'Cancel']);
+
+/**
+ * The spin preset (B held in the aim, `$83:B214`; port_v2 phase 7): object
+ * $10 at ($83:B322[player], $BF), which puts the face's top-left at (12, 167)
+ * (the OAM of web_bspin 2620); as an anchor the layout uses, (36, 162).
+ */
+export const PRESET_ANCHOR = { x: 0x24, y: 162 };
+/** The cancel ($81:C089): the panel object goes with the latch, C + 34 (panel.ts CANCEL_LATCH_AT). */
+export const CANCEL_PANEL_CLOSE = 34;
 
 const s16 = (v: number): number => {
   const w = v & 0xffff;
@@ -52,14 +62,22 @@ export const HIDDEN: PanelInput = {
 
 export function panelState(world: World, history: CoreHistory): PanelInput {
   const flow = world.get(HoleFlow)!;
+  if (flow.phase === 'Aim' && world.get(AimUi)!.preset !== 0) {
+    const shot = world.get(Shot)!;
+    return {
+      ...PRESET_ANCHOR, age: 1 << 20, visible: true, side: shot.side, topBack: shot.topBack,
+      meter1: -1, meter2: -1, hp: 0, panel: true, one: false, preset: true,
+    };
+  }
   if (!OPEN.has(flow.phase)) return HIDDEN;
+  if (flow.phase === 'Cancel' && world.get(Time)!.frame - flow.since >= CANCEL_PANEL_CLOSE) return HIDDEN;
   const spin = history.since('Spin');
   if (spin === undefined) return HIDDEN;
   const f = world.get(Time)!.frame;
   const latch = flow.phase === 'LaunchDelay' || flow.phase === 'Rolling' ? history.since('LaunchDelay') : undefined;
   if (latch !== undefined && f - latch >= ONE_CLOSE_AT) return HIDDEN;
   if (flow.phase === 'Rolling' && latch === undefined) return HIDDEN;
-  const ball = world.queryFirst(BallWork);
+  const ball = findActivePlayer(world);
   if (ball === undefined) return HIDDEN;
   const sc = ball.get(BallScreen)!;
   const cam = world.get(Camera)!;

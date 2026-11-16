@@ -4,12 +4,11 @@
  * return value routes the step: `landing` / `rolling` continue into the
  * default chain (optionally from its midpoint), `done` ends the dispatch.
  *
- * Five groups are stubbed with the reason in `stubbed`: their ROM helpers
- * reach the thread-object system or undocumented tables. They are excluded
- * from the exact trace tests per plans risk 5 and listed in docs/engine.md.
- * Every other group is a port of the disassembly.
+ * One group is stubbed, with the reason in `stubbed` (`$58`/`$59`, 2P holes
+ * only); it is listed in docs/engine.md. Every other group is a port of the
+ * disassembly.
  */
-import { s16, wrap16, mulFloor, mulQ15s, atan2Deg } from '../fixed';
+import { s16, wrap16, mulFloor, mulQ15s, mul16x8, atan2Deg } from '../fixed';
 import type { Ctx, Work } from './context';
 import type { RollModifier } from './roll';
 import { restorePrev } from './wall-step';
@@ -20,6 +19,9 @@ import { enemyDispatch } from './enemy';
 import { bumperLand, bumperHitSide, bobLand, bobHitSide, volcanoLand, volcanoHitSide, hazard05 } from './hazards';
 import { rotateBy, turnToDir } from './turn';
 import { warpLand, warpHit } from './warp';
+import { waterLand, waterHit } from './water';
+import { sparkDestroy } from './abilities';
+import { swirlLand, swirlHit, switchLand, switchHit, waterSwitchLand, waterSwitchHit } from './switches';
 import { LANDING, ROLLING, DONE, type DispatchOutcome } from './types';
 export type { DispatchOutcome };
 
@@ -93,8 +95,17 @@ export function landDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispat
       return enemyDispatch(ctx, w);
     case 'warp':
       return warpLand(ctx, w);
-    default:
-      return stubbed(ctx.rules.landHandler(w.tile), LANDING);
+    case 'overlay':
+      return waterLand(ctx, w, _modifier); // $82:80F6
+    case 'switch':
+      return switchLand(ctx, w); // $82:A1B1
+    case 'waterSwitch':
+      return waterSwitchLand(ctx, w); // $82:A3EB
+    default: {
+      const name = ctx.rules.landHandler(w.tile);
+      if (name.startsWith('toggle')) return swirlLand(ctx, w); // $82:9FD1-$82:A082
+      return stubbed(name, LANDING);
+    }
   }
 }
 
@@ -144,13 +155,13 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
     case 'outlineWallHit':
       return outlineWallHit(ctx, w);
     case 'boostNHit':
-      return boostHit(ctx, w, 'vy');
+      return boostHit(ctx, w, 'vy', -1);
     case 'boostEHit':
-      return boostHit(ctx, w, 'vx');
+      return boostHit(ctx, w, 'vx', 1);
     case 'boostSHit':
-      return boostHit(ctx, w, 'vx');
+      return boostHit(ctx, w, 'vy', 1);
     case 'boostWHit':
-      return boostHit(ctx, w, 'vy');
+      return boostHit(ctx, w, 'vx', -1);
     case 'enemy':
       return enemyDispatch(ctx, w);
     case 'enemyRollAlt':
@@ -159,23 +170,27 @@ export function hitDispatch(ctx: Ctx, w: Work, _modifier: RollModifier): Dispatc
       return ROLLING;
     case 'warpHit':
       return warpHit(ctx, w);
-    default:
-      return stubbed(ctx.rules.hitHandler(w.tile), ROLLING);
+    case 'overlayHit':
+      return waterHit(ctx, w); // $82:8000
+    case 'switchHit':
+      return switchHit(ctx, w); // $82:A175
+    case 'waterSwitchHit':
+      return waterSwitchHit(ctx, w); // $82:A43E
+    default: {
+      const name = ctx.rules.hitHandler(w.tile);
+      if (name.startsWith('toggle')) return swirlHit(ctx, w); // $82:9EF9-$82:9FCD
+      return stubbed(name, ROLLING);
+    }
   }
 }
 
 /**
- * The stubbed groups, with the reason each is out of phase 4's reach:
- * - toggle70-7B (+hits): the gate reads the direction map at $88:9190
- *   ($82:A086) and applies via $82:A0D9/$82:A0F9 — not read.
- * - overlay ($60-$6F, +hits): enter/leave tracking ($82:80F6) — not read;
- *   the $D9EE flag itself IS ported (the $82:C85F probe wrapper).
- * (The hazards, $05, $80-$A2 and $AC-$AE, are ported in phase 6: hazards.ts.)
- * - unk58/unk5a/unk5c (+hits): handlers located, not read
- *   (docs/tiles.md "Not established"). (The warps $B0-$B9 are ported:
- *   warp.ts.)
- * Each returns its group's default routing so an unported tile behaves
- * like plain ground.
+ * The one stubbed group: switch58 (+hit), `$58`/`$59` ($82:A25D/$82:A2F5),
+ * the `$6A2E` switch with its three uses and object 101's sequence. It is
+ * read (notes/port-v2-phase6-switches.md) but only the 2P holes 132-143 and
+ * 196-207 have it, so it waits for step 9; it returns its group's default
+ * routing, so the tile behaves like plain ground. (The swirls and the
+ * switches `$5A-$5D` are switches.ts, port_v2 phase 6; the water water.ts.)
  */
 const stubbedSeen = new Set<string>();
 function stubbed(name: string, fallback: DispatchOutcome): DispatchOutcome {
@@ -186,45 +201,54 @@ function stubbed(name: string, fallback: DispatchOutcome): DispatchOutcome {
 // --- friction tiles ($20-$24: land $82:8F77, hit $82:8F9D) ---
 
 function frictionTile(ctx: Ctx, w: Work): void {
-  // $82:8FA4
-  if (w.mode === 0x0a) return;
-  w.rollMu = ctx.rules.const_('frictionTileMu'); // $0800
-  if (w.tile === 0x24) {
-    w.dampXY = ctx.rules.const_('frictionTileDampXY');
-    w.dampZ = ctx.rules.const_('frictionTileDampZ');
-  } else {
-    w.dampXY = ctx.rules.const_('roughDampXY2');
-    w.dampZ = w.mode === 6 ? ctx.rules.const_('roughDampZ6') : ctx.rules.const_('roughDampZ');
+  // $82:8FA4 (JSR from both sides): mode $0A keeps the coefficients
+  if (w.mode !== 0x0a) {
+    w.rollMu = ctx.rules.const_('frictionTileMu'); // $0800
+    if (w.tile === 0x24) {
+      w.dampXY = ctx.rules.const_('frictionTileDampXY');
+      w.dampZ = ctx.rules.const_('frictionTileDampZ');
+    } else {
+      w.dampXY = ctx.rules.const_('roughDampXY2');
+      w.dampZ = w.mode === 6 ? ctx.rules.const_('roughDampZ6') : ctx.rules.const_('roughDampZ');
+    }
   }
-  // $82:8F87: sfx $1A when the ball is at/under the surface and vz >= -$100
+  // $82:8F87 (the land side, after the JSR, in every mode): sfx $1A when the
+  // ball is at/under the surface and vz >= -$100
   if (grounded(w) && w.vz < 0xff00) w.tailSfx = 0x001a;
 }
 
 // --- the rough tile $04 ($82:8EFB land / $82:8F30 hit) ---
 
+/**
+ * $82:8EFB, the land side: at or under the surface, the coefficients by
+ * `$80:DDF5`[mode], then the tail sound from vz ($82:8F17): $5F at rest,
+ * none while falling slower than $400 (vz in [$FC00, $FFFF], `BCS $8F2C`),
+ * else $60. No mode is singled out (web_rough_land/_soft/_hard).
+ */
 function roughLand(ctx: Ctx, w: Work): DispatchOutcome {
   if (!grounded(w)) return LANDING; // BCC $8F2C: straight to the default
-  if (w.mode !== 0x0a) {
-    setRoughCoeffs(ctx, w, ctx.rules.table('frictionAltMode')[w.mode]);
-    // $6A6C = (vz below -$0400 ? 1 : 0) + $5F
-    const a = w.vz !== 0 && w.vz < 0xfc00 ? 1 : 0;
-    w.tailSfx = wrap16(a + 0x005f);
-  }
+  setRoughCoeffs(ctx, w, ctx.rules.table('frictionAltMode')[w.mode]);
+  if (w.vz === 0) w.tailSfx = 0x005f;
+  else if (w.vz < 0xfc00) w.tailSfx = 0x0060;
   return LANDING;
 }
 
 function frictionAltHit(ctx: Ctx, w: Work): void {
-  // $82:8F30: the hit-side $04 handler
-  if (w.mode === 0x0a) return;
-  const idx = ctx.rules.table('frictionAltIndex')[w.mode];
-  setRoughCoeffs(ctx, w, idx);
+  // $82:8F30: the hit-side $04 handler, by `$80:DE21`[mode] (web_rough_roll)
+  setRoughCoeffs(ctx, w, ctx.rules.table('frictionAltIndex')[w.mode]);
   if (w.pTile !== 0x04) w.tailSfx = 0x0060; // $82:8F44
 }
 
+/**
+ * $82:8F4E: X = 0 or 2 is a byte offset into three 2-word tables
+ * ($80:DD71 friction, $DD75 dampXY, $DD79 dampZ: mode 0 reads $6800 /
+ * $6665 / $20C4), and the spin goes. `LDY $D9C8 / CMP #5 / LSR` compares
+ * the friction just loaded, never 5, so the halving never runs.
+ */
 function setRoughCoeffs(ctx: Ctx, w: Work, idx: number): void {
-  w.rollMu = ctx.rules.table('roughFriction')[idx];
-  w.dampXY = ctx.rules.table('roughDampXY')[idx];
-  w.dampZ = ctx.rules.table('roughDampZ')[idx];
+  w.rollMu = ctx.rules.table('roughFriction')[idx >> 1];
+  w.dampXY = ctx.rules.table('roughDampXY')[idx >> 1];
+  w.dampZ = ctx.rules.table('roughDampZ')[idx >> 1];
   w.spinX = 0;
   w.spinY = 0;
   w.spinPending = 0;
@@ -298,8 +322,13 @@ function boostGateAxis(w: Work): number {
   return testX ? w.xf : w.yf;
 }
 
+/**
+ * $82:9DB3/$9DD7/$9DFB/$9E1F, landed on: the gates, then the fixed delta,
+ * then the default landing. Every exit clears $6A28 (object 112's hum,
+ * systems/boost-hum.ts).
+ */
 function boostLand(ctx: Ctx, w: Work, dir: 'vx+' | 'vx-' | 'vy+' | 'vy-'): DispatchOutcome {
-  // $82:9DB3+: gates then the fixed delta, then the default landing.
+  w.boostFlash = 0; // $82:9DD0 etc.: STZ $6A28 on every path
   if (!grounded(w)) return LANDING; // $82:9E76 BCC
   if (modeImmune(w)) return LANDING; // $82:9E85
   if (s16(wrap16(boostGateAxis(w) - 0x4000)) < 0) return LANDING; // $82:9E9A BMI
@@ -310,28 +339,47 @@ function boostLand(ctx: Ctx, w: Work, dir: 'vx+' | 'vx-' | 'vy+' | 'vy-'): Dispa
   return LANDING;
 }
 
-function boostHit(ctx: Ctx, w: Work, axis: 'vx' | 'vy'): DispatchOutcome {
-  // $82:9CBF+ (the four variants differ only in the axes)
-  if (modeImmune(w)) return ROLLING;
-  if (s16(wrap16(boostGateAxis(w) - 0x4000)) < 0) return ROLLING;
-  const other: 'vx' | 'vy' = axis === 'vx' ? 'vy' : 'vx';
-  const otherV = w[other];
-  const mag = otherV >= 0 ? otherV : wrap16(-s16(otherV));
-  if (mag < ctx.rules.const_('boostStraight')) {
-    // a straight hit: the other axis stops, this axis launches to
-    // ±(boostBig - 1) in the ball's own sign ($82:9E43/$82:9E48)
-    w[other] = 0;
-    const big = ctx.rules.const_('boostBig');
-    const bigNeg = ctx.rules.const_('boostBigNeg');
-    w[axis] = w[axis] >= 0 ? big - 1 : bigNeg + 1;
-    w.boostFlash = w[axis]; // $6A28 (presentation; phase 5)
-  } else {
-    const delta =
-      w[axis] < 0 ? ctx.rules.const_('boostSmallNeg') : ctx.rules.const_('boostSmall');
-    w[other] = wrap16(w[other] + delta);
-    resetCoeffs(ctx, w);
+/** |v| of a 16-bit pattern, unsigned (EOR #$FFFF / INC A). */
+function abs16(v: number): number {
+  const x = s16(v);
+  return x < 0 ? wrap16(-x) : x;
+}
+
+/**
+ * $82:9CBF (N) / $9CFC (E) / $9D39 (S) / $9D76 (W), rolled onto. `axis` is
+ * the panel's own velocity component and `sign` its direction (the X that
+ * $82:9E43 / $82:9E48 pass): N vy -, E vx +, S vy +, W vx -. Read
+ * 2026-11-15 (notes/port-v2-phase1-courses.md):
+ * - the gates (mode, $82:9E9A) fail: $6A28 = 0, the roll goes on;
+ * - a straight hit (|other| < boostStraight, $82:9CBD): the other component
+ *   stops, and if |axis| < boostBig the ball launches along the panel at
+ *   ±(boostBig - 1), $D9D0 = 0 and $6A28 = that speed (the hum's switch),
+ *   and the handler returns (RTL): no roll this step, only the tail;
+ * - otherwise ($6A28 = 0): the panel's component gets ±boostSmall, the
+ *   coefficients are reset, and the roll goes on ($81:8A56).
+ */
+function boostHit(ctx: Ctx, w: Work, axis: 'vx' | 'vy', sign: 1 | -1): DispatchOutcome {
+  if (modeImmune(w) || s16(wrap16(boostGateAxis(w) - 0x4000)) < 0) {
+    w.boostFlash = 0; // $82:9CF5
+    return ROLLING;
   }
-  return ROLLING;
+  const other: 'vx' | 'vy' = axis === 'vx' ? 'vy' : 'vx';
+  if (abs16(w[other]) < ctx.rules.const_('boostStraight')) {
+    w[other] = 0; // STZ
+    if (abs16(w[axis]) < ctx.rules.const_('boostBig')) {
+      // $82:9E5B-$82:9E6B
+      w.spinPending = 0; // STZ $D9D0
+      const v = wrap16(sign > 0 ? ctx.rules.const_('boostBig') - 1 : ctx.rules.const_('boostBigNeg') + 1);
+      w.boostFlash = v; // STA $6A28
+      w[axis] = v;
+      return DONE; // RTL from the handler: $81:8103 goes on to $81:8D52 and the tail
+    }
+    w.boostFlash = 0; // $82:9E71
+  }
+  w[axis] = wrap16(w[axis] + (sign > 0 ? ctx.rules.const_('boostSmall') : ctx.rules.const_('boostSmallNeg')));
+  resetCoeffs(ctx, w); // JSR $9EE3
+  w.boostFlash = 0; // STZ $6A28
+  return ROLLING; // JML $81:8A56
 }
 
 function modeImmune(w: Work): boolean {
@@ -353,31 +401,77 @@ function kickerLand(ctx: Ctx, w: Work): DispatchOutcome {
   return kickerApply(ctx, w, LANDING);
 }
 
+/**
+ * $82:A88C, the kicker rolled onto: with the ball moving, a push along the
+ * kicker ($10 -y, $11 +x, $12 +y, $13 -x: the angles 270, 0, 90, 180 of
+ * $82:A8B3's branches) of `kickerTurn`'s size, halved when the ball runs
+ * against it; then the heading ($81:8E60) and the roll ($81:8A56).
+ */
 function kickerHit(ctx: Ctx, w: Work): DispatchOutcome {
   if (ctx.rules.table('kickerModeHit')[w.mode] === 0) return ROLLING;
-  return kickerApply(ctx, w, ROLLING);
+  if ((w.vx | w.vy) === 0) return ROLLING; // $82:A8A0
+  const t = w.tile - 0x10;
+  let k = kickerTurn(w, [270, 0, 90, 180][t]);
+  switch (t) {
+    case 0: if (s16(w.vy) >= 0) k >>= 1; w.vy = wrap16(w.vy - k); break; // $A8F0
+    case 1: if (s16(w.vx) < 0) k >>= 1; w.vx = wrap16(w.vx + k); break; // $A8BB
+    case 2: if (s16(w.vy) < 0) k >>= 1; w.vy = wrap16(w.vy + k); break; // $A8E2
+    case 3: if (s16(w.vx) >= 0) k >>= 1; w.vx = wrap16(w.vx - k); break; // $A8C9
+  }
+  updateHeading(ctx.rules, w);
+  return ROLLING;
 }
 
+/**
+ * $82:A90F: the push's size from the angle between the heading ($D9DA) and
+ * the kicker's, folded to 0-180, and the friction it leaves:
+ * - mode 6 (Wheel): angle x $18 >> 8, friction $0100;
+ * - otherwise angle x $58 >> 8, friction $1000, or $1800 with the push
+ *   capped at $70 for an angle in [$17, $9D);
+ * - mode 2 (Parasol) adds the friction it had to that.
+ * ($80:A378, read at $389F: bits 8-23.)
+ */
+function kickerTurn(w: Work, angle: number): number {
+  let d = s16(wrap16(w.deg - angle));
+  if (d < 0) d = -d;
+  if (d >= 180) d = 360 - d;
+  if (w.mode === 6) {
+    w.rollMu = 0x0100;
+    return (d * 0x18) >> 8;
+  }
+  const old = w.rollMu;
+  let k = (d * 0x58) >> 8;
+  let mu = 0x1000;
+  if (d >= 0x17 && d < 0x9d) {
+    mu = 0x1800;
+    if (k >= 0x70) k = 0x70;
+  }
+  w.rollMu = w.mode === 2 ? wrap16(mu + old) : mu;
+  return k;
+}
+
+/**
+ * $82:A7FE-$82:A884, the kicker's push on the land side. X = 0, or 2
+ * in mode 6 (Wheel, with `$DA3A` = $0100): a byte offset, so the bounds are
+ * `$80:DDE3`/`$DDE5` [X >> 1]: 25 / 200, or 200 / 6. The kick is vz x the
+ * signed low byte of the first ($80:A342: mode 6's $C8 is -56), read at
+ * $389F; at or over the second (unsigned) it is the first instead. The
+ * tile's jump (`SEC / SBC #$10 / CMP #4 / ASL`) leaves the carry clear, so
+ * the push is v + kick ($10, $11: ADC) or v - kick - 1 ($12, $13: SBC).
+ */
 function kickerApply(ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome {
-  // $82:A7FE+: the kick = mul16x8(vz, min), clamped to max — and when
-  // clamped the value becomes min again, with the compare's carry still
-  // set (it adds one more in the ADC paths, and none in the SBC paths).
   const x = w.mode === 6 ? 2 : 0;
   if (w.mode === 6) w.rollMu = 0x0100;
-  const min = ctx.rules.table('kickerMin')[x];
-  const max = ctx.rules.table('kickerMax')[x];
-  let kick = wrap16(Math.floor((s16(w.vz) * min) / 256));
-  let clamped = false;
-  if (kick >= max) {
-    kick = min;
-    clamped = true;
-  }
-  const carry = clamped ? 1 : 0;
+  const min = ctx.rules.table('kickerMin')[x >> 1];
+  const max = ctx.rules.table('kickerMax')[x >> 1];
+  let kick = mul16x8(w.vz, min);
+  if (kick >= max) kick = min;
+  // the jump table $82:A843 by the tile: $A869, $A84B, $A85F, $A855
   switch (w.tile - 0x10) {
-    case 0: w.vy = wrap16(w.vy + kick + carry); break; // ADC
-    case 1: w.vx = wrap16(w.vx + kick + carry); break;
-    case 2: w.vx = wrap16(w.vx - kick - (clamped ? 0 : 1)); break; // SBC
-    case 3: w.vy = wrap16(w.vy - kick - (clamped ? 0 : 1)); break;
+    case 0: w.vy = wrap16(w.vy - kick - 1); break; // $A869: vy SBC
+    case 1: w.vx = wrap16(w.vx + kick); break; // $A84B: vx ADC
+    case 2: w.vy = wrap16(w.vy + kick); break; // $A85F: vy ADC
+    case 3: w.vx = wrap16(w.vx - kick - 1); break; // $A855: vx SBC
   }
   updateHeading(ctx.rules, w);
   if (w.mode !== 6) w.dampXY = ctx.rules.const_('kickerDamp');
@@ -436,45 +530,92 @@ function arrowTurn(ctx: Ctx, w: Work): void {
   w.tailSfx = 0x000c;
 }
 
-// --- snap ($18-$1B) ---
+// --- the snap panels ($18-$1B: land $82:A5B1, hit $82:A5E6) ---
 
+/**
+ * $82:A5B1, landed on: at or under the surface ($82:A5B9, the compare of
+ * $82:9E76) and through the gate, the ball is put on the surface at rest
+ * vertically ($D9EC = 0, z = ground, vz = 0) and pushed; every other path is
+ * the default landing ($81:8905).
+ */
 function snapLand(ctx: Ctx, w: Work): DispatchOutcome {
-  // $82:A5B1
-  if (w.mode === 0x0a) return LANDING;
-  if (!grounded(w)) return LANDING;
-  if (snapGate(ctx, w) < 0) return LANDING;
-  w.air = 0;
-  w.z = w.ground;
-  w.vz = 0;
-  return snapApply(ctx, w, LANDING);
+  if (w.mode === 0x0a) return LANDING; // $82:A5B7
+  if (!grounded(w)) return LANDING; // $82:A5C7 BCC
+  if (!snapGate(w)) return LANDING; // $82:A5CC BMI
+  w.air = 0; // $82:A5CE
+  w.z = w.ground; // $82:A5D1-$82:A5DA
+  w.vz = 0; // $82:A5DD
+  return snapPush(ctx, w);
 }
 
+/** $82:A5E6, rolled onto: the gate, then the push; else the default roll ($81:8A56). */
 function snapHit(ctx: Ctx, w: Work): DispatchOutcome {
-  if (w.mode === 0x0a) return ROLLING;
-  if (snapGate(ctx, w) !== 0) return ROLLING;
-  return snapApply(ctx, w, ROLLING);
+  if (w.mode === 0x0a) return ROLLING; // $82:A5EC
+  if (!snapGate(w)) return ROLLING; // $82:A5F1 BEQ not taken
+  return snapPush(ctx, w);
 }
 
-/** $82:A692: the snap's extra gate. Unread; returns "pass" (flagged). */
-function snapGate(_ctx: Ctx, _w: Work): number {
-  return 0;
+/**
+ * $82:A692: both fractions in [$2800, $DFFF) and the mode neither 1 nor 4.
+ * A failure clears the latch $6A68 (shared with the enemies, the pillar and
+ * the arrows), so a pass that leaves the window re-arms the next one. The
+ * ROM returns through DEY's flags: Y = 0 pass, $FFFF fail.
+ */
+function snapGate(w: Work): boolean {
+  const inside = (f: number): boolean => f >= 0x2800 && f < 0xdfff;
+  if (inside(w.xf) && inside(w.yf) && w.mode !== 1 && w.mode !== 4) return true;
+  w.enemyLatch = 0; // $82:A6C2
+  return false;
 }
 
-function snapApply(_ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome {
-  // $82:A5F7+: the four per-tile impulses (clamped directional deltas;
-  // the jump table at $82:A629, byte-exact values pending a trace)
-  const imp = (v: number, delta: number, floor: number): number => {
-    const r = wrap16(v + delta);
-    return s16(r) < s16(floor) ? floor : r;
-  };
-  switch (w.tile - 0x18) {
-    case 0: w.vy = imp(w.vy, -0x0300, 0xe000); break;
-    case 1: w.vx = imp(w.vx, 0x0300, 0xe000); break;
-    case 2: w.vy = imp(w.vy, 0x0300, 0xe000); break;
-    case 3: w.vx = imp(w.vx, -0x0300, 0xe000); break;
+/**
+ * $82:A5F7: one push per frame in the window. `STZ $699A` keeps object 61
+ * (the star trail, systems/snap-trail.ts) alive; once per pass (the latch
+ * $6A68) the tail plays $11 and object 61 is spawned ($80:DFBA, A = $3D).
+ * Then the jump table $82:A629 by tile - $18 adds $300 along the panel:
+ *
+ *   $18 $A631  vy + $FD00; a negative sum below $E000 (u16) -> $E000
+ *   $19 $A65A  vx + $0300; a positive sum >= $2000 -> A = $2000, but
+ *              `BRA $A681` at $A66B skips the store: vx is left unchanged
+ *   $1A $A644  vy + $0300; a positive sum >= $2000 -> $2000
+ *   $1B $A66D  vx + $FD00; a negative sum below $E000 -> $E000
+ *
+ * The tests are BPL/BMI on the 16-bit sum, so a sum that wraps the sign is
+ * stored as it is. Then the heading ($81:8E60), the spin cleared, and the
+ * rolling default ($81:8A56) — from the landing path too.
+ */
+function snapPush(ctx: Ctx, w: Work): DispatchOutcome {
+  w.snapKeep = 1; // $82:A5F7 STZ $699A
+  if (w.enemyLatch === 0) {
+    w.enemyLatch += 1; // $82:A602
+    w.tailSfx = 0x0011; // $82:A608
+    w.snapSpawn += 1; // $82:A60E: object 61
   }
-  w.tailSfx = 0x0011; // $82:A608 (the latch and sfx $3D are phase 5/6)
-  return out;
+  switch (w.tile - 0x18) {
+    case 0: w.vy = snapDown(w.vy); break;
+    case 1: {
+      const r = wrap16(w.vx + 0x0300); // $82:A65E
+      if ((r & 0x8000) !== 0 || r < 0x2000) w.vx = r; // $82:A661 BMI / $82:A666 BCC -> STA
+      break; // else $82:A66B BRA $A681: no store
+    }
+    case 2: {
+      const r = wrap16(w.vy + 0x0300); // $82:A648
+      w.vy = (r & 0x8000) !== 0 || r < 0x2000 ? r : 0x2000; // $82:A64B-$82:A655
+      break;
+    }
+    case 3: w.vx = snapDown(w.vx); break;
+  }
+  updateHeading(ctx.rules, w); // $82:A681 JSL $81:8E60
+  w.spinX = 0; // $82:A685
+  w.spinY = 0;
+  w.spinPending = 0;
+  return ROLLING; // $82:A68E JML $81:8A56
+}
+
+/** $82:A631 / $82:A66D: + $FD00, a negative sum floored at $E000. */
+function snapDown(v: number): number {
+  const r = wrap16(v + 0xfd00);
+  return (r & 0x8000) === 0 || r >= 0xe000 ? r : 0xe000;
 }
 
 // --- outline wall ($28-$2D) ---
@@ -502,7 +643,7 @@ function outlineWallHit(ctx: Ctx, w: Work): DispatchOutcome {
  * cell ($82:95FD: both fractions in $4000-$BFFE). The latch $6A68 (shared
  * with the enemies) makes one pass count once.
  *
- *   land: above the top, or outside the footprint, or the mode-7 branch
+ *   land: above the top, or outside the footprint, or Spark's destroy
  *         ($82:961B) -> clear the latch; latch set -> nothing; else clear
  *         the spin, then: the top below the previous z ($DA18) -> the
  *         reflection about the quadrant's normal, damped (vx, vy x $4A3C,
@@ -527,8 +668,15 @@ function pillarShared(ctx: Ctx, w: Work, out: DispatchOutcome): DispatchOutcome 
     return out;
   }
   if (w.enemyLatch !== 0) return out; // $82:9504 / $82:9587
-  // $82:961B -> $82:EE9A: the mode-7 branch (it clears the tile from layer
-  // 2) returns "no" outside mode 7; modes are always 0 here
+  // $82:961B -> $82:EE9A: Spark (mode 7) destroys the tree: the actor
+  // unlinked, the layer-2 tile cleared, object 72 told to break ($531C =
+  // $FFFF), sfx $3A inline; then the latch is cleared and the plain
+  // landing or roll goes on, with no push and no spin cleared
+  if (sparkDestroy(w)) {
+    w.abilitySfx.push(0x3a);
+    w.enemyLatch = 0; // $82:9572 / $82:959C
+    return out;
+  }
   if (!landing) {
     pillarPush(ctx, w);
     w.spinX = 0;

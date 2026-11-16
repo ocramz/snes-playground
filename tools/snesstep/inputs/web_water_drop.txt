@@ -1,0 +1,18 @@
+# Course 1 hole 7 (index 6, MAP06): the 3x3 pond (7-9, 8-10), open water $61 at (8,9),
+# its level $1_6733 ($82:83B9: the height of elevation 3 + $57AD). A weak shot from
+# the tee, then at the roll's first frame a poke puts the ball $8000 above the level
+# over (8,9), falling at vz -$1000: a deep sink (velocities / 8, $82:858D), object 57
+# (and its 58) for |vz| >= $1F0, sound $4C, the wet palette and the bubbles (object 67).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2360 A 2        # aim (the set-up's 180)
+2437 A 2        # spin
+2444 A 2        # power (meter 2)

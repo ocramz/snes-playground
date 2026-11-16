@@ -16,9 +16,10 @@ import { Pad } from '../traits/pad';
 import { Shot } from '../traits/shot';
 import { emptyWork } from '../traits/ball';
 import {
-  BallPos, BallVel, BallAir, BallSpin, BallMode, BallHoled, BallHeading,
+  BallPos, BallVel, BallAir, BallWet, BallSpin, BallMode, BallAbility, BallHoled, BallHeading,
   StillCount, Modifier, BallWork, type BallWorkFields,
 } from '../traits/ball';
+import { StockedAbility } from '../traits/counters';
 import type { Ctx } from '../sim/context';
 import { probe } from '../sim/probe';
 import { integrate, airDrag, fallBelowCourse } from '../sim/move';
@@ -33,9 +34,19 @@ import { countStill } from '../sim/still';
 import { s16, wrap16, mul16x8 } from '../fixed';
 import { emit } from '../events';
 import { Stall } from '../traits/stall';
+import { activePlayer } from '../traits/player';
 import { startWarp } from './warp';
+import { noteSnapPush } from './snap-trail';
+import { noteWater } from './water-fx';
+import { switchEffects } from './switches';
+import { onWater } from '../sim/water';
 import { Pose, PoseState } from '../traits/pose';
-import { takeEnemy } from './take';
+import { takeEnemy, finishTakeEnemy } from './take';
+import {
+  abilityAir, abilityGround, abilitySetup, abilitySetupTail, abilityWaterDrop, codeWaterDrop,
+  codeAir, codeGround, triggerGates, transform, afterTransform, PLAIN, HANDLED,
+} from '../sim/abilities';
+import { applyAbilityFacts } from './ability';
 import { pushTomato } from './counters';
 import { hazardReaction } from './hazard-reaction';
 
@@ -58,11 +69,13 @@ interface StepState {
   outcome?: LandingOutcome;
   reroute?: 'landing' | 'rolling' | 'done';
   entry?: 'full' | 'grounded' | 'gravityOnly';
+  /** The guide's water: the surface it lands on ($81:B144; sim/water.ts). */
+  surface?: { ground: number; code: number };
 }
 
 /** A stall the step asks for: the runner suspends the list after the entry. */
 interface StallRequest {
-  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp';
+  kind: 'hitStop' | 'stepStop' | 'cupReveal' | 'takeWait' | 'warp' | 'waterWait' | 'waterSwitch' | 'transform' | 'abilityWait';
   frames: number;
   state: number;
 }
@@ -85,6 +98,7 @@ export const BALL_STEP: StepEntry[] = [
     kernel: false,
     run: (world, s) => {
       loadBallWork(world, s.w);
+      s.w.guideLeft = 0; // the block's probe is back over the guide's ($82:F030)
       return null;
     },
   },
@@ -109,12 +123,24 @@ export const BALL_STEP: StepEntry[] = [
       w.hurt = 0;
       w.tomatoLoss = 0;
       w.hazardHit = 0;
+      w.snapKeep = 0;
+      w.snapSpawn = 0;
+      w.waterSplash = 0;
+      w.waterBubbles = 0;
+      w.waterPalette = -1;
+      w.waterSilence = 0;
+      w.waterWait = 0;
+      w.kirbyRoll = 0;
+      w.switchFlip = 0;
+      w.waterSwitch = 0;
+      w.waterSquash = 0;
       w.deg = 0xffff;
       copyPrev(w);
       s.route = w.air !== 0 ? { kind: 'land' } : { kind: 'roll' };
       s.outcome = undefined;
       s.reroute = undefined;
       s.entry = undefined;
+      s.surface = undefined;
       return null;
     },
   },
@@ -130,7 +156,7 @@ export const BALL_STEP: StepEntry[] = [
         updateHeading(s.ctx.rules, w);
         w.airFrames += 1;
         probe(s.ctx, w);
-        overlayProbe(w);
+        overlayProbe(s.ctx, w);
         w.dampXY = w.bounceSrcX; // $81:8050
         w.dampZ = w.bounceSrcZ;
         if (w.z < 0) {
@@ -149,7 +175,7 @@ export const BALL_STEP: StepEntry[] = [
       w.z = w.pGround;
       updateHeading(s.ctx.rules, w);
       probe(s.ctx, w);
-      overlayProbe(w);
+      overlayProbe(s.ctx, w);
       classIndex(s.ctx, w);
       crossEdges(s.ctx, w);
       return null;
@@ -214,8 +240,18 @@ export const BALL_STEP: StepEntry[] = [
       if (w.air !== 0) w.vz = mulQ15s(w.vz, w.stepDampZ); // $81:88DA: vz x $DA42
       s.route = { kind: 'done' };
       s.entry = w.air !== 0 ? 'gravityOnly' : undefined; // $81:88F6 / RTL
-      const hs = w.mode === 0 || w.mode === 7 ? stepHitStop(w) : null;
-      return hs ? { kind: 'stepStop', frames: hs.frames, state: hs.state } : null;
+      if (w.mode === 0 || w.mode === 7) {
+        const hs = stepHitStop(w);
+        return hs ? { kind: 'stepStop', frames: hs.frames, state: hs.state } : null;
+      }
+      // $81:8A34 (rolling): in any other mode the step hit launches the
+      // ball (`BRA $8A44` -> loc_launch $81:8B78, from the restored old
+      // code); airborne ($81:88E7) it only skips the stop
+      if (w.air === 0) {
+        launch(s.ctx, w, w.pCode);
+        s.reroute = 'done'; // loc_launch's RTL: no gravity this step
+      }
+      return null;
     },
   },
   {
@@ -226,6 +262,7 @@ export const BALL_STEP: StepEntry[] = [
       if (s.route.kind !== 'drop') return null;
       launch(s.ctx, s.w, s.w.pCode);
       s.route = { kind: 'done' };
+      s.reroute = 'done'; // RTL: no gravity this step (demo 11, 3016)
       return null;
     },
   },
@@ -254,6 +291,13 @@ export const BALL_STEP: StepEntry[] = [
     run: (world, s) => takeEnemy(world, s.ctx, s.w),
   },
   {
+    // $82:8A8A-: an ability enemy's take after its 4 frames: the latch again,
+    // the owner, the stars, the tomato, the cup
+    name: 'take-enemy-finish',
+    kernel: false,
+    run: (world, s) => finishTakeEnemy(world, s.ctx, s.w),
+  },
+  {
     // $82:AA02, inside the warp's handler: the ball moved to the other warp
     // and turned to its arrow; the step blocks for the warp's presentation
     // (systems/warp.ts) and then goes on into the default landing or roll.
@@ -261,6 +305,29 @@ export const BALL_STEP: StepEntry[] = [
     name: 'warp',
     kernel: false,
     run: (world, s) => startWarp(world, s.ctx, s.w),
+  },
+  {
+    // inside the water's handlers ($82:80F6 / $82:8000): the splash, the
+    // bubbles, Kirby's palette, the effects stopped; then an entry's
+    // JML $80:8F78, one frozen frame before the step returns (RTL).
+    // Not a kernel: the guide has its own water and no effects.
+    name: 'water-effects',
+    kernel: false,
+    run: (world, s) => {
+      noteWater(world, s.ctx, s.w);
+      if (s.w.waterWait === 0) return null;
+      s.w.waterWait = 0;
+      return { kind: 'waterWait', frames: 1, state: 0 };
+    },
+  },
+  {
+    // inside the switches' handlers ($82:A189 / $82:A1D5, $82:A45D): the
+    // toggles' switch's sound; the water switch's sounds, Kirby's squash and
+    // the block for the dissolve ($80:9120, 64 x $80:8FB6 + $80:9208), then
+    // the default landing or roll. Not a kernel: the guide never flips them.
+    name: 'switches',
+    kernel: false,
+    run: (world, s) => switchEffects(world, s.w),
   },
   {
     // the landing chain's first half, $81:8905 (its hit-stop suspends the
@@ -272,7 +339,19 @@ export const BALL_STEP: StepEntry[] = [
       if (s.reroute === 'landing' && s.entry !== 'gravityOnly') {
         // gravityOnly reroutes (the outline wall's hit, the cup's exits)
         // jump straight to the $81:899F tail - no landing chain
-        s.outcome = dispatchLanding(s.ctx, w, s.entry === 'grounded' ? 'grounded' : 'full');
+        if (s.surface) {
+          // the guide's water: land on the level with its code, the probe's
+          // ground and code left as they are ($81:B161-$81:B19C)
+          const ground = w.ground;
+          const code = w.code;
+          w.ground = s.surface.ground;
+          w.code = s.surface.code;
+          s.outcome = dispatchLanding(s.ctx, w, 'full');
+          w.ground = ground;
+          w.code = code;
+        } else {
+          s.outcome = dispatchLanding(s.ctx, w, s.entry === 'grounded' ? 'grounded' : 'full');
+        }
         if (s.outcome.kind === 'hitstop') {
           return { kind: 'hitStop', frames: s.outcome.frames, state: s.outcome.state };
         }
@@ -310,12 +389,13 @@ export const BALL_STEP: StepEntry[] = [
       // inline requests: the pillar's $71 ($82:956C / $82:95F8), a bumper's $6F ($82:9CA1)
       if (w.sfxNow !== 0xffff) emit(world, api, w.sfxNow === 0x71 ? 'pillar' : 'hazard', w.sfxNow);
       for (let i = 0; i < w.hazardHit; i++) emit(world, api, 'hazard-hit'); // $82:EED8: object $2F
+      noteSnapPush(world, w); // $82:A5F7: $699A cleared; $82:A60E: object 61
       for (let i = 0; i < w.tomatoLoss; i++) pushTomato(world, -1); // $83:ABC5
       if (w.holedIn !== 0) emit(world, api, 'holed-in'); // $82:AD13: object 75 over the cup
       if (w.sunk !== 0) {
         // $82:AEC1-$82:AEEF: Kirby's state 1, the music's volume to 0
         // ($80:B5F4: APU port 2 and $1003), sfx $82:AEF5[mode] ($21 in mode 0)
-        const e = ballEntity(world);
+        const e = activePlayer(world);
         e.set(Pose, { ...e.get(Pose)!, state: PoseState.Holed, timer: 0 });
         emit(world, api, 'music-mute'); // not a sound request: no id
         emit(world, api, 'holed', s.ctx.rules.table('holedSfx')[w.mode & 0xff] ?? 0x21);
@@ -327,26 +407,44 @@ export const BALL_STEP: StepEntry[] = [
     },
   },
   {
-    // $82:CDFF / $82:D588, the Kirby state code after the step: $82:DA51
-    // arms or counts down the A/Y modifier, and while its window is open
-    // $82:DB20 adds the bonus to a bounce, step or wall hit of this step
-    name: 'arm-shot-modifier',
+    // $82:CDBB, Kirby's state code A, on the air flag the step left: by the
+    // ability worn (not the mode), its airborne or ground handler
+    // (sim/abilities.ts), which may hand over to the plain code $82:CDFF /
+    // $82:D588 (the A/Y modifier $82:DA51, its bonus $82:DB20 and, in the
+    // air, the bounce pose). A worn ability entering the water drops
+    // ($82:D923); the hit codes (12 and up) are state code B's.
+    name: 'kirby-state',
     kernel: false,
     run: (world, s) => {
-      const open = armModifier(world, s.w);
-      if (open) applyModifier(s.ctx, s.w);
-      // $82:CE07-$82:CE27: an airborne bounce shows the roll pose again,
-      // unless Kirby is hopping (update-pose reads the fact)
-      if (s.w.air !== 0 && s.w.bounced !== 0 && (s.w.mode === 0 || s.w.mode >= 11)) s.w.bouncePose = 1;
+      const w = s.w;
+      if (w.worn === 0 || w.worn < 0x0c) {
+        if (w.worn !== 0 && w.onOverlay !== 0 && w.pOnOverlay === 0) abilityWaterDrop(s.ctx, w);
+        const pad = world.get(Pad)!;
+        const r = w.air !== 0 ? abilityAir(s.ctx, w, pad) : abilityGround(s.ctx, w, pad);
+        if (r === PLAIN) plainStateCode(world, s);
+      }
+      applyAbilityFacts(world, s.ctx, w);
       return null;
     },
   },
   {
-    // $82:F1E3: the work copy -> the block
-    name: 'store-ball-work',
+    // $82:DE32, Kirby's state code B: a hit code the last reaction left in
+    // the mode and the worn ability (sim/abilities.ts codeAir/codeGround);
+    // a code entering the water drops ($82:E1A7)
+    name: 'kirby-state-2',
     kernel: false,
     run: (world, s) => {
-      storeBallWork(world, s.w);
+      const w = s.w;
+      if (w.worn < 0x0c) return null;
+      if (w.onOverlay !== 0 && w.pOnOverlay === 0) codeWaterDrop(w);
+      if (w.air !== 0) {
+        // after a drop the index is 0: code 12's handler, which in mode 0 is the plain code
+        const r = w.worn === 0 ? (w.mode === 0 ? PLAIN : HANDLED) : codeAir(w);
+        if (r === PLAIN) plainStateCode(world, s);
+      } else if (w.worn !== 0) {
+        codeGround(w);
+      }
+      applyAbilityFacts(world, s.ctx, w);
       return null;
     },
   },
@@ -356,8 +454,79 @@ export const BALL_STEP: StepEntry[] = [
     kernel: false,
     run: (world, s) => {
       countStill(s.w);
-      const e = ballEntity(world);
+      const e = activePlayer(world);
       e.set(StillCount, { over: s.w.over, frames: s.w.frames });
+      return null;
+    },
+  },
+  {
+    // $82:C875, the B trigger: the ability worn, its transformation
+    // ($82:D9D2) and its 48 frames, which suspend the step after the
+    // post-step systems' place (the `transform` stall)
+    name: 'ability-trigger',
+    kernel: false,
+    run: (world, s) => {
+      const w = s.w;
+      if (!triggerGates(w, world.get(Pad)!.pressed)) return null;
+      transform(w);
+      w.setupPending = 1;
+      // the block's worn and mode at once ($82:C8C2/$C8C5)
+      const e = activePlayer(world);
+      e.set(BallAbility, { ...e.get(BallAbility)!, worn: w.worn });
+      e.set(BallMode, { mode: w.mode });
+      applyAbilityFacts(world, s.ctx, w);
+      return { kind: 'transform', frames: TRANSFORM_FRAMES, state: 0 };
+    },
+  },
+  {
+    // $82:DA44 + $82:C8D2: the transformation's end, then the ability's
+    // setup $82:C90A[worn] (some wait inside: the `abilityWait` stall)
+    name: 'ability-setup',
+    kernel: false,
+    run: (world, s) => {
+      const w = s.w;
+      if (w.setupPending === 0) return null;
+      w.setupPending = 0;
+      afterTransform(s.ctx, w);
+      const wait = abilitySetup(s.ctx, w);
+      applyAbilityFacts(world, s.ctx, w);
+      return wait > 0 ? { kind: 'abilityWait', frames: wait, state: 0 } : null;
+    },
+  },
+  {
+    // the setup's part after its wait (Parasol's object $33, the UFO's object 49 released)
+    name: 'ability-setup-tail',
+    kernel: false,
+    run: (world, s) => {
+      if (s.w.setupTail === 0) return null;
+      abilitySetupTail(s.ctx, s.w);
+      applyAbilityFacts(world, s.ctx, s.w);
+      return null;
+    },
+  },
+  {
+    // $81:A406 -> $81:A2FE: a layer-4 wall flag crossed this step ($D9E6,
+    // still set after the bounce) shows its star, object 70 at the wall's
+    // edge, and plays sfx 7 (demo 15: 2060, 3504)
+    name: 'wall-star',
+    kernel: false,
+    run: (world, s) => {
+      const w = s.w;
+      if (w.wallEdge === 0xffff) return null;
+      const api = { frame: world.get(Time)!.frame };
+      emit(world, api, 'wall-star', -1, w.wallEdge);
+      w.wallEdge = 0xffff;
+      w.wallDir = 0;
+      emit(world, api, 'wall', 7);
+      return null;
+    },
+  },
+  {
+    // $82:F15F: the work copy -> the block
+    name: 'store-ball-work',
+    kernel: false,
+    run: (world, s) => {
+      storeBallWork(world, s.w);
       return null;
     },
   },
@@ -372,9 +541,25 @@ export const BALL_STEP: StepEntry[] = [
   },
 ];
 
+/** `$82:DA3E`: the transformation's `$80:8FB6` count. */
+export const TRANSFORM_FRAMES = 48;
+
+/**
+ * The plain state code: $82:CDFF in the air (the A/Y modifier, its bonus,
+ * then on a bounce the roll pose unless Kirby hops, in mode 0 or a hit
+ * code's), $82:D588 on the ground (the modifier and its bonus).
+ */
+function plainStateCode(world: World, s: StepState): void {
+  const w = s.w;
+  const open = armModifier(world, w);
+  if (open) applyModifier(s.ctx, w);
+  if (w.air !== 0 && w.bounced !== 0 && (w.mode === 0 || w.mode >= 11)) w.bouncePose = 1;
+}
+
 function applyRoute(s: StepState, out: DispatchOutcome): void {
   s.reroute = out.next;
   if (out.next === 'landing') s.entry = out.entry ?? 'full';
+  s.surface = out.surface;
 }
 
 /** The tail sfx -> event kinds ($81:9BE5). */
@@ -430,8 +615,7 @@ interface PendingState {
 }
 
 function runFrom(world: World, ctx: Ctx, start: number, pending: PendingState | null): boolean {
-  const e = world.queryFirst(BallWork);
-  if (e === undefined) throw new Error('no ball entity');
+  const e = activePlayer(world);
   const w = e.get(BallWork)!;
   const mod = e.get(Modifier)!;
   const s: StepState = {
@@ -497,21 +681,16 @@ export function cloneWork(w: BallWorkFields): BallWorkFields {
 // Block <-> work copy ($82:F030 / $82:F1E3)
 // ------------------------------------------------------------------
 
-/** The ball entity (the world's only one in phase 4). */
-export function ballEntity(world: World): import('koota').Entity {
-  const e = world.queryFirst(BallWork);
-  if (e === undefined) throw new Error('no ball entity');
-  return e;
-}
-
 /** $82:F030: the block traits -> the work copy. */
 function loadBallWork(world: World, w: BallWorkFields): void {
-  const e = ballEntity(world);
+  const e = activePlayer(world);
   const pos = e.get(BallPos)!;
   const vel = e.get(BallVel)!;
   const air = e.get(BallAir)!;
+  const wet = e.get(BallWet)!;
   const spin = e.get(BallSpin)!;
   const mode = e.get(BallMode)!;
+  const ability = e.get(BallAbility)!;
   const holed = e.get(BallHoled)!;
   const heading = e.get(BallHeading)!;
   const still = e.get(StillCount)!;
@@ -519,8 +698,14 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   w.xc = pos.xc; w.xf = pos.xf; w.yc = pos.yc; w.yf = pos.yf; w.z = pos.z;
   w.vx = vel.vx; w.vy = vel.vy; w.vz = vel.vz;
   w.air = air.air;
+  w.onOverlay = wet.wet; // $82:F020: $D9EE <- $D872,X
+  w.blockWet = wet.wet;
   w.spinX = spin.sx; w.spinY = spin.sy; w.spinPending = spin.pending;
+  // $82:EFEA-$82:EFFF: the stock, the ability worn, the mode, the latch
+  w.stock = e.get(StockedAbility)!.id;
+  w.worn = ability.worn;
   w.mode = mode.mode;
+  w.latch = ability.latch;
   w.holed = holed.holed;
   w.lastDeg = heading.last;
   w.over = still.over;
@@ -534,6 +719,7 @@ function loadBallWork(world: World, w: BallWorkFields): void {
   const shot = world.get(Shot)!;
   w.shotAim = shot.aim;
   w.shotElev = shot.elev;
+  w.rollTB = shot.rollTB;
   // the coefficients ($DA30-$DA46) are block-backed at $D922-$D94E; in
   // phase 4 they hold the set-up constants and only the tile handlers
   // mutate the copies, so they stay work-only (deviation noted in
@@ -542,11 +728,15 @@ function loadBallWork(world: World, w: BallWorkFields): void {
 
 /** $82:F1E3: the work copy -> the block traits. */
 function storeBallWork(world: World, w: BallWorkFields): void {
-  const e = ballEntity(world);
+  const e = activePlayer(world);
   e.set(BallPos, { xc: w.xc, xf: w.xf, yc: w.yc, yf: w.yf, z: w.z });
   e.set(BallVel, { vx: w.vx, vy: w.vy, vz: w.vz });
   e.set(BallAir, { air: w.air });
+  e.set(BallWet, { wet: w.onOverlay }); // $82:F1B0: $D872,X <- $D9EE
   e.set(BallSpin, { sx: w.spinX, sy: w.spinY, pending: w.spinPending });
+  // $82:F17A-$82:F18F
+  e.set(StockedAbility, { ...e.get(StockedAbility)!, id: w.stock });
+  e.set(BallAbility, { worn: w.worn, latch: w.latch });
   e.set(BallMode, { mode: w.mode });
   e.set(BallHoled, { holed: w.holed });
   e.set(BallHeading, { deg: w.deg, last: w.lastDeg });
@@ -571,9 +761,9 @@ function copyPrev(w: BallWorkFields): void {
   w.pTile = w.tile;
 }
 
-/** $81:87FB: $D9EE is cleared unless the tile is in $60-$6F. */
-function overlayProbe(w: BallWorkFields): void {
-  w.onOverlay = w.tile >= 0x60 && w.tile < 0x70 ? 1 : 0;
+/** $81:87FB -> $82:C85F: $D9EE is cleared off the water (or with the water off, $69CA). */
+function overlayProbe(_ctx: Ctx, w: BallWorkFields): void {
+  if (!onWater(w, w.tile)) w.onOverlay = 0;
 }
 
 function highWord(z: number): number {

@@ -187,7 +187,7 @@ These screens were named by running the game and looking at what it shows
 | 0 | a hole in play (also the attract demo) | play |
 | 1 | title; its menu is drawn over it without a scene change, as are the hidden MAP SELECT / SOUND ROOM / DANCE SELECT menus | power-on |
 | 2 | members list, name entry, and the per-course RANKING table | 1PLAY GAME |
-| 3 | one ranking entry's per-hole RESULT card, over its course's scenery (`$81:F92B`) | members list, RANKING, A on an entry; needs a save with a cleared course |
+| 3 | one ranking entry's per-hole RESULT card, over its course's scenery (`$81:F92B`). The card shown after each hole-out in play (`$83:D3ED`) and SELECT's mid-course card (`$83:C8DD`) request no scene: they rebuild the hole's screen in place (TM `$15`: BG1 the card, BG3 the hole's scenery, OBJ the numbers; docs/flow.md) | members list, RANKING, A on an entry; needs a save with a cleared course |
 | 4 | course ranking after a course | autoplay |
 | 5 | course map, and the extra game's "EXTRA n" map | |
 | 6 | 2-player course select | |

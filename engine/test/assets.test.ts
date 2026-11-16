@@ -8,14 +8,34 @@ import { describe, expect, it } from 'vitest';
 import { haveRules, loadTables } from './fixtures';
 import {
   assetExists,
+  exportedHoles,
   haveAssets,
   loadAtlas,
   loadAudio,
   loadCutscenes,
   loadHoleCourse,
   loadHoleLayers,
+  loadManifest,
   loadUi,
 } from './assets';
+import { holeDir } from '../src/game/assets/keys';
+
+/**
+ * The hole songs of courses 1-8, `$80:C99D`[course] -> [hole] - $7E (the
+ * plan's table; emulated on the whole-game replay, notes/port-v2-phase1-courses.md).
+ */
+const HOLE_SONGS = [
+  [11, 11, 11, 11, 7, 7, 7, 13],
+  [6, 6, 6, 6, 6, 6, 6, 13],
+  [11, 11, 11, 11, 11, 11, 11, 13],
+  [14, 14, 14, 14, 14, 14, 14, 13],
+  [10, 10, 10, 10, 8, 8, 8, 13],
+  [9, 9, 9, 9, 9, 9, 9, 13],
+  [10, 10, 11, 11, 6, 6, 6, 13],
+  [12, 12, 12, 12, 12, 12, 12, 13],
+];
+
+const has = (tiles: number[], lo: number, hi: number): boolean => tiles.some((t) => t >= lo && t <= hi);
 
 describe.skipIf(!haveAssets)('build/engine/assets', () => {
   describe('sprite atlas', () => {
@@ -91,9 +111,9 @@ describe.skipIf(!haveAssets)('build/engine/assets', () => {
       }
     });
 
-    it('covers the hole song, the asleep and fall songs and the hole-out songs', () => {
+    it('covers the hole songs, the asleep and fall songs and the hole-out songs', () => {
       const { songs } = loadAudio();
-      expect(Object.keys(songs).sort()).toEqual(['11', '17', '18', '24', '25', '26']);
+      expect(Object.keys(songs).map(Number).sort((a, b) => a - b)).toEqual([6, 7, 8, 9, 10, 11, 12, 13, 14, 17, 18, 24, 25, 26]);
     });
   });
 
@@ -129,36 +149,79 @@ describe.skipIf(!haveAssets)('build/engine/assets', () => {
     });
   });
 
-  describe('the eight shipped course-1 holes', () => {
+  describe('the shipped ROM holes', () => {
+    it('the manifest lists courses 1-8, eight holes each, by ROM index', () => {
+      const courses = loadManifest().courses ?? [];
+      expect(courses.map((c) => c.course)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+      for (const c of courses) {
+        expect(c.holes.map((h) => h.index), `course ${c.course + 1}`).toEqual([0, 1, 2, 3, 4, 5, 6, 7].map((h) => c.course * 8 + h));
+        for (const h of c.holes) expect(h.dir).toBe(holeDir(h.index));
+      }
+    });
+
     it('course.json is rectangular and layers.json names files that exist', () => {
-      for (let hole = 0; hole < 8; hole++) {
-        const course = loadHoleCourse(hole);
-        const dir = `holes/0${hole}`;
+      for (const index of exportedHoles()) {
+        const course = loadHoleCourse(index);
+        const dir = holeDir(index);
+        expect(course.index, dir).toBe(index);
         expect(course.shape, dir).toHaveLength(course.w * course.h);
         expect(course.elev, dir).toHaveLength(course.w * course.h);
         expect(course.walls, dir).toHaveLength(course.w * course.h);
         expect(course.tile, dir).toHaveLength(course.w * course.h);
-        const layers = loadHoleLayers(hole);
+        const layers = loadHoleLayers(index);
         for (const file of Object.keys(layers.files)) {
           expect(assetExists(`${dir}/${file}`), `${dir}/${file}`).toBe(true);
         }
       }
     });
 
-    it('holes 7 and 8, the water holes, have the ripple of $84:8533 and its overlays; no other hole does', () => {
-      for (let hole = 0; hole < 8; hole++) {
-        const layers = loadHoleLayers(hole);
-        const ripples = Object.keys(layers.files).filter((f) => f.includes('_ripple')).sort();
-        if (hole === 6 || hole === 7) {
-          expect(layers.ripple, `hole ${hole + 1}`).toEqual({
-            source: '$84:8533', colours: '$98:E030', stepFrames: 8, order: [0, 1, 0, 2],
-          });
-          expect(ripples, `hole ${hole + 1}`).toEqual(['layer_front_ripple1.png', 'layer_front_ripple2.png']);
-        } else {
-          expect(layers.ripple ?? null, `hole ${hole + 1}`).toBeNull();
-          expect(ripples, `hole ${hole + 1}`).toEqual([]);
+    it("each hole's song is its course's list's, and audio.json has it", () => {
+      const { songs } = loadAudio();
+      for (const index of exportedHoles()) {
+        const song = loadHoleCourse(index).song;
+        expect(song, `hole ${index}`).toBe(HOLE_SONGS[index >> 3]?.[index & 7]);
+        expect(songs[String(song)], `hole ${index} song ${song}`).toBeDefined();
+      }
+    });
+
+    it('the palette cycles follow the tiles: ripple, boost, warp or snap panels', () => {
+      for (const index of exportedHoles()) {
+        const { tile } = loadHoleCourse(index);
+        const layers = loadHoleLayers(index);
+        const cycles = layers.cycles ?? [];
+        const course = index >> 3;
+        const want: string[] = [];
+        // $82:BCD7: the boost panels first, then the water
+        if (has(tile, 0x30, 0x3b)) want.push('boost');
+        else if (has(tile, 0x60, 0x6f)) want.push('ripple');
+        // $82:BD29: the snap tiles first, then the warp panels
+        if (has(tile, 0x18, 0x1b) || has(tile, 0xb0, 0xb9)) want.push('panels');
+        expect(cycles.map((c) => c.name), `hole ${index}`).toEqual(want);
+        for (const c of cycles) {
+          const overlays = Object.keys(layers.files).filter((f) => new RegExp(`^layer_(back|front)_${c.name}\\d\\.png$`).test(f));
+          expect(overlays.length, `hole ${index} ${c.name} overlays`).toBeGreaterThan(0);
+          for (const f of overlays) expect(c.order, `${index} ${f}`).toContain(Number(f.slice(-5, -4)));
+          if (c.name === 'ripple') {
+            // $84:84AF[$6A5C]: E030 + $120 per course, A B A C every 8 frames
+            expect(c.colours[0], `hole ${index}`).toBe(`$98:${(0xe030 + 0x120 * course).toString(16).toUpperCase()}`);
+            expect(c.order).toEqual([0, 1, 0, 2]);
+            expect(c.stepFrames).toBe(8);
+          } else if (c.name === 'boost') {
+            expect(c.colours).toEqual(['$98:C200', '$98:C208', '$98:C210', '$98:C218']);
+            expect(c.stepFrames).toBe(4);
+          } else {
+            const snap = has(tile, 0x18, 0x1b);
+            expect(c.object, `hole ${index}`).toBe(snap ? 115 : 114);
+            expect(c.colours).toEqual(['$98:DCDA', '$98:DCE4', '$98:DCEE', '$98:DCD0']);
+            expect(c.stepFrames, `hole ${index}`).toBe(snap ? 4 : 8);
+          }
         }
       }
+    });
+
+    it('course 1 keeps its ripple holes (7 and 8) and its panels holes (4, 6 and 8)', () => {
+      const names = (i: number): string[] => (loadHoleLayers(i).cycles ?? []).map((c) => c.name);
+      expect([0, 1, 2, 3, 4, 5, 6, 7].map(names)).toEqual([[], [], [], ['panels'], [], ['panels'], ['ripple'], ['ripple', 'panels']]);
     });
   });
 });
@@ -175,5 +238,13 @@ describe.skipIf(!haveRules)('the outline pulse in tables.json', () => {
       expect(i).toBeGreaterThanOrEqual(0);
       expect(i).toBeLessThan(colours.values.length);
     }
+  });
+
+  it("has object 111's second colour: 4 colours from $98:D4C8, 1 2 3 2 1 0 every 6 frames", () => {
+    const tables = loadTables() as Record<string, { source: string; values: number[]; stepFrames?: number }>;
+    expect(tables.glowColours.source).toBe('$98:D4C8');
+    expect(tables.glowColours.values).toEqual([0x0019, 0x18d7, 0x253b, 0x295e]);
+    expect(tables.glowWalk.values).toEqual([1, 2, 3, 2, 1, 0]);
+    expect(tables.glowWalk.stepFrames).toBe(6);
   });
 });

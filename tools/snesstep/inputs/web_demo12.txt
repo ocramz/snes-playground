@@ -1,0 +1,13 @@
+# DEMOPLAY SELECT demo 12: Fireball on hole 168 (tools/snesstep/demos.py script(12)).
+# Title -> DEMO PLAY -> the cursor to row 2, column 2 -> A at 800. From then
+# the game plays the demo's own input stream ($88:C880[12] -> $83:DAAA), armed
+# at the hole's set-up (about frame 1030); the run ends with the hole-out.
+400 START 2
+450 DOWN 2
+480 DOWN 2
+520 START 2
+700 RIGHT 2
+712 RIGHT 2
+724 DOWN 2
+736 DOWN 2
+800 A 2

@@ -4,6 +4,8 @@ import { trait } from 'koota';
 export interface GuidePoint {
   xc: number; xf: number; yc: number; yf: number; z: number;
   air: number;
+  /** The guide's $D9EE at the dot: in the water, palette 0's own picture ($81:ACDE, $81:ACF9). */
+  wet: number;
 }
 
 /** One recorded end ($6B0C-$6B2A, projected to $6AFA/$6B00). */
@@ -11,6 +13,8 @@ export interface GuideEnd {
   xc: number; xf: number; yc: number; yf: number; z: number;
   /** $DA58/$DA5C space: px, and the upward y. */
   sx: number; sy: number;
+  /** The guide's $D9EE at the end: the wet end marker ($81:ADF9). */
+  wet: number;
 }
 
 export interface GuideState {

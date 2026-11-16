@@ -173,6 +173,120 @@ index 119; 134 of the 232 holes go past `$2DC`: `max_tile` in
 `build/courses/*/map.json`, measured 2026-11-15). The
 palette is the 512-byte CGRAM image at `$98:C000`, moved by `$80:D369`.
 
+### The palette in play
+
+`$98:C000` is not what a hole shows. Its BG colours in play are four loads at
+the hole's start, read with `--log-pc '$80:90C8'` (`sub_cgram_partial`: A
+bytes, X the source in bank `$98`, Y the CGRAM index) and `--watch-write
+'$7E:0400-$7E:04FF'` (the CGRAM staging buffer) on hole 2 of each course
+(notes/port-v2-phase1-courses.md):
+
+1. `$80:D36B`: all 512 bytes of `$98:C000` (`MVN $00,$98`, frame 2155);
+2. the scenery: `$80:D517`[`$6A5A` & 7] with A = `$28` **bytes**, so 20
+   colours to CGRAM 0 (BG3 palettes 0-4; an earlier reading took 40);
+3. `$83:AA24`: the score panel's 12 colours from `$98:CE48` to CGRAM 20 (BG3
+   palettes 5-7);
+4. `$82:BC9C` → `$80:D82B` entry 0: the course's list `$80:D869`[`$6A5A`]
+   (`$80:DA0D` while `$ED5B` is set), run by `$80:90E7`: (bytes, source, CGRAM
+   index) words until `$FF`. Every course's list has five runs: 8 colours to
+   `$27`, 13 to `$32`, 8 to `$51`, 9 to `$61` and 13 to `$72`, from
+   `$98:DF64` + `$120` × course. Course 1's equals `$98:C000` but for colours
+   54 and 118 (`$51D2`). Entry 1, taken while `$6A2E` is set, is not read.
+
+`coursemap.hole_cgram` builds the same 256 words, and `hole_palette` adds
+the cycles' first sets. `tools/check_hole_palette.py` compares it with the
+game's CGRAM (a snapshot at 2300, the hole picked by pokes): all 64 holes of
+courses 1-8 agree on BG colours 0-127, except the entries an object cycles
+(below) and two writers it leaves out (the scenery's own cycles, and
+objects 116-118, which the switches' overlays draw: "The switches'
+objects"). Before this, every hole was drawn with `$98:C000`, so
+courses 2-8 showed course 1's palettes 2, 3, 5 and 7.
+
+`$6A5C`, the course slot (2 × course) that the ripple's base and the song
+list are indexed by, is set on the map; a poke of `$6A5A` alone leaves it at
+0 ([emulation.md](emulation.md)). The loads above use `$6A5A`.
+
+### The palette cycles
+
+Five objects rewrite BG colours while the hole is in play (inventoried with
+the watch above on hole 2 of every course; the writers' hooks read from
+`$80:E3A3`, A = `$509C`,X). The steps are measured: a wait of N resumes N + 1
+frames on.
+
+| object | spawned by | colours | sets | step |
+|---|---|---|---|---|
+| 111 `$84:8160` | every hole | 127 (palette 7 colour 15) | the outline walk `$98:D3E6` | 3 frames |
+| 111, its hook `$84:81B7` (writes at `$84:81E6`) | every hole | 113 (palette 7 colour 1) | `$98:D4C8` = `0019 18D7 253B 295E`, in the order 1 2 3 2 1 0 | 6 frames |
+| 112 `$84:876C` | `$82:BCD7`: any boost panel `$30-$3B` | 65-68 (palette 4 colours 1-4) | `$98:C200`, `C208`, `C210`, `C218` in turn (`C200` = `$98:C000`'s) | 4 frames (`$80:E445` with A = 3) |
+| 113 `$84:8293` | `$82:BCD7`: any water `$60-$6F`, no boost panel | 65-71 | `$84:84AF`[`$6A5C`] + 0, `$0E`, 0, `$1C` | 8 frames |
+| 114 `$84:8258` / 115 `$84:8253` | `$82:BD29`: any snap tile `$18-$1B` (115), else any warp panel `$B0-$B9` (114) | 107-111 (palette 6 colours 11-15) | `$84:828B`[phase], from phase 1: `$98:DCDA`, `DCE4`, `DCEE`, `DCD0` | 8 frames (114, A = 7) or 4 (115, A = 3) |
+| 116 `$84:8586` | `$82:BC59`: any `$58/$59` | 72-75 (palette 4 colours 8-11) | `$98:D532`/`D53A` while `$6A2E` is set, `D542`/`D54A` while clear; `D552` once the uses run out | 4 frames (`$84:869D`); not modelled (2P holes only) |
+| 117 `$84:85FB` | `$82:BC59`: any `$5A/$5B` | 76-79 (palette 4 colours 12-15) | `$98:D55A`/`D562` while `$6A2A` is set, `D56A`/`D572` while clear | 4 frames; set 0 again on a change (see "The switches' objects") |
+| 118 `$84:864C` | `$82:BC59`: any `$5C/$5D` | 92-95 (palette 5 colours 12-15) | `$98:D57A`/`D582` while `$69CA` is set, `D58A`/`D592` while clear | 4 frames; the same |
+| the scenery's (`$84:CF31`, `$84:D072`) | courses 2 and 5; course 8 | BG3 1, 2, 5, 6, 11, 15, 19; BG3 9-11 | — | not modelled |
+
+Measured steps (the gaps between writes, most common first; the game's lag
+frames stretch some): boost 4 (70×), glow 6 (65×) on hole 17; water 8 (47×)
+on hole 12; warps 8 (27×) on hole 3; snaps 4 (72×) on hole 29.
+
+Notes:
+- `$98:C000`'s colours 107-111 (`3273 36B5 3F39 43FF 251A`) are none of the
+  panel sets, so they show only until the object's first write.
+- `$82:BC59` also sets `$6A2E` (some `$59`, no `$58`), `$6A2A` (`$5B`, no
+  `$5A`) and `$69CA` (`$5D`, no `$5C`): the alternate palette tables'
+  `$6A2E` belongs to the `$58/$59` tiles.
+
+### The switches' objects
+
+Read and checked 2026-11-15 (notes/port-v2-phase6-switches.md; the tiles'
+side is [tiles.md](tiles.md) "Swirls", "The toggles' switch" and "The water
+switch"). Besides the colours above, the switches change VRAM:
+
+- **Their own tiles**, `$80:D7B5` by the entry (`$82:BC59` at the load, and
+  each flip). Each entry picks one of two records (`LDA #clear / LDX flag /
+  BEQ / LDA #set`), 256 bytes from bank `$94`:
+
+  | entry | flag | VRAM (tiles) | clear | set |
+  |---|---|---|---|---|
+  | 0 | `$6A2E` | `$3200` (`$320-$327`) | `$94:E4BB` | `$94:E3BB` |
+  | 1 | `$6A2A` | `$3280` (`$328-$32F`) | `$94:E2BB` | `$94:E1BB` |
+  | 2 | `$69CA` | `$3300` (`$330-$337`) | `$94:E5BB` | `$94:E7BB` (the same bytes) |
+
+- **The swirls' tiles**, object 127 (`$82:BBAE`, one per swirl pair):
+  frames of 14 tiles to `$3000` or `$3100` (`$300-$30D`, `$310-$31D`,
+  palette 7) while the pair is on. The swirl holes draw their floor with
+  them.
+- **The water's tiles** on a hole with the water switch. `$82:BCD7` loads
+  them as on any water hole, or zero-fills them while `$69CA` is set
+  (`$80:CCF8`). The switch then dissolves them in or out over 64 frames,
+  one tile-local pixel position a step, in the order `$80:9271`.
+
+`coursemap.hole_page` builds all three, by the load's state or the
+variants asked for, and `tools/check_switch_gfx.py` compares them with the
+game's VRAM through the scenarios' flips and dissolves. The exporter turns
+them into overlays (export_web.py `build_layers`):
+- `<stem>_togglesw<state><set>` and `<stem>_watersw<state><set>`, the
+  switch by its state and its object's set;
+- `<stem>_swirl<list>_<frame>`;
+- on a water switch's hole, dry layers with `<stem>_water` and
+  `<stem>_dissolve` (each water pixel's step, red).
+
+layers.json `switches` names what a hole has.
+
+`tools/coursemap.py`'s `palette_cycles` gives the ripple, boost and panels
+cycles; `tools/export_web.py` draws the layers with each one's set 0 and
+writes the pixels each other set changes as `layer_{back,front}_<name><k>.png`,
+and object 111's two colours as white masks (`layer_outline_*`,
+`layer_glow_*`) the engine tints.
+
+Object 112 also has a per-frame hook, `$84:87D4`: while `$6A28` (a straight
+boost hit's launch speed, [tiles.md](tiles.md)) is set, the probe tile
+`$DA0A` is a panel and `$D9C8` ≠ 5, it lowers the music to `$82` (`$80:B5F4`,
+APU port `$2142`) and plays sound `$15` every 34 frames (its counter `$531C`
+reloads `$22`); otherwise it restores `$FF`, plays sound 0 and clears
+`$6A28` and the counter. *Emulated:* web_boost and web_boost_side (course 3
+hole 2), the engine's trace-terrain scenarios.
+
 ### Per-hole surface graphics: the water
 
 That page and palette are the course scene's. A hole with water changes
@@ -194,20 +308,26 @@ hole slots have water and 20 boost panels (`tools/coursemap.py`'s
 `surface_kind`).
 
 The colours are animated by the two objects, through `sub_cgram_partial`
-into palette 4:
+into palette 4 ("The palette cycles" above):
 - **Object 112** (`$84:876C`), the boost panels: colours 1-4 from `$98:C200`,
-  `$C208`, `$C210`, `$C218` in turn, 3 frames each. `$98:C000` holds the
-  first, which is why the static image draws the panels right.
+  `$C208`, `$C210`, `$C218` in turn, 4 frames each (the code waits 3).
+  `$98:C000` holds the first, which is why the static image draws the panels
+  right.
 - **Object 113** (`$84:8293`), the water. Its per-frame hook `$84:8533`
   steps a phase (phase + 1) & 3 every `$84:8576`[phase] = 8 frames and
   writes colours 1-7 (CGRAM `$41`) from base + `$84:857E`[phase] = +0,
   +`$0E`, +0, +`$1C`: three sets, in the order A B A C. The base is
-  `$84:84AF`[`$7E:6A5C`], and `$6A5C` is 2 × course in every recorded
-  snapshot of courses 0-15. Course 1's base is `$98:E030`.
+  `$84:84AF`[`$7E:6A5C`], and `$6A5C` is 2 × course in every snapshot of a
+  run that picks the course on the map (courses 0-16). The bases of courses
+  1-8 are `$98:E030` + `$120` × (course − 1); course 2's (`$E150`) steps
+  every 8 frames like course 1's (hole 12).
+  - The hook does not count while `$69CA` (the water off) is set: the
+    engine runs the ripple on its own clock, which stops then (core's
+    `Switches.rippleTicks`).
   - Not modelled by the exporter: `$84:84F1`, the table taken while
-    `$7E:6A2E` is set; `$7E:ED5B`'s `$98:EA50`/`$EA7A`; the hook's freeze
-    while `$69CA` is set; and the splash it plays instead while the ball
-    sinks (`$69DA`: `$98:C22E`-`$C282`, then the same back).
+    `$7E:6A2E` is set; `$7E:ED5B`'s `$98:EA50`/`$EA7A`; and the colours it plays instead
+    while the water is iced (`$69DA`, set by Freeze, mode 9: `$98:C22E`-`$C282`,
+    then the same back; [tiles.md](tiles.md) "Water").
 
 *Emulated* on course 1 hole 7 (`play_hole1` with `$6A5A` = 0 and `$6A5E` = 6
 poked at 2050, a snapshot every frame 2280-2344, read 2026-11-15):

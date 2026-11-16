@@ -20,14 +20,28 @@ flags) and writes the frames at which each one changes.
     $7E:D7F0  tomatoes   $7E:D7F4  lives   $7E:D82A  strokes + 1   $7E:6A10  stars
     $7E:DA4A  holed      $7E:69FE  the cup's slot   $7E:D80A  the card's hole 1
     $7E:68F6 / $7E:68F8  the tomato queue's read / write index
+    $7E:D872  in the water   $7E:0504  OBJ palette 0 colour 2 (the wet swap)
+    $7E:69DC  the water's skip count   $7E:0079 / $7E:007B  the random state
+    the copy abilities (port_v2 phase 5): the work copy's stock, worn, mode and
+    latch $7E:D9C4-$D9CA, Kirby's switch variables $D75A / $D75E, his frame
+    index $D95E and the drawing slot's $0B7E, the ability's words $D762-$D77A,
+    the ice $69DA, the ride $69D8, the hole's stock $DA90, OBJ palette 0
+    colour 7 (the outline, $7E:050E), the pad as the game reads it ($0067
+    held, $006B pressed) and the demo's flags $00C0 / $00C2
 
 A script may come with tools/snesstep/inputs/<name>.pokes (one F:ADDR=VAL per
 line, the stepper's --pokes format): it is passed along when it exists.
 
     python3 tools/snesstep/trace_flow.py web_flow --frames 4600
 
-Output: build/web-test/flow_<name>.json   {"events": [[frame, name, value], ...]}
+Output: build/web-test/flow_<name>.json   {"events": [[frame, name, value, line], ...]}
+          (line: the scanline of the frame's last write to that word)
         build/web-test/sounds_<name>.json the sound requests ($80:B542 / $80:B4AC)
+        build/web-test/iters_<name>.json  the game's iterations: every call of the
+          frame helper $80:8F78 [frame, line] (one per main-loop iteration and per
+          frame of a nested wait; a lag frame has none), and every read of the pad
+          by the ability trigger $82:C880 [frame, line, $006B], and every
+          vblank wait $80:845F [frame, line] (the demo stream ticks in each)
         (and the raw stepper run in build/emu/flow_<name>).
 """
 
@@ -65,12 +79,65 @@ WATCH = {
     "card0": 0xD80A,                    # the score card's first hole ($83:D4F6)
     "tqr": 0x68F6,                      # the tomato queue's read index ($83:ABDD)
     "tqw": 0x68F8,                      # ... and its write index ($83:ABC5)
+    # the water (port_v2 phase 4)
+    "wet": 0xD872,                      # in the water: the block's $D9EE ($82:F1B0)
+    "pal": 0x0504,                      # OBJ palette 0 colour 2 in the CGRAM shadow ($80:90C8):
+                                        # $2C9C dry ($98:C77A), $312F wet ($98:C796)
+    "skips": 0x69DC,                    # the water's skip count ($82:8228)
+    "rnga": 0x0079, "rngb": 0x007B,     # the random state ($80:87DD): the engine's tests seed from it
+    # the copy abilities (port_v2 phase 5)
+    "wstock": 0xD9C4, "wworn": 0xD9C6, "wmode": 0xD9C8, "wlatch": 0xD9CA,   # the work copy
+    "avar": 0xD75A, "adir": 0xD75E,     # Kirby's ability switch variables
+    "kidx": 0xD95E, "oidx": 0x0B7E,     # his frame index, and the drawing slot's ($82:F0F8)
+    "d762": 0xD762, "d768": 0xD768, "d76a": 0xD76A, "d76c": 0xD76C, "d77a": 0xD77A,
+    "ice": 0x69DA, "ride": 0x69D8,      # the iced water, the ball riding the level
+    "hstock": 0xDA90,                   # the stock carried from hole to hole ($80:C22E)
+    "outline": 0x050E,                  # OBJ palette 0 colour 7 ($84:9A38)
+    "pal3": 0x0506, "pal4": 0x0508, "pal5": 0x050A, "pal6": 0x050C, "pal8": 0x0510,   # colours 3-6, 8
+    "hudi": 0x551C + 2 * 8,             # the HUD object's icon phase ($84:99FA): slot 8 in
+    "hudo": 0x5B1C + 2 * 8,             # ... the demos; and its outline phase
+    "hudi10": 0x551C + 2 * 10,          # slot 10 in a course played from the map (web_ab_c1:
+    "hudo10": 0x5B1C + 2 * 10,          # type 14 at $4E30, frame 2169)
+    "pad": 0x0067, "padp": 0x006B,      # the pad the game reads: held, pressed
+    "darm": 0x00C0, "demo": 0x00C2,     # the demo stream armed, demo mode
+    # the switches and the toggles (port_v2 phase 6)
+    "togon": 0x6A2A,                    # the toggles' switch ($82:A189: $5A/$5B flip it)
+    "swlatch": 0x6A2C,                  # the switch's latch ($82:A1A0)
+    "wateroff": 0x69CA,                 # the water off ($82:A45D: $5C/$5D flip it)
+    "latch68": 0x6A68,                  # the tile latch the water switch shares ($82:A42C)
+    "hsl": 0x6A70,                      # the hit-stop's latch ($82:A429)
+    "sw117": 0x0400 + 2 * 78,           # palette 4 colour 14: object 117's set ($84:869D)
+    "sw118": 0x0400 + 2 * 94,           # palette 5 colour 14: object 118's set
+    "ripple": 0x0400 + 2 * 0x42,        # palette 4 colour 2: object 113's ripple ($84:8533)
+    # the shell (port_v2 phase 7): the aim's other buttons and the score panel
+    "panel": 0xEA7C,                    # the score panel shown ($83:AEEB sets, $83:AF82 / $AF96 clear)
+    "pause": 0xEA7E,                    # the pause menu open ($83:AFA7)
+    "pcur": 0x6AC4,                     # ... its cursor
+    "preset": 0xEA80,                   # B held in the aim: the spin preset ($83:B214)
+    "prep": 0x6B5C,                     # ... its d-pad repeat counter
+    "gside": 0xD9B8, "gtb": 0xD9BA,     # the shot's side and top/back between stages
+    "look": 0x6AAE, "lookl": 0x6ABA,    # Y: the look around, and its latch
+    "idle": 0x6AC2,                     # the aim's idle timer (90 -> the score panel)
+    "hudon": 0x691A,                    # the HUD thread's enable ($84:98F2)
+    "lock": 0x6B38,                     # the aim's input lockout ($81:A691)
+    "bright": 0x007E,                   # the brightness (low byte) and the fade's step (high byte)
 }
 
 
 # Every sound request: sub_spc_play_sfx $80:B542 (A = the effect) and
 # sub_spc_play_song $80:B4AC (A = the song's request byte, song + $7E).
 SFX_PC, SONG_PC = "$80:B542", "$80:B4AC"
+# The frame helper (one call per iteration) and the ability trigger's pad read.
+ITER_PC, TRIGGER_PC = "$80:8F78", "$82:C880"
+# The vblank wait (every frame helper's, $80:8F78's and the lighter $80:8F5B's):
+# the demo stream ticks in it ($80:8491 -> $83:DAAA).
+WAIT_PC = "$80:845F"
+# The VRAM queue's push (A = a descriptor in the caller's bank): the HUD's
+# ability icon ($84:9B88 the stock's picture, $84:A52D/$84:A548 the UFO's
+# countdown) is the only bank-$84 caller kept.
+UPLOAD_PC = "$80:8696"
+# The scene request (A = the scene number).
+SCENE_PC = "$80:CABC"
 # A request in the first lines of a frame belongs to the main loop's
 # iteration of the frame before (the loop runs past the vblank).
 ITERATION_LINE = 112
@@ -85,6 +152,8 @@ def write_sounds(name, run, out_dir):
         col = {k: i for i, k in enumerate(head)}
         for line in f:
             r = line.rstrip("\n").split("\t")
+            if r[col["pc"]] not in (SFX_PC, SONG_PC):
+                continue
             fr, ln = int(r[col["frame"]]), int(r[col["line"]])
             kind = "sfx" if r[col["pc"]] == SFX_PC else "song"
             rows.append([fr, ln, fr - 1 if ln < ITERATION_LINE else fr, kind,
@@ -94,6 +163,34 @@ def write_sounds(name, run, out_dir):
     with open(path, "w") as f:
         json.dump({"name": name, "about": "[frame, line, iteration, kind, id, caller]",
                    "requests": rows}, f, separators=(",", ":"))
+
+
+def write_iters(name, run, out_dir):
+    """build/engine/rom-test/iters_<name>.json: the frame helper's calls and
+    the trigger's pad reads, from the stepper's pclog.tsv."""
+    entries, trigger, waits, uploads, scenes = [], [], [], [], []
+    with open(os.path.join(run, "pclog.tsv")) as f:
+        head = next(f).rstrip("\n").split("\t")
+        col = {k: i for i, k in enumerate(head)}
+        for line in f:
+            r = line.rstrip("\n").split("\t")
+            fr, ln = int(r[col["frame"]]), int(r[col["line"]])
+            if r[col["pc"]] == ITER_PC:
+                entries.append([fr, ln])
+            elif r[col["pc"]] == TRIGGER_PC:
+                trigger.append([fr, ln, int(r[col["a"]], 16)])
+            elif r[col["pc"]] == WAIT_PC:
+                waits.append([fr, ln])
+            elif r[col["pc"]] == UPLOAD_PC and r[col["ret_long"]].startswith("$84:"):
+                uploads.append([fr, ln, int(r[col["a"]], 16), r[col["ret_long"]]])
+            elif r[col["pc"]] == SCENE_PC:
+                scenes.append([fr, ln, int(r[col["a"]], 16) & 0xFF, r[col["ret_long"]]])
+    path = os.path.join(out_dir, "iters_{}.json".format(name))
+    with open(path, "w") as f:
+        json.dump({"name": name, "about": "entries: $80:8F78 [frame, line]; trigger: $82:C880 [frame, line, $006B]; "
+                   "waits: $80:845F [frame, line]; uploads: $80:8696 from bank $84 [frame, line, A, caller]; "
+                   "scenes: $80:CABC [frame, line, scene, caller]",
+                   "entries": entries, "trigger": trigger, "waits": waits, "uploads": uploads, "scenes": scenes}, f, separators=(",", ":"))
 
 
 def s16(v):
@@ -110,10 +207,12 @@ def trace(name, frames, out_dir, extra=()):
         cmd += ["--pokes", pokes]
     for a in sorted(set(WATCH.values())):
         cmd += ["--watch-write", "$7E:{:04X}-$7E:{:04X}".format(a, a + 1)]
-    cmd += ["--log-pc", SFX_PC, "--log-pc", SONG_PC]
+    cmd += ["--log-pc", SFX_PC, "--log-pc", SONG_PC, "--log-pc", ITER_PC, "--log-pc", TRIGGER_PC,
+            "--log-pc", WAIT_PC, "--log-pc", UPLOAD_PC, "--log-pc", SCENE_PC]
     cmd += list(extra) + ["--no-dsp", "--quiet", "--out", run]
     subprocess.run(cmd, check=True)
     write_sounds(name, run, out_dir)
+    write_iters(name, run, out_dir)
 
     mem = {}
     last = {}
@@ -123,6 +222,7 @@ def trace(name, frames, out_dir, extra=()):
         by_addr[a] = n
         by_addr[a + 1] = n
     cur_frame = None
+    line_of = {}
 
     def flush(frame):
         for n, a in WATCH.items():
@@ -130,19 +230,25 @@ def trace(name, frames, out_dir, extra=()):
             if n in ("aim", "elev", "camx", "camy", "bx", "by", "cx38", "cy38", "tgtx", "tgty", "kx", "ky",
                      "px", "py", "c2", "c4", "c6", "c8"):
                 v = s16(v)
+            if n in ("wlatch",):
+                v = s16(v)
             if last.get(n) != v:
                 last[n] = v
-                events.append([frame, n, v])
+                events.append([frame, n, v, line_of.get(n, 0)])
+        line_of.clear()
 
     with open(os.path.join(run, "watch.tsv")) as f:
         next(f)
         for line in f:
-            fr, _, _pc, addr, _, new = line.rstrip("\n").split("\t")
+            fr, ln, _pc, addr, _, new = line.rstrip("\n").split("\t")
             fr = int(fr)
             if cur_frame is not None and fr != cur_frame:
                 flush(cur_frame)
             cur_frame = fr
-            mem[int(addr.split(":")[1], 16)] = int(new, 16)
+            a = int(addr.split(":")[1], 16)
+            mem[a] = int(new, 16)
+            if a in by_addr:
+                line_of[by_addr[a]] = int(ln)
     if cur_frame is not None:
         flush(cur_frame)
     os.makedirs(out_dir, exist_ok=True)

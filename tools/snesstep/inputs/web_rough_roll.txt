@@ -1,0 +1,16 @@
+# Course 2 hole 4 (index 11): the rough tile $04 at (2,14) (port_v2 phase 5).
+# web_haz94's weak shot from the tee, then the ball poked at 2455 rolling north onto the rough $04 at (2,14) (vy -$400): the hit side, $82:8F30.
+# The rough's coefficients by byte offset ($82:8F4E: $80:DD71/$DD75/$DD79 + 0 or 2).
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> "PLAY COURSE"
+600 A 2         # PLAY COURSE -> members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map, Kirby on COURSE 1
+1500 A 2        # enter course 1 -> intro screen
+2100 A 2        # start the hole
+2355 A 2        # aim (the set-up's 0)
+2424 A 2        # spin
+2431 A 2        # power (meter 2)

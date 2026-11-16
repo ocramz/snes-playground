@@ -1,0 +1,24 @@
+# L and R in the aim over hole 1 (port_v2 phase 7): the 45-degree snaps
+# through $81:B729.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> PLAY COURSE
+600 A 2         # members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map
+1500 A 2        # enter course 1 -> intro
+2100 A 2        # start hole 1 (the aim from 2335)
+2450 L 2
+2480 L 2
+2510 R 2
+2540 R 2
+2570 R 2
+2600 R 2
+2630 LEFT 30    # off an octant
+2700 L 2
+2730 R 2
+2760 RIGHT 20
+2800 R 2
+2830 L 2

@@ -590,6 +590,148 @@ fn dsp_checks(r: &mut Report) {
     );
 }
 
+/// Two looping one-block samples, constant `7 << 11` at `$0300` (SRCN 0) and
+/// `3 << 11` at `$0310` (SRCN 1). Voice 0 plays SRCN 0 and voice 1 SRCN 1,
+/// both at half volume so that their sum never saturates. Nothing is keyed on.
+fn two_voices() -> Apu {
+    let mut apu = Apu::new();
+    apu.halted = true;
+    apu.ram[0x0200..0x0208].copy_from_slice(&[0x00, 0x03, 0x00, 0x03, 0x10, 0x03, 0x10, 0x03]);
+    apu.ram[0x0300] = 0xC3;
+    apu.ram[0x0301..0x0309].fill(0x77);
+    apu.ram[0x0310] = 0xC3;
+    apu.ram[0x0311..0x0319].fill(0x33);
+    let mut regs = [0u8; 128];
+    for base in [0x00, 0x10] {
+        regs[base] = 0x3F; // VOLL
+        regs[base + 1] = 0x3F; // VOLR
+        regs[base + 3] = 0x10; // pitch $1000
+        regs[base + 7] = 0x7F; // direct gain
+    }
+    regs[0x14] = 0x01; // V1SRCN
+    regs[0x0C] = 0x7F;
+    regs[0x1C] = 0x7F;
+    regs[0x5D] = 0x02;
+    regs[0x6C] = 0x20;
+    apu.dsp.load(&regs);
+    apu
+}
+
+/// Key both voices of `two_voices` on, switch voice 0 to SRCN 1 and key it on
+/// again at sample 40, and return 120 samples of the left channel.
+fn two_voices_run(setup: impl FnOnce(&mut Apu)) -> (Apu, Vec<i16>) {
+    let mut apu = two_voices();
+    setup(&mut apu);
+    apu.dsp.write(0x4C, 0x03);
+    let mut out = Vec::new();
+    for i in 0..120 {
+        if i == 40 {
+            apu.dsp.write(0x04, 0x01);
+            apu.dsp.write(0x4C, 0x01);
+        }
+        out.push(apu.run_sample().0);
+    }
+    (apu, out)
+}
+
+/// Voice 0 of `constant_voice` sent to an echo ring at `$4000` (EDL 1, FIR7
+/// `$7F`, EVOL `$7F`, no feedback) with echo writes on. Returns the left
+/// channel over two trips of the ring and the machine.
+fn echo_run(setup: impl FnOnce(&mut Apu)) -> (Apu, Vec<i16>) {
+    let mut apu = constant_voice();
+    apu.dsp.write(0x00, 0x20); // V0VOLL low enough that dry + echo fits
+    apu.dsp.write(0x2C, 0x7F); // EVOLL
+    apu.dsp.write(0x4D, 0x01); // EON: voice 0
+    apu.dsp.write(0x6D, 0x40); // ESA
+    apu.dsp.write(0x7D, 0x01); // EDL
+    apu.dsp.write(0x7F, 0x7F); // FIR7
+    apu.dsp.write(0x6C, 0x00); // FLG: echo writes on
+    setup(&mut apu);
+    apu.dsp.write(0x4C, 0x01);
+    let out = (0..1100).map(|_| apu.run_sample().0).collect();
+    (apu, out)
+}
+
+fn stem_checks(r: &mut Report) {
+    // Soloing a source, against muting by voice. Before sample 40 voice 0
+    // plays $0300 and voice 1 $0310; after voice 0's second key-on both play
+    // $0310.
+    let (full_apu, full) = two_voices_run(|_| {});
+    let (_, only_v0) = two_voices_run(|apu| apu.dsp.mute_mask = 0x02);
+    let (_, only_v1) = two_voices_run(|apu| apu.dsp.mute_mask = 0x01);
+    let (solo_a_apu, solo_a) = two_voices_run(|apu| apu.dsp.solo_sources = vec![0x0300]);
+    let (_, solo_b) = two_voices_run(|apu| apu.dsp.solo_sources = vec![0x0310]);
+    let (_, solo_ab) = two_voices_run(|apu| apu.dsp.solo_sources = vec![0x0300, 0x0310]);
+    r.check(
+        "--solo-source follows the sample, not the voice, across a key-on",
+        solo_a[..40] == only_v0[..40]
+            && solo_a[60..].iter().all(|&s| s == 0)
+            && solo_b[..40] == only_v1[..40]
+            && solo_b[60..] == full[60..]
+            && solo_a[30] != 0
+            && solo_ab == full,
+        || {
+            format!(
+                "solo $0300 at 30/100: {}/{}, voice 0 alone at 30: {}; \
+                 solo $0310 at 30/100: {}/{}, full at 100: {}",
+                solo_a[30], solo_a[100], only_v0[30], solo_b[30], solo_b[100], full[100]
+            )
+        },
+    );
+    // MVOL scales the summed voices once, then floors: two stems floored
+    // separately can come out 1 below the mix.
+    let worst = (0..full.len())
+        .map(|i| i32::from(full[i]) - i32::from(solo_a[i]) - i32::from(solo_b[i]))
+        .fold((0, 0), |(lo, hi), d| (d.min(lo), d.max(hi)));
+    r.check(
+        "solo renders of every source add up to the mix, within the MVOL floor",
+        worst.0 >= 0 && worst.1 <= 1,
+        || format!("mix minus sum ranges {worst:?}"),
+    );
+    r.check(
+        "a voice left out by --solo-source still runs: ENVX and OUTX as unmuted",
+        solo_a_apu.dsp.read(0x18) == 0x7F && solo_a_apu.dsp.read(0x19) != 0,
+        || {
+            format!(
+                "V1 ENVX={:02X} OUTX={:02X}",
+                solo_a_apu.dsp.read(0x18),
+                solo_a_apu.dsp.read(0x19)
+            )
+        },
+    );
+
+    // The saturation counters: the two half-volume voices fit, at full volume
+    // their sum does not.
+    let (loud_apu, _) = two_voices_run(|apu| {
+        for reg in [0x00, 0x01, 0x10, 0x11] {
+            apu.dsp.write(reg, 0x7F);
+        }
+    });
+    let (quiet, loud) = (full_apu.dsp.saturated, loud_apu.dsp.saturated);
+    r.check(
+        "saturation counters: none at half volume, the main sum clamps at full",
+        quiet.main + quiet.echo + quiet.output == 0
+            && loud.main >= 30
+            && loud.echo + loud.output == 0,
+        || format!("half {quiet:?}, full {loud:?}"),
+    );
+
+    // --no-echo: the output loses the echo return and nothing else.
+    let (wet_apu, wet) = echo_run(|_| {});
+    let (dry_apu, dry) = echo_run(|apu| apu.dsp.no_echo = true);
+    let (_, unechoed) = echo_run(|apu| apu.dsp.write(0x2C, 0x00));
+    r.check(
+        "--no-echo drops the echo return but writes the echo ring the same",
+        dry == unechoed && wet != dry && wet_apu.ram[0x4000..0x4800] == dry_apu.ram[0x4000..0x4800],
+        || {
+            format!(
+                "at 600: wet {} dry {} EVOL 0 {}",
+                wet[600], dry[600], unechoed[600]
+            )
+        },
+    );
+}
+
 /// Run every check, print one line each, and return how many failed.
 pub fn run() -> usize {
     let mut report = Report {
@@ -599,6 +741,7 @@ pub fn run() -> usize {
     cpu_checks(&mut report);
     timer_checks(&mut report);
     dsp_checks(&mut report);
+    stem_checks(&mut report);
     println!("{} checks, {} failed", report.total, report.failed);
     report.failed
 }

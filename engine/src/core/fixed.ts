@@ -69,6 +69,27 @@ export function mul16x8(a: number, x: number): number {
 }
 
 /**
+ * $80:A378 (signed 16 x 16 -> $389E-$38A1) read at $389F: bits 8-23 of the
+ * product, for a 16-bit factor (mul16x8 takes X's low byte, signed: wrong
+ * for factors like $83 or $B4).
+ */
+export function mid16(a: number, x: number): number {
+  return wrap16(Math.floor((s16(a) * s16(x)) / 256));
+}
+
+/**
+ * $80:A367 with A >= $8000: the high word of the exact product of A, read
+ * unsigned, and signed X. It calls sub_mul_16x16 $80:A378 (signed A x
+ * signed X -> $389E-$38A1, returning A unchanged) and, A being negative,
+ * adds X to the high word: (A - 65536) x X / 65536 + X. Every caller passes
+ * a factor >= $8000 (the water's $E180, $E800, $F000, ...); with A < $8000
+ * the routine returns A itself, which none relies on.
+ */
+export function mulHiU(a: number, x: number): number {
+  return wrap16(Math.floor((wrap16(a) * s16(x)) / 0x10000));
+}
+
+/**
  * The ratio index of sub_atan2_deg's divider ($80:A546): floor(256 x
  * smaller / larger), clamped to 255. For larger >= 256 the ROM normalises
  * both operands left until the larger's bit 15 is set, then divides the

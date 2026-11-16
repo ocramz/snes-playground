@@ -17,7 +17,8 @@
  */
 import type { World } from 'koota';
 import type { GameEvent } from '../../../core/events';
-import { BallHoled, BallWork } from '../../../core/traits/ball';
+import { BallHoled } from '../../../core/traits/ball';
+import { findActivePlayer } from '../../../core/traits/player';
 import { Strokes } from '../../../core/traits/counters';
 import { HoleFlow } from '../../../core/traits/flow';
 import { Time } from '../../../core/traits/time';
@@ -40,17 +41,23 @@ export class CutsceneDirector {
   private arrivedAt = 0;
   private anchors: Anchors | null = null;
   private cues: GameEvent[] = [];
+  /** The hole's song, played at the intro's song cues (undefined: the recorded one). */
+  private song: number | undefined = undefined;
 
   constructor(
     private readonly cutscenes: CutscenesJson | null,
     private readonly anchorsOf: () => Anchors | null,
   ) {}
 
-  /** The hole's intro: the star brings Kirby to the tee. False when there is no recording. */
-  startIntro(): boolean {
+  /**
+   * The hole's intro: the star brings Kirby to the tee, and the hole's `song`
+   * starts where the recording's did. False when there is no recording.
+   */
+  startIntro(song?: number): boolean {
     const w = windowOf(this.cutscenes, 'intro');
     const anchors = this.anchorsOf();
     if (!w || !anchors) return false;
+    this.song = song;
     this.begin('intro', w, anchors);
     return true;
   }
@@ -66,7 +73,7 @@ export class CutsceneDirector {
 
   private cue(to: number, frame: number): void {
     if (!this.w || !this.name || to <= this.cued) return;
-    this.cues.push(...cueEvents(this.name, this.w, this.cued + 1, to + 1, frame));
+    this.cues.push(...cueEvents(this.name, this.w, this.cued + 1, to + 1, frame, this.song));
     this.cued = to;
   }
 
@@ -85,7 +92,7 @@ export class CutsceneDirector {
     if (!ran) return;
     const f = world.get(Time)!.frame;
     if (this.name === null && this.holedAt < 0) {
-      const ball = world.queryFirst(BallWork);
+      const ball = findActivePlayer(world);
       if (ball && ball.get(BallHoled)!.holed === 2) {
         this.holedAt = f - OUTRO_HOLED_SFX_AT;
         const hio = ball.get(Strokes)!.n === 2;

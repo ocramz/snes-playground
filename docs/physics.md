@@ -24,6 +24,7 @@ ball).
 | `$D9D8` | `$D882` | vertical velocity |
 | `$DA06` / `$DA08` | | ground height under the ball, from the terrain probe |
 | `$D9EC` | `$D8A6` | airborne flag |
+| `$D9EE` | `$D872` | **in the water**: set by the water's handlers, cleared off the water by the probe's wrapper `$81:87FB` ([tiles.md](tiles.md) "Water") |
 | `$DA38` | | gravity, `$FFC0` (`tbl_ball_gravity $80:DB6D`[0]), added to the vertical velocity each airborne frame |
 | `$DA3A` | | rolling friction, from `tbl_roll_friction $80:DC49` (`$0C00` on flat ground) |
 | `$DA3C`, `$DA3E` | | bounce factors, Q15: horizontal 0.98 (`$7D6F`), vertical 0.65 (`$5332`) |
@@ -308,7 +309,9 @@ Kirby's animation state `$D7D4` becomes `$0C`, and `$81:8C95` calls
 (`$81:8CAB`-`$81:8CBF`). `$81:8CD5`-`$81:8CDE` hands them back as the
 frame's pad when the wait is over, so a press during a hit-stop is not
 lost. The physics therefore stops for 4 frames, after which the
-state goes to `$0E` (unless it was `$0D`). The ball's block is not written
+state goes to `$0E` (unless it was `$0D`). (A hard landing on the water
+switch sets `$6A70` and the squash itself, with no return to `$0E`:
+[tiles.md](tiles.md) "The water switch".) The ball's block is not written
 meanwhile. A stop requested in frame F idles F+1 to F+3, and the step
 resumes where it stopped in F+4. This is frame-exact on web_fly's landing
 and step hit (the engine's `stalls.test.ts`). `$81:8C48` does the same for
@@ -608,9 +611,12 @@ traced aim sweeps matches the engine's port):
 * **The aim camera always looks at end 0** (`$81:AE26`, written to
   `$6AAA`/`$6AAC`).
 * **It has its own tile table, `$81:B455`.** Only the outline (`$28`-`$2D`)
-  and the overlay (`$60`-`$6F`) act; pillars, enemies, the cup and every
+  and the water (`$60`-`$6F`) act; pillars, enemies, the cup and every
   other tile are plain ground for it. The web demo's few mismatched angles
   ("the rest run into the pillar", [web-demo.md](web-demo.md)) are this.
+  The water has its own model in the guide (`$81:B0C4`, `$81:B285`): a dry
+  ball lands and rolls on the level as on flat ground; one that starts in
+  the water drags until it is out ([tiles.md](tiles.md) "Water").
 * Its own integrator `$81:AF82` is not needed to reproduce the ends: the
   ordinary step with that tile table gives them.
 * When it runs, and how long the aim loop waits for it, is
@@ -624,7 +630,10 @@ traced aim sweeps matches the engine's port):
 | `$D9B6` | elevation ε, degrees: 0 grounder, 60 fly shot, 65 Hi-Jump. Also "is a fly shot" for the spin code |
 | `$D9B8`, `$D9BA` | side and top/back selectors for the guide, reset to 6 |
 | `$D9BE` | shot over: \|vx\| + \|vy\| < `$DA46` (1) for 30 frames, counted in `$D9C0` (`$81:A5CD`). *Emulated* |
-| `$D9C8` | ball mode, 0 normal, 1-10 the copy abilities; selects the table rows |
+| `$D9C4` | the stock: the copy ability taken and not yet lost (block `$D852`) |
+| `$D9C6` | the ability worn, or a hit code (block `$D856`) |
+| `$D9C8` | ball mode, 0 normal, 1-10 the copy ability on (its number), 12-21 a hit code; selects the table rows (block `$D85A`) |
+| `$D9CA` | the shot's use latch: 0, −1 once B was used (block `$D85E`) |
 | `$D9CC`, `$D9CE` | fly shot: spin impulse x, y. Grounder: `$D9CC` = curve rate ω |
 | `$D9D0` | spin pending |
 | `$D9DA` | heading, degrees; `$D9DE`/`$D9E0` 16/32 directions; `$D9E2` the last heading while moving |
@@ -649,18 +658,93 @@ traced aim sweeps matches the engine's port):
 | `$6B3A` | power meter |
 | `$6B50`, `$6B52` | spin selectors during the stage |
 
+### In the water
+
+A ball below the water's level, in the region of a `$60-$6F` cell, is in the
+water (`$D9EE`; [tiles.md](tiles.md) "Water" has the region, the level and
+both handlers). Entering, its velocities are divided by 2 (shallow) or 8
+(deep), and the step freezes one frame (`JML $80:8F78`). In the water, every
+airborne frame takes v × 6 / 256 off all three axes after the air drag, and
+every rolling frame takes it off x and y. A landing on the bed is an ordinary
+landing. At the level going up, or out of the region rolling, the ball is
+out. A flat, fast ball skims instead of entering (vx, vy × 0.88, vz ×
+−0.906), and top or back spin first makes it skip once or twice, relaunched
+along its heading. *Emulated*: course 1 hole 7, nine runs
+(notes/port-v2-phase4-water.md).
+
+A fly shot from the bed of course 1's pond leaves the water (web_water_shot,
+3176). A grounder, by the engine's search over the meter, needs almost full
+power to climb the rim (**unconfirmed** in the game).
+
+### Copy abilities
+
+The block and the work copy pair the ability's four words (`$82:EFEA` loads
+them, `$82:F17A` stores them; X = `$180B`): `$D852` ↔ `$D9C4` the stock,
+`$D856` ↔ `$D9C6` the ability worn, `$D85A` ↔ `$D9C8` the mode, `$D85E` ↔
+`$D9CA` the latch. *Emulated*: DEMOPLAY demos 10-19 and twelve stepper
+scenarios (notes/port-v2-phase5-abilities.md), every ball state and the four
+words matched by the engine (`engine/src/core/sim/abilities.ts`).
+
+**The take** (`$82:8A4F`): an ability enemy writes its ability to `$D9C4`
+and the block's `$D852` at once, clears the latch, plays `$50`, waits 4
+frames, clears the latch again, then takes the enemy (`$82:8A98`). An
+enemy with no ability plays `$4F`.
+
+**The trigger** (`$82:C875`, in the roll loop after Kirby's state code): B
+newly pressed, the ball moving, not holed, not lost, not in the water, a
+stock, the latch ≥ 0. Then the latch −1, the heading back to the last moving
+one (`$D9DA` = `$D9E2`), worn = mode = the stock (and the block's at once),
+`$D872`/`$D76C` cleared, and the transformation `$82:D9D2`: object 21 at
+Kirby, Kirby's state 8, `$D76C` + 1, the poses' switches `$D75A`/`$D75E`
+(Stone and Needle by `$82:EDB5`, the rest the 16-way heading `$D9DE`;
+Parasol also spawns object 52), sfx `$2E`, then 48 frames waited in the step
+(`$80:8FB6`). After them: `$D76C` = 0, state 3, the A/Y modifier off, the
+iced water thawed unless the ability is Freeze, the spin cleared unless it
+is Spark, and the ability's setup `$82:C90A`[worn] (a value of 11 or more
+hangs).
+
+**The ten** (setup / air / ground handlers by `$D9C6`: `$82:C90A`,
+`$82:CDE8`, `$82:D572`; each per-frame handler falls back to the plain code
+at mode 0):
+
+| # | ability | what it does to the ball |
+|---|---|---|
+| 1 | Stone | stops in the air (vx = vy = 0, vz `$F800`, gravity `$FF80`); stops on landing, one `$300` rebound on `$20-$24`; slopes still act through the mode-1 row; kept at the shot's end |
+| 2 | Parasol | v × `$83`/256, gravity 0, vz eased to `$FE40`; L/R steers ±2°; reopens off a ledge; object 51 (logic) sets Kirby's state and, once the ball falls below the course, the fall: gravity `$FFC0`, vz 0, mode 0 |
+| 3 | Fireball | `$1F40` along the heading for 20 frames, then −`$100` a frame for 10, then mode 0; a wall, step or object ends it with a `$100` hop (sfx `$0E`) |
+| 4 | Needle | gravity `$FFA0`; sticks on any ground but the boost panels' live band and `$70-$7B`; kept at the shot's end |
+| 5 | Tornado | a `$280` hop, speed 3000, gravity `$FFE0`; L/R curve ±`$600` on the ground; a wall × 4 for 8 frames (`$D762`); ends at speed 0 (state 35); its pose by speed (`$82:D790`) |
+| 6 | Wheel | 6000 along the heading (5000 on a kicker `$10-$13`); no friction or slope in the mode-6 rows; a wall, step or object stops it with a `$0A00` hop, mode 0 at the landing; rides the water |
+| 7 | Spark | the motion unchanged, the spin kept; immune to the volcano's base; destroys a pillar or a volcano it hits (`$82:EE9A`: the layer-2 cell cleared, the actor freed) |
+| 8 | Hi-Jump | relaunched at 65° with P = `$11A9` along the heading; Kirby's state 25 near the top; a step or object hit ends it |
+| 9 | Freeze | lands dead; ices the water (`$82:8191`); stopping on the ice sinks (state 19, mode and worn 0) |
+| 10 | UFO | gravity 0, vz 0, climbs steps, speed at least `$708`; a 615-iteration timer (`$D762`) then state 39 and the fall; ends on the timer, a wall, a step, an object (hit code 19), B or the cup's dish; L/R turn 90° |
+
+**Hit codes in the mode.** The reaction `$82:DBBB` (after the store) writes
+a hazard's code into the block's mode and worn; Kirby's state code B
+(`$82:DE32`) ends it: `$14` after one step, `$13` at the first bounce, `$0F`
+after the flight and 41 iterations. Code 21 (`$82:A4DB`) gives state 50.
+The 2P codes 12-17 come from ball-to-ball contact (`$82:C693`), not ported.
+
+**The stock's life in 1P.** The set-up (`$80:C538`) clears worn, mode and
+latch every shot; the stock stays, through the holes too (`$DA90`, copied
+to `$D852` at the hole's start, `$80:C22E`). It is lost with the ball out
+of bounds (`$80:F5B7` clears `$DA90`) or a life. `$D76C` counts the
+ability's ends: the transformation, a water drop, the UFO's end, the turn's
+end (`$80:F445`) and the hole-out (`$80:F48C`) each add 1; the trigger and
+the 48 frames' end clear it. The ability's objects end on it.
+
 ### Not yet known
 
-* Which mode is which copy ability, beyond the order of the demos and
-  help strings.
-* `$81:980B`'s cross-cell branches, the rules for leaving the ground over a
-  ramp crest at a cell edge (the in-cell case is known, above).
+* `$81:980B`'s cross-cell branches are known (notes/port-v2-phase5-abilities.md
+  "The crest's edge crossings").
 * The landing lock-out counter `$6A7A`.
 * `$81:9BE5`'s effect objects (its sounds are known, "The two steps, in full").
 * `$D9E8` / `$81:92D0`.
 * `$DA44` (`$00A0`, `$80:DCFF`): written at set-up, no reader found in
   the step.
-* A layer-4 wall bounce has not been seen in a run.
+* A layer-4 wall bounce's star (object 70, sfx 7, `$81:A2FE`) is seen in
+  demo 15 (2061, 3504); the bounce itself follows the outline wall's rules.
 
 ### How these were measured
 

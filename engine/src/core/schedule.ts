@@ -33,16 +33,17 @@ import { Time } from './traits/time';
 import { Pad } from './traits/pad';
 import { IsPaused, Session } from './traits/session';
 import { runBallStep, resumeBallStep, BALL_STEP } from './systems/ball-step';
-import { Stall } from './traits/stall';
+import { Stall, postStepFirst } from './traits/stall';
 import { tickReveal } from './systems/reveal';
 import { tickWarp } from './systems/warp';
+import { tickWaterSwitch } from './systems/switches';
 import { latchPad } from './systems/pad';
 import { updateHoleFlow, setupShot, detectBallOut, ballStepRuns } from './systems/hole-flow';
 import { updateAim, updateShotGuide } from './systems/aim';
 import { updateSpinStage, updatePowerMeter, launchBall } from './systems/panel';
 import { updateCamera } from './systems/camera';
 import { updateBallSprite } from './systems/ball-sprite';
-import { updatePose, squashPose } from './systems/pose';
+import { updatePose, squashPose, applyScriptStore } from './systems/pose';
 import { threadTick } from './systems/counters';
 import { emitEvent } from './systems/flow-util';
 import type { Ctx } from './sim/context';
@@ -79,6 +80,7 @@ export function runCoreFrame(world: World, ctx?: Ctx): void {
   const time = world.get(Time)!;
   world.set(Time, { frame: time.frame + 1 });
   latchPad(world);
+  applyScriptStore(world);
   const c = ctx ?? world.get(Session)?.ctx ?? null;
   if (c === null) return;
   const stall = tickStall(world, c);
@@ -86,8 +88,10 @@ export function runCoreFrame(world: World, ctx?: Ctx): void {
     if (!sameIteration(world)) return; // the guide's / the APU's lag: no thread runs
   } else if (stall === 'none') {
     for (const s of FLOW) s.run(world, c);
-    if (ballStepRuns(world) && runBallStep(world, c)) beginHitStop(world);
-    else for (const s of POST_STEP) s.run(world, c);
+    if (ballStepRuns(world) && runBallStep(world, c)) {
+      if (postStepFirst(world.get(Stall)!.kind)) for (const s of POST_STEP) s.run(world, c);
+      else beginHitStop(world);
+    } else for (const s of POST_STEP) s.run(world, c);
   }
   threadTick(world, c); // the thread scheduler (the HUD, the hazards), at the frame's end
 }
@@ -95,7 +99,8 @@ export function runCoreFrame(world: World, ctx?: Ctx): void {
 /** Is the idle stall one whose ROM loop still runs the threads each frame? */
 function sameIteration(world: World): boolean {
   const k = world.get(Stall)!.kind;
-  return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'cupReveal' || k === 'warp';
+  return k === 'hitStop' || k === 'stepStop' || k === 'takeWait' || k === 'waterWait' || k === 'cupReveal' || k === 'warp'
+    || k === 'waterSwitch' || k === 'transform' || k === 'abilityWait';
 }
 
 /**
@@ -110,7 +115,9 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   const own = stall.kind === 'cupReveal' || stall.kind === 'warp'; // a list of its own, no count
   if (!own && stall.framesLeft <= 0) return 'none';
   const hit = stall.kind === 'hitStop' || stall.kind === 'stepStop';
-  const threads = hit || stall.kind === 'takeWait' || own;
+  const threads = hit || stall.kind === 'takeWait' || stall.kind === 'waterWait' || own
+    || stall.kind === 'waterSwitch' || stall.kind === 'transform' || stall.kind === 'abilityWait';
+  const after = postStepFirst(stall.kind);
   if (hit) {
     // $81:8CAB-$81:8CBF: OR the pad of every stall frame
     const pad = world.get(Pad)!;
@@ -125,6 +132,7 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   } else if (stall.kind === 'warp') {
     if (!tickWarp(world, ctx)) return 'idle';
   } else {
+    if (stall.kind === 'waterSwitch') tickWaterSwitch(world, ctx); // $80:8FB6 1, $80:9208
     const left = stall.framesLeft - 1;
     if (left > 0) {
       world.set(Stall, { ...stall, framesLeft: left, sfx: left === 1 ? -1 : stall.sfx });
@@ -145,6 +153,12 @@ function tickStall(world: World, ctx: Ctx): 'none' | 'idle' | 'resumed' {
   }
   if (resumeBallStep(world, ctx, stall)) {
     beginHitStop(world);
+    return 'resumed';
+  }
+  // a stall the roll loop entered after its camera and sprite: the rest of
+  // the iteration (the setup, the store) has none of them, but the ball-out test
+  if (after) {
+    detectBallOut(world);
     return 'resumed';
   }
   for (const s of POST_STEP) s.run(world, ctx);

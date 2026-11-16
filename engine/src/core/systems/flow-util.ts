@@ -1,11 +1,10 @@
 /**
- * Shared plumbing of the flow systems: the phase clock, the ball entity,
- * event emission.
+ * Shared plumbing of the flow systems: the phase clock, event emission.
+ * (The player is `activePlayer`, traits/player.ts.)
  */
-import type { Entity, World } from 'koota';
+import type { World } from 'koota';
 import { Time } from '../traits/time';
 import { HoleFlow, type FlowPhase } from '../traits/flow';
-import { BallWork } from '../traits/ball';
 import { emit } from '../events';
 
 export function frameOf(world: World): number {
@@ -21,12 +20,6 @@ export function phaseNow(world: World): { phase: FlowPhase; t: number } {
 export function enterPhase(world: World, phase: FlowPhase): void {
   const f = world.get(HoleFlow)!;
   world.set(HoleFlow, { ...f, phase, since: frameOf(world), prev: f.phase });
-}
-
-export function ball(world: World): Entity {
-  const e = world.queryFirst(BallWork);
-  if (e === undefined) throw new Error('no ball entity');
-  return e;
 }
 
 /** Emit a sound/presentation event stamped with this frame. */

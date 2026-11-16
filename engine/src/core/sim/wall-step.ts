@@ -2,7 +2,7 @@
  * Wall bounce ($81:9390), step bounce ($81:93D1) and the step-down launch
  * (loc_launch $81:8B78, also the crest launch's entry $81:8B7B).
  */
-import { s16, wrap16, asr, hi16 } from '../fixed';
+import { s16, wrap16, asr, hi16, mid16 } from '../fixed';
 import type { Ctx, Work } from './context';
 import { reflect } from './reflect';
 
@@ -77,8 +77,9 @@ export function launch(ctx: Ctx, w: Work, oldCode: number): void {
   // $80:A378 returns the high word of the exact 32-bit product; the two
   // high words are summed as 16-bit (web-demo.md "Step down").
   w.vz = wrap16(hi16(w.vx, lx) + hi16(w.vy, ly));
-  // mode 5 with $D762 set rescales vz by mul16x8(vz, $B4) ($81:8BB6); the
-  // copy-ability modes are deferred, so that branch is not ported.
+  // $81:8BA9-$81:8BC0: Tornado (mode 5) during its wall burst ($D762)
+  // takes vz x 180 / 256 ($80:A378 read at $389F)
+  if (w.mode === 5 && w.d762 !== 0) w.vz = mid16(w.vz, 0xb4);
   // halve when the new surface code is non-zero and the old shape is not in
   // the $10-$1B family ($81:8BC3)
   if (w.code !== 0 && (w.pShape & 0x10) === 0) {

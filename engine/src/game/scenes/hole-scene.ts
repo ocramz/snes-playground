@@ -19,13 +19,21 @@
 import Phaser from 'phaser';
 import type { World } from 'koota';
 import { SceneKeys } from '../scene-keys';
-import { nextHole, pause, resume, placeBall, type BallPlacement } from '../../core/actions';
+import { nextHole, pause, resume, placeBall, endGame, type BallPlacement } from '../../core/actions';
+import { AimUi, ScorePanel } from '../../core/traits/aim-ui';
+import { Shot } from '../../core/traits/shot';
+import { Camera } from '../../core/traits/camera';
+import { Screen } from '../../core/traits/screen';
+import { Career } from '../../core/traits/counters';
 import { HoleFlow } from '../../core/traits/flow';
 import { Session, IsPaused } from '../../core/traits/session';
 import { Course, courseEntity, type CourseState } from '../../core/traits/course';
 import { Cell, IsCup } from '../../core/traits/hole';
 import { Time } from '../../core/traits/time';
 import { Warp } from '../../core/traits/warp';
+import { Switches } from '../../core/traits/switches';
+import { BallWork } from '../../core/traits/ball';
+import { findActivePlayer } from '../../core/traits/player';
 import { Pad } from '../../core/traits/pad';
 import { runCoreFrame } from '../../core/schedule';
 import { FrameClock } from '../bridge/tick-time';
@@ -47,9 +55,15 @@ import { GuideView } from '../features/guide/guide-view';
 import { PanelView } from '../features/shot-panel/panel-view';
 import { CutsceneView } from '../features/cutscene/cutscene-view';
 import { WarpView } from '../features/warp/warp-view';
+import { SnapStarsView } from '../features/env/snap-stars-view';
+import { WaterFxView } from '../features/env/water-fx-view';
+import { AbilityFxView } from '../features/env/ability-fx-view';
 import { CutsceneDirector } from '../features/cutscene/director';
 import type { Anchors } from '../features/cutscene/replay';
-import { hudHidden } from '../features/hud/hud-state';
+import { hudHidden, pauseState, lookArrowsState } from '../features/hud/hud-state';
+import { AimUiView } from '../features/hud/aim-ui-view';
+import { CardView } from '../features/card/card-view';
+import { cardState } from '../features/card/card-state';
 import { KirbyView } from '../features/kirby/kirby-view';
 import type { HoleAssets } from '../assets/course-sets';
 import type { Host } from '../host';
@@ -76,6 +90,8 @@ export class HoleScene extends Phaser.Scene {
   private director!: CutsceneDirector;
   private p!: Presentation;
   private pausedLabel: Phaser.GameObjects.BitmapText | Phaser.GameObjects.Text | null = null;
+  private aimUi!: AimUiView;
+  private card!: CardView;
 
   constructor() {
     super(SceneKeys.Hole);
@@ -109,7 +125,8 @@ export class HoleScene extends Phaser.Scene {
     this.views = new ViewRegistry(this, host, VIEW_CATALOG);
     primeBindings(world);
     this.director = new CutsceneDirector(host.assets.cutscenes, () => this.anchors(world, course));
-    if (host.flags.nointro || !this.director.startIntro()) host.audio?.playSong(hole?.song ?? 0);
+    const song = hole?.data.song;
+    if (host.flags.nointro || !this.director.startIntro(song)) host.audio?.playSong(song ?? 0);
     this.controls = new Controls(this.input.keyboard);
     this.disposables.add(() => this.controls.dispose());
     this.p = {
@@ -120,6 +137,9 @@ export class HoleScene extends Phaser.Scene {
       panel: new PanelView(this, host.assets.ui, DEPTH.panel),
       cutscene: new CutsceneView(this, { ground: DEPTH.decal - 1, sprites: DEPTH.cutsceneSprites, fade: DEPTH.fade }),
       warp: new WarpView(this, DEPTH.actor),
+      snapStars: new SnapStarsView(this, DEPTH.actor),
+      waterFx: new WaterFxView(this, DEPTH.actor),
+      abilityFx: new AbilityFxView(this, DEPTH.actor),
       director: this.director,
       audio: host.audio,
       camera: this.cameras.main,
@@ -136,6 +156,14 @@ export class HoleScene extends Phaser.Scene {
       this.views.releaseAll();
       if (host.flags.debug) delete (window as unknown as { __engine?: unknown }).__engine;
     });
+    this.aimUi = new AimUiView(this, host.assets.hud, DEPTH.panel + 50);
+    this.disposables.add(() => this.aimUi.destroy());
+    // the per-hole RESULT card ($83:D3ED): the hole's scenery, its course's window
+    const rom = hole?.layersOf ?? null;
+    this.card = new CardView(
+      this, host.assets.card, rom, rom === null ? 1 : Math.floor(rom / 8) % 8 + 1, DEPTH.fade - 20, hole?.layers?.backColour,
+    );
+    this.disposables.add(() => this.card.destroy());
     if (host.flags.debug) this.exposeDebug(world);
   }
 
@@ -240,10 +268,23 @@ export class HoleScene extends Phaser.Scene {
     this.p.ctx.frame = world.get(Time)!.frame;
     this.p.ctx.hidden = this.director.hidden();
     runPresentation(this.p);
-    this.host.screen.hudHidden = hudHidden(world) || this.director.active !== null;
+    // the game's own rule ($EA7C, core's ScorePanel; port_v2 phase 7)
+    this.host.screen.hudHidden = hudHidden(world);
+    this.aimUi.update(pauseState(world), lookArrowsState(world));
+    this.card.update(cardState(world));
   }
 
   private handOff(world: World): void {
+    const jump = world.get(AimUi)!.jump;
+    if (jump !== 0) {
+      // the pause menu's COURSE SELECT SCREEN / QUIT ($80:843E to $16E3 / $16D9):
+      // until the shell's map and title (port_v2 phase 7, pieces 4 and 5), the menu
+      world.set(AimUi, { ...world.get(AimUi)!, jump: 0, pause: 0 });
+      this.leaving = true;
+      endGame(world);
+      this.scene.start(SceneKeys.Menu, { host: this.host });
+      return;
+    }
     const phase = world.get(HoleFlow)!.phase;
     if (phase === 'HoleOver') {
       this.leaving = true;
@@ -279,7 +320,27 @@ export class HoleScene extends Phaser.Scene {
       panel: this.p.panel,
       director: this.director,
       phase: (): string => world.get(HoleFlow)!.phase,
+      hole: (): { set: string | null; holeIndex: number; rom: number | null; name: string; song: number } => {
+        const h = this.holeAssets(world);
+        return {
+          set: this.host.set?.id ?? null,
+          holeIndex: world.get(Session)!.holeIndex,
+          rom: h?.layersOf ?? null,
+          name: h?.data.name ?? '',
+          song: h?.data.song ?? 0,
+        };
+      },
       frame: (): number => world.get(Time)!.frame,
+      flow: () => ({ ...world.get(HoleFlow)!, camera: { ...world.get(Camera)! } }),
+      /** The RESULT card up now with these strokes (a look at the view; core's flow resumes from the wait). */
+      showCard: (strokes: number[] = [2]): void => {
+        const c = world.get(Career)!;
+        strokes.forEach((n, k) => { c.card[k] = n; });
+        world.get(Session)!.holeIndex = Math.max(0, strokes.length - 1);
+        world.set(HoleFlow, { ...world.get(HoleFlow)!, phase: 'Card', since: world.get(Time)!.frame - 40, length: 0 });
+        world.set(Screen, { bright: 15, blank: 0 });
+        this.present(world);
+      },
       scroll: (): { x: number; y: number } => ({ x: this.cameras.main.scrollX, y: this.cameras.main.scrollY }),
       kirby: () => {
         const k = kirby();
@@ -300,6 +361,16 @@ export class HoleScene extends Phaser.Scene {
       putOnCup: (lift = 0): boolean => putOnCup(world, lift),
       placeBall: (p: BallPlacement): void => placeBall(world, p),
       warp: () => ({ ...world.get(Warp)! }),
+      switches: () => {
+        const s = world.get(Switches)!;
+        const w = findActivePlayer(world)?.get(BallWork);
+        return {
+          toggleOn: w?.toggleOn ?? 0, waterOff: w?.waterOff ?? 0,
+          dissolve: { ...s.dissolve }, toggle: s.toggle && { ...s.toggle }, water: s.water && { ...s.water },
+          anims: s.anims.map((a) => ({ ...a })), rippleTicks: s.rippleTicks,
+        };
+      },
+      aimUi: () => ({ ...world.get(AimUi)!, panel: world.get(ScorePanel)!.shown, hudOn: world.get(ScorePanel)!.hudOn, aim: world.get(Shot)!.aim }),
       freeze: (on = true): void => {
         this.frozen = on;
       },

@@ -14,7 +14,8 @@ import { nextHole, continueGame, pause, resume } from '../src/core/actions';
 import { HoleFlow } from '../src/core/traits/flow';
 import { Session } from '../src/core/traits/session';
 import { Tomatoes, Stars, Strokes, Career } from '../src/core/traits/counters';
-import { BallPos, BallVel, BallWork } from '../src/core/traits/ball';
+import { BallPos, BallVel } from '../src/core/traits/ball';
+import { activePlayer } from '../src/core/traits/player';
 import { Warp } from '../src/core/traits/warp';
 import { WARP_HOLD, WARP_IN, WARP_LEAD, WARP_OUT } from '../src/core/systems/warp';
 import { Pose } from '../src/core/traits/pose';
@@ -23,7 +24,7 @@ import { Shot } from '../src/core/traits/shot';
 import { IsCup, IsEnemy, IsHole, InHole } from '../src/core/traits/hole';
 import { placeBall } from '../src/core/actions';
 import {
-  HOLEOUT_FRAMES, HOLEOUT_HIO_FRAMES, OOT_LIFE_AT, OOT_SETUP_AT, LOST_RESET_AT, RESPAWN_FRAMES,
+  HOLEOUT_FRAMES, CARD_WAIT, CARD_NEXT_HOLE, HOLEOUT_HIO_FRAMES, OOT_LIFE_AT, OOT_SETUP_AT, LOST_RESET_AT, RESPAWN_FRAMES,
 } from '../src/core/systems/hole-flow';
 
 const kinds = (d: CourseDriver, from = 0): string[] =>
@@ -33,7 +34,7 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
   it('t1 in one shot: the takes, the cup, the sink, the hole in one, the next hole', () => {
     const d = new CourseDriver();
     d.playHole();
-    const ball = d.world.queryFirst(BallWork)!;
+    const ball = activePlayer(d.world);
     expect(ball.get(Stars)!.n).toBe(2);
     expect(d.world.get(Career)!.card[0]).toBe(1);
     expect(d.world.get(Career)!.lives).toBe(3); // 2 + the 1UP
@@ -75,11 +76,12 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     const k = kinds(d, from);
     // 4 - 2 shots + 2 takes = 4: the bonus tomato is capped, so it is silent
     expect(k.slice(-3)).toEqual(['holed:21', 'song:19', 'song:18']);
-    expect(d.world.queryFirst(BallWork)!.get(Tomatoes)!.n).toBe(4);
+    expect(activePlayer(d.world).get(Tomatoes)!.n).toBe(4);
     const holed = d.events.find((e) => e.kind === 'holed')!;
     const done = d.frame;
-    expect(done - holed.frame).toBeGreaterThan(HOLEOUT_FRAMES);
-    expect(done - holed.frame).toBeLessThan(HOLEOUT_FRAMES + 60);
+    // then the RESULT card: its wait from CARD_WAIT (A already held), the next hole's load 80 later
+    expect(done - holed.frame).toBeGreaterThan(HOLEOUT_FRAMES + CARD_WAIT + CARD_NEXT_HOLE);
+    expect(done - holed.frame).toBeLessThan(HOLEOUT_FRAMES + CARD_WAIT + CARD_NEXT_HOLE + 60);
   });
 
   it('t5: a ball off the island is lost: tomatoes 0, a life, the refill, the ball back at the origin', () => {
@@ -94,7 +96,7 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     const lost = d.frame;
     d.untilPhase('Respawn', 200);
     expect(d.frame - lost).toBe(LOST_RESET_AT);
-    const e = d.world.queryFirst(BallWork)!;
+    const e = activePlayer(d.world);
     expect(e.get(Tomatoes)!.n).toBe(0);
     expect({ ...e.get(BallPos)! }).toEqual(origin);
     d.untilPhase('ShotSetup', RESPAWN_FRAMES + 5);
@@ -113,9 +115,9 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     d.until(() => d.world.get(Warp)!.stage !== 'none', 60, 'the warp');
     const start = d.frame;
     d.until(() => d.world.get(Warp)!.stage === 'none', 400, 'the warp\'s end');
-    const pos = d.world.queryFirst(BallWork)!.get(BallPos)!;
+    const pos = activePlayer(d.world).get(BallPos)!;
     expect([pos.xc, pos.yc]).toEqual([1, 5]);
-    const vel = d.world.queryFirst(BallWork)!.get(BallVel)!;
+    const vel = activePlayer(d.world).get(BallVel)!;
     expect(vel.vy).toBe(0);
     expect(vel.vx).toBeGreaterThan(0);
     expect(vel.vx).toBeLessThan(0x0800);
@@ -138,7 +140,7 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     // 4 -> 3 (no pose) -> 2 (tired) -> 1 (tired) -> 0 (asleep)
     expect(seen).toEqual(['Aim', 'Tired', 'Tired', 'OutOfTomatoes']);
     const oot = d.frame;
-    const ball = d.world.queryFirst(BallWork)!;
+    const ball = activePlayer(d.world);
     const where = { ...ball.get(BallPos)! };
     d.untilPhase('ShotSetup', OOT_SETUP_AT + 5);
     expect(d.frame - oot).toBe(OOT_SETUP_AT);
@@ -164,7 +166,7 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     continueGame(d.world);
     expect(d.phase).toBe('ShotSetup');
     expect(d.world.get(Career)!.lives).toBe(2);
-    expect(d.world.queryFirst(BallWork)!.get(Tomatoes)!.n).toBe(4);
+    expect(activePlayer(d.world).get(Tomatoes)!.n).toBe(4);
     expect(d.world.get(Career)!.card.every((c) => c === -1)).toBe(true);
     expect(d.world.get(Session)!.holeIndex).toBe(0);
   });

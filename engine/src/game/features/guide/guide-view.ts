@@ -29,13 +29,16 @@ export class GuideView {
     while (this.dots.length < pics.dots.length) {
       this.dots.push(this.scene.add.image(0, 0, Tex.ui, this.ui.guide.dot).setDepth(this.depth));
     }
+    const ui = this.ui;
     this.dots.forEach((d, i) => {
       const p = pics.dots[i];
       d.setVisible(p !== undefined);
-      if (p) d.setPosition(p.x, p.y);
+      if (p) d.setFrame(p.wet && ui.guide.dotWet ? ui.guide.dotWet : ui.guide.dot).setPosition(p.x, p.y);
     });
     this.cone.setVisible(pics.cone !== null);
-    if (pics.cone) this.cone.setPosition(pics.cone.x, pics.cone.y);
+    if (pics.cone) {
+      this.cone.setFrame(pics.cone.wet && ui.guide.coneWet ? ui.guide.coneWet : ui.guide.cone).setPosition(pics.cone.x, pics.cone.y);
+    }
   }
 
   destroy(): void {
