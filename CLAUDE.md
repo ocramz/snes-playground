@@ -8,10 +8,13 @@ notes/          working scratch, per-session, unpolished, may be wrong
 tools/          analysis scripts
 web/            the Phaser 4 + Vite demo of one hole (docs/web-demo.md)
 engine/         the Koota + Phaser 4 reimplementation (docs/engine.md); random.html
-                plays seeded random holes (src/core/gen)
+                plays seeded random holes (src/core/gen); editor.html is the level
+                editor, a hole shared as a URL (src/core/level, src/editor;
+                docs/editor.md)
 plans/          design plans for work in progress
 symbols.tsv     machine-readable symbol/label table
 Makefile        `make` builds the web demo end to end; `make engine-*` the engine;
+                `make editor-site` the level editor as a static site (build/editor-site);
                 clean tiers (make help, docs/tooling.md)
 build/          all derived output — GITIGNORED (the demo's assets: build/web/;
                 the engine's: build/engine/)
@@ -76,6 +79,11 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   (the generator, the physics-checked solver, the styled terrain drawn from
   the course art's exemplar patches), the deviations from the game, and what
   is unported, deferred or unconfirmed.
+- [docs/editor.md](docs/editor.md) — the level editor (`engine/editor.html`):
+  the URL's format, the corner model behind raise, lower and blend, the
+  operations, the palette and the checks, the par worker, play and edit on
+  one page, the water in the styled terrain, and the static site
+  (`make editor-site`) and what it holds.
 - [docs/web-demo.md](docs/web-demo.md) — the browser demo of course 1 hole 1:
   how to export the assets and run it, the TypeScript port of the ball physics
   and how it was checked frame by frame against the game, what was measured

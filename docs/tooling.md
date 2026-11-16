@@ -50,6 +50,8 @@ The engine ([docs/engine.md](engine.md)) has its own targets, none of them part 
 | `make engine` | `npm ci` and `vite build` into `engine/dist` |
 | `make engine-e2e` | the browser smoke tests (index.html: course 1, every course's first hole; random.html); they need `cd engine && npm run dev` running |
 | `make engine-random` | the dev server, opening `random.html`: a course of random holes (docs/engine.md "Random holes") |
+| `make engine-editor` | the dev server, opening `editor.html`: the level editor (docs/editor.md) |
+| `make editor-site` | the level editor as a static site in `build/editor-site` (relative URLs, so any path serves it) and `build/editor-site.zip`: `tools/stage_editor_site.py` trims `build/engine` to what the page loads, then `vite build -c vite.site.config.ts`. It holds ROM-derived files (docs/editor.md "The site") |
 
 Cleanup comes in three tiers:
 - `make clean`: `web/dist`, `engine/dist`, `build/web`, `build/engine` and
@@ -101,6 +103,7 @@ python3 tools/coursemap.py                # all 232
 python3 tools/coursemap.py --no-backdrop  # course geometry without the scenery
 python3 tools/terrain_style.py            # exemplar patches of the course art -> build/engine/assets
 python3 tools/terrain_style.py --out build/style --sheet   # ... and a 4x sheet to look at
+python3 tools/stage_editor_site.py        # the level editor site's files -> build/editor-site-public
 
 # Playfield geometry: terrain shape, elevation, gaps
 python3 tools/terrain.py --tables         # the engine's 28 terrain shapes

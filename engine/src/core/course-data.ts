@@ -193,7 +193,8 @@ export interface AuthoredChecks {
   enemyAbility?: ArrayLike<number>;
 }
 
-function parseLayer(rows: string[] | undefined, w: number, h: number, layer: string, name: string): number[] {
+/** One layer of the authored format: `h` rows of `w` hex bytes (`..` = 00); absent = all zero. */
+export function parseLayer(rows: string[] | undefined, w: number, h: number, layer: string, name: string): number[] {
   if (rows === undefined) return new Array<number>(w * h).fill(0);
   if (rows.length !== h) throw new Error(`${name}: ${layer} has ${rows.length} rows, expected ${h}`);
   const out: number[] = [];

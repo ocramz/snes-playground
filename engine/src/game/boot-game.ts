@@ -2,9 +2,10 @@
  * Creates the world, then the Phaser game (reference §3: the entry point
  * creates the world, then the Phaser.Game). The world and the host context
  * are handed to the first scene in its data and passed on from scene to
- * scene (game/host.ts), never kept in a module global. Shared by the two
- * pages: index.html (main.ts, the course menu) and random.html (random.ts,
- * the random course), which differ only in the scene registered as the menu.
+ * scene (game/host.ts), never kept in a module global. Shared by the
+ * pages: index.html (main.ts, the course menu), random.html (random.ts, the
+ * random course) and editor.html (editor.ts, the level editor), which
+ * differ in the scene registered as the menu; the editor also keeps the host.
  */
 import Phaser from 'phaser';
 import { createGameWorld } from '../core/world';
@@ -18,8 +19,13 @@ import { HudScene } from './scenes/hud-scene';
 import { ResultScene } from './scenes/result-scene';
 import { SaveStore } from './features/save/save-store';
 
+export interface Booted {
+  game: Phaser.Game;
+  host: Host;
+}
+
 /** `menu` is registered under SceneKeys.Menu: Preload, Hole and Result hand back to it. */
-export function bootGame(menu: new () => Phaser.Scene): Phaser.Game {
+export function bootGame(menu: new () => Phaser.Scene): Booted {
   const err = document.getElementById('err')!;
   window.addEventListener('error', (e) => {
     err.style.display = 'grid';
@@ -84,5 +90,5 @@ export function bootGame(menu: new () => Phaser.Scene): Phaser.Game {
   game.events.once(Phaser.Core.Events.READY, fit);
   window.addEventListener('resize', fit);
   new ResizeObserver(fit).observe(parent);
-  return game;
+  return { game, host };
 }

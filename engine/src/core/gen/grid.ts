@@ -8,7 +8,7 @@
  * (docs/terrain.md). A ramp cell has the elevation of the terrace above it
  * and falls toward the one below: lower side N -> $04, E $05, S $06, W $07.
  */
-import type { AuthoredCourseJson } from '../course-data';
+import { parseLayer, type AuthoredCourseJson } from '../course-data';
 import type { RomRules } from '../rules';
 
 export const DX = [0, 1, 0, -1] as const;
@@ -45,6 +45,32 @@ export class HoleGrid {
     this.elev = new Uint8Array(n);
     this.walls = new Uint8Array(n);
     this.tile = new Uint8Array(n);
+  }
+
+  /**
+   * The grid of an authored hole (engine/courses/README.md), unvalidated:
+   * the level editor's model starts from one (core/level).
+   */
+  static fromJson(json: AuthoredCourseJson): HoleGrid {
+    const { w, h, name } = json;
+    if (!Number.isInteger(w) || !Number.isInteger(h) || w <= 0 || h <= 0) throw new Error(`${name}: bad size ${w}x${h}`);
+    const g = new HoleGrid(w, h);
+    g.shape.set(parseLayer(json.shape, w, h, 'shape', name));
+    g.elev.set(parseLayer(json.elev, w, h, 'elev', name));
+    g.walls.set(parseLayer(json.walls, w, h, 'walls', name));
+    g.tile.set(parseLayer(json.tile, w, h, 'tile', name));
+    return g;
+  }
+
+  /** A copy: the layers and the step marks. */
+  clone(): HoleGrid {
+    const g = new HoleGrid(this.w, this.h);
+    g.shape.set(this.shape);
+    g.elev.set(this.elev);
+    g.walls.set(this.walls);
+    g.tile.set(this.tile);
+    for (const k of this.steps) g.steps.add(k);
+    return g;
   }
 
   inside(x: number, y: number): boolean {

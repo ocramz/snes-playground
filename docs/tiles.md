@@ -673,7 +673,16 @@ colours 12-15 (tiles `$330-$337`).
 `$82:A7DD` fires only if the ball is at or below the surface. It scales the
 landing vz through the multiply routine `$80:A342`, clamps it against
 `$80:DDE3`/`$80:DDE5`, and converts the result into a vx/vy impulse whose
-direction comes from the tile value. Landing harder throws you further.
+direction comes from the tile value. The clamp compares unsigned, so a
+falling ball's product (negative) is always over the bound and the kick is
+the bound itself, 25 (26 for `$12`/`$13`), however hard the landing:
+web_kicker_land lands at vz −1408 and leaves with vx −26, then stops
+(re-read from the recording 2026-11-16). The kicker acts mostly on a rolling
+ball: it pushes it toward its arrow, harder the further the ball's heading
+is from the arrow, and none along it, and it raises the friction (`Hit`
+below). Rolled against (web_kicker_roll: vx 1536 into a `$13`), the ball
+loses 46 a frame and stops 0.4 cells in; rolled across (web_kicker_side:
+vy 1268 over a `$13`), it is bent west to vx −399 and stops half a cell in.
 
 *Emulated* (web_kicker_roll / _land / _side, course 3 hole 2;
 notes/port-v2-phase5-abilities.md "The kickers"):

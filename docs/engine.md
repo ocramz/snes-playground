@@ -5,7 +5,8 @@
 What it plays:
 - the ROM's eight 1P courses (holes 0-63), with the course bitmaps, sprites, panel, font and sounds exported from the ROM, each hole's own song and each enemy species' own pictures; the menu loads a course when it is picked;
 - eight small test holes written for the engine (`engine/courses/`);
-- random holes, generated from a seed and checked winnable with the engine's own physics (`random.html`, "Random holes" below).
+- random holes, generated from a seed and checked winnable with the engine's own physics (`random.html`, "Random holes" below);
+- a hole made in the level editor and shared as a URL (`editor.html`, [editor.md](editor.md)).
 
 The holes without ROM bitmaps are drawn with exemplar patches of the ROM's course art ("Random holes": the styled terrain).
 
@@ -28,6 +29,8 @@ make engine               # npm ci + vite build -> engine/dist
 cd engine && npm run dev  # http://127.0.0.1:5174/
 make engine-e2e           # browser smoke tests (index.html, random.html), against the running dev server
 make engine-random        # the dev server, opening random.html: a course of random holes
+make engine-editor        # the dev server, opening editor.html: the level editor (editor.md)
+make editor-site          # the level editor as a static site: build/editor-site (+ .zip)
 python3 tools/check_web_ui.py --target engine   # the shot panel, pixel for pixel (dev server up)
 ```
 
@@ -57,10 +60,12 @@ URL flags:
 ```
 engine/
   courses/            the test holes (*.course.json; README.md is the format)
-  index.html random.html  the two pages: main.ts (the course menu), random.ts (random holes)
+  index.html random.html editor.html  the pages: main.ts (the course menu), random.ts (random holes),
+                      editor.ts (the level editor, editor.md)
   src/core/           imports koota only
     fixed.ts rules.ts terrain.ts projection.ts course-data.ts occlusion.ts sweep.ts
     gen/              the random holes: layouts, placement, features, the shot simulator and solver
+    level/            the level editor's model: corners, operations, palette, checks, the URL codec
     sim/              kernels: pure functions over the ball's work copy, one per routine
     traits/           state: world singletons, the ball, the hole's entities
     systems/          the frame's systems; schedule.ts orders them
@@ -69,14 +74,15 @@ engine/
     bridge/           host frame, input, view binding, the presentation systems
     features/         one folder per domain: views, layout, audio, the cutscene
     assets/           keys, schemas, atlas conversion, course sets, the course loader
-    scenes/           Boot, Preload, Menu (or RandomMenu), Hole, Hud, Result
-    boot-game.ts      the world, the host and the Phaser game, shared by both pages
+    scenes/           Boot, Preload, Menu (or RandomMenu, LevelMenu), Hole, Hud, Result
+    boot-game.ts      the world, the host and the Phaser game, shared by the pages
+  src/editor/         the level editor's DOM screen, its canvases and the par worker (editor.md)
   test/               vitest (node); test/e2e: Playwright scripts
 ```
 
 The rules (reference §3), checked statically by `test/no-phaser-in-core.test.ts`:
 - **Core imports Koota only.** No file under `src/core` imports `phaser`.
-- **The view reads traits and calls actions.** Nothing under `src/game` imports `core/systems` or `core/sim`. Views read core's traits; scenes call core's actions and run its schedule (`runCoreFrame`).
+- **The view reads traits and calls actions.** Nothing under `src/game` or `src/editor` imports `core/systems` or `core/sim`. Views read core's traits; scenes call core's actions and run its schedule (`runCoreFrame`).
 - **The pure half of the bridge imports nothing from Phaser**, so the node tests run it:
   - `bridge/{tick-time, frame-loop, history, placement}`;
   - `features/{catalog-data, kirby/pose-clips, kirby/sprite-rules, layers/layer-depth, audio/event-table, cutscene/replay, cutscene/director, shot-panel/panel-layout, shot-panel/panel-state, guide/guide-dots, hud/hud-state, text/encoding, enemies/cup-mask, warp/warp-frames, layers/styled}`;
@@ -489,13 +495,14 @@ The asset caveats:
 `rasterTerrain` paints back to front by x − y:
 - each cell's four quadrant triangles at core's `surfaceZ`, from its patch at the same offset from the cell's left vertex;
 - the faces from the face patches;
-- the layer-4 walls as the ROM draws them: a 2-pixel line along the edge in the play area's outline colour, as on MAP13's rim. They go into an outline mask, which `LayersView` tints with the outline walk.
+- the layer-4 walls as the ROM draws them: a 2-pixel line along the edge in the play area's outline colour, as on MAP13's rim. They go into an outline mask, which `LayersView` tints with the outline walk;
+- the water (`$61`, `$64`-`$6F`) as a plane at its level `$82:83B9`, over the part of the cell the region test `$82:83DD` does not call dry, the flat patch's checks recoloured to course 1's pond colours (measured on hole 7's art); none while the water switch has it off at the load ([editor.md](editor.md) "The water in the styled terrain"). The ripple does not animate.
 
-Course 1's BG3 scenery is shown behind. The patches are cut with course 1's colours on every hole (`hole_palette(course=0)`), so they are one look. Redrawing course 1's eight holes from their grids matches the exported layers on 98, 97, 97, 94, 96, 93, 90 and 88 % of the pixels (`test/styled.test.ts`). Holes 7 and 8 are water holes, which the patches leave out, and the outline tiles are not drawn.
+Course 1's BG3 scenery is shown behind. The patches are cut with course 1's colours on every hole (`hole_palette(course=0)`), so they are one look. Redrawing course 1's eight holes from their grids matches the exported layers (hole 8's water layer included) on 98.4, 97.2, 97.1, 94.8, 95.8, 93.3, 93.5 and 91.8 % of the pixels (`test/styled.test.ts`, 2026-11-16). Holes 7 and 8, the water holes, were 90.4 and 88.0 % without the water plane. The outline tiles are not drawn.
 
 What the random holes leave out:
 - **The hazard actors.** The solver cannot run them, since moving bumpers depend on time spent aiming, and `$05` and the volcanoes act in a non-kernel system.
-- the outline tiles `$28-$2D`, water, the swirls and the switches, ability enemies and `$57`;
+- the outline tiles `$28-$2D`, water (the level editor places it: [editor.md](editor.md)), the swirls and the switches, ability enemies and `$57`;
 - warp lists other than one pair.
 - **Markings with no ROM instance draw as plain ground:** snap `$19` and the boosts' other ramp pairs.
 - **The solver's par is a plan it found, not always the shortest.** Its shots use no spin and no A/Y.
@@ -544,7 +551,7 @@ The bridge:
 
 ## Verification
 
-`make engine-test` runs 47 vitest files (856 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 52 vitest files (900 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -575,11 +582,12 @@ The bridge:
 | `determinism` | host frames of 1, 2, 3 and mixed core frames give the same world and the same events (web_hole on hole 1; a pad policy on t1) |
 | `frame-clock`, `cutscene`, `director`, `panel-state` | the 60.0988 Hz clock; the replay against the recording, sprite by sprite, and the anchors; the director's timing against core on web_hole; the panel's ages, closings, blink and meter lags on web_ui |
 | `gen`, `gen-sim` | the random holes: 200 layouts per difficulty valid and flush but for their step-downs, actors on `$01`, only ported tiles; a seed always gives the same hole and plan; plans within the par windows; three plans replayed through the world hole out; the shot simulator's rests equal the world's on the test holes, and its speed |
-| `styled` | the styled terrain: deterministic, a flat cell is the `$020/$021` block, the walls go to the outline mask, and course 1 redrawn from its grids matches its exported art (see "Random holes") |
+| `styled` | the styled terrain: deterministic, a flat cell is the `$020/$021` block, the walls go to the outline mask, the water's extent is `$82:83DD`'s and its colours the pond's, and course 1 redrawn from its grids matches its exported art (see "Random holes") |
+| `level-corners`, `level-ops`, `level-codec`, `level-play`, `level-site` | the level editor ([editor.md](editor.md) "Verification"): the corner model against `$81:9310`; the operations (the hill and pit stamps, raise and lower undo each other, blend, walls, resize, the palette); the URL codec's round trips and refusals; the default level and a pond through the codec solve and hole out, and shots into the water rest where the world's do; the staged songs |
 | `no-phaser-in-core` | the dependency rules above, the player's handle included: no `queryFirst` on a player trait anywhere in `src/` or `test/` |
 
 In the browser:
-- `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs`, `test/e2e/random.mjs`, `test/e2e/water.mjs`, `test/e2e/ability.mjs`, `test/e2e/switch.mjs` and `test/e2e/pause.mjs` (Playwright with the cached Chromium). `pause.mjs` steps course 1 hole 1 with pads through the debug hook: the idle timer's score panel, the pause menu and its cursor, the spin preset, the look, an L snap, and QUIT back to the menu (screenshots in `build/engine-test/pause/`). `switch.mjs` plays web_sw_water_drain on course 1 hole 8 and web_sw_switch_roll on course 2 hole 3 with the ball placed as their pokes put it, checks the core's switch state at the screenshots and fails on any page error. `ability.mjs` plays web_ab_c1's input on course 1 hole 3 frame by frame, checks Kirby's clips in the transformation and the jump, and saves screenshots at the take, the transformation, the jump and the third shot's aim (`build/engine-test/ability/`). `water.mjs` plays web_water_shot's input on course 1 hole 7 frame by frame through the debug hook's `step`, with screenshots at the entry, on the bed, in the aim from the water and on the way out (`build/engine-test/water/`). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
+- `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs`, `test/e2e/random.mjs`, `test/e2e/water.mjs`, `test/e2e/ability.mjs`, `test/e2e/switch.mjs`, `test/e2e/pause.mjs` and `test/e2e/editor.mjs` (Playwright with the cached Chromium). `editor.mjs` edits a level through the editor's UI, plays its share link, and goes back to the editor ([editor.md](editor.md) "Verification"). `pause.mjs` steps course 1 hole 1 with pads through the debug hook: the idle timer's score panel, the pause menu and its cursor, the spin preset, the look, an L snap, and QUIT back to the menu (screenshots in `build/engine-test/pause/`). `switch.mjs` plays web_sw_water_drain on course 1 hole 8 and web_sw_switch_roll on course 2 hole 3 with the ball placed as their pokes put it, checks the core's switch state at the screenshots and fails on any page error. `ability.mjs` plays web_ab_c1's input on course 1 hole 3 frame by frame, checks Kirby's clips in the transformation and the jump, and saves screenshots at the take, the transformation, the jump and the third shot's aim (`build/engine-test/ability/`). `water.mjs` plays web_water_shot's input on course 1 hole 7 frame by frame through the debug hook's `step`, with screenshots at the entry, on the bed, in the aim from the water and on the way out (`build/engine-test/water/`). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
 - `python3 tools/check_web_ui.py --target engine` renders the panel for 20 recorded states. All 20 are pixel-identical to the game's OAM sprites.
 
 The harness's conventions:
@@ -629,7 +637,7 @@ The presentation:
 - The outline pulse starts at the hole's first frame; its phase in the game is not known.
 - The palette cycles (the ripple, the boost and warp/snap panels', the glow) start at their set 0 on the hole's first frame, and so do the switches' objects 117, 118 and 127. The objects start them at the load, so the phase is not known, and the game's lag frames, which stretch a step (10 frames once in a recording), are not modelled. From a switch's flip on, 117's and 118's sets follow the game's exactly (test/switches.test.ts). The ripple runs on object 113's own clock, held while the water is off (`Switches.rippleTicks`). Its other variants are not ported: the iced water's colours (`$69DA`, Freeze) and the `$6A2E`/`$ED5B` tables ([courses.md](courses.md)).
 - Not ported at all: object 116's colours (the `$58` switch, 2P holes only); the scenery's own cycles (`$84:CF31` on courses 2 and 5, `$84:D072` on course 8: BG3 colours); the alternate palette tables `$6A2E` selects (with `$59` and no `$58`).
-- The styled terrain's boost panels and warps do not cycle.
+- The styled terrain's boost panels and warps do not cycle, nor does its water's ripple.
 - The shadow has one picture. The game's frame is the surface code (`$D996` = `$DA04`, `$81:A23E`), so its shape follows the slope.
 - The procedural terrain is a picture of the data the physics runs on (quadrant planes, slope shading, tile groups by colour, walls and outline as lines), not the game's art.
 

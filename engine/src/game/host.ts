@@ -47,6 +47,21 @@ export interface RandomCourse {
   holes: GeneratedHole[] | null;
 }
 
+/**
+ * editor.html's hooks (the level editor, src/editor): the app behind the page
+ * and its menu scene (scenes/level-menu-scene.ts) talk through these.
+ */
+export interface LevelHooks {
+  /** 'edit' while the editor is up, 'play' while a level plays (or has just ended). */
+  mode(): 'loading' | 'edit' | 'play';
+  /** The menu scene came up: after the preload (the assets are in), then after every hole. */
+  menuReady(scene: import('phaser').Scene): void;
+  /** Play the level again (the menu's Enter). */
+  retry(): void;
+  /** Open the level in the editor (the menu's E). */
+  edit(): void;
+}
+
 export interface Host {
   world: World;
   rules: RomRules | null;
@@ -60,6 +75,8 @@ export interface Host {
   screen: { hudHidden: boolean };
   /** random.html only. */
   random: RandomCourse | null;
+  /** editor.html only: the level editor's hooks. */
+  level?: LevelHooks | null;
 }
 
 export function readFlags(search: string): Flags {
