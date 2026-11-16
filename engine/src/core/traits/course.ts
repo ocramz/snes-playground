@@ -16,6 +16,8 @@ export interface CourseState {
   tee: { x: number; y: number };
   originY: number;
   screenBase: number;
+  /** $8B98: the course bitmap's width (course-data.ts). */
+  mapWidth: number;
   enemies: Array<{ x: number; y: number }>;
 }
 
@@ -29,6 +31,7 @@ export const Course = trait((): CourseState => ({
   tee: { x: 0, y: 0 },
   originY: 0,
   screenBase: 0,
+  mapWidth: 0,
   enemies: [],
 }));
 
@@ -52,6 +55,7 @@ export function setCourse(world: import('koota').World, data: CourseData): void 
   c.tee = { ...data.tee };
   c.originY = data.originY;
   c.screenBase = data.screenBase;
+  c.mapWidth = data.mapWidth;
   c.enemies = data.enemies.map((e) => ({ ...e }));
   e.changed(Course);
 }

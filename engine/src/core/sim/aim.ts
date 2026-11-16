@@ -10,7 +10,7 @@ import type { RomRules } from '../rules';
 
 /** The pad bits the aim stage tests ($0067 held, $006B pressed). */
 export const PAD = {
-  B: 0x8000, Y: 0x4000, START: 0x1000,
+  B: 0x8000, Y: 0x4000, SELECT: 0x2000, START: 0x1000,
   UP: 0x0800, DOWN: 0x0400, LEFT: 0x0200, RIGHT: 0x0100,
   A: 0x0080, L: 0x0020, R: 0x0010,
   DPAD: 0x0f00,
@@ -31,13 +31,13 @@ export interface AimInput {
 /**
  * $81:B555. No direction or shoulder held: the hold counter resets.
  * Right (held) turns the aim down, Left up: 1 degree on the first frame,
- * then nothing until the counter reaches 15, then 3 degrees a call. L/R
- * (pressed) snap by 45 degrees through the table at $81:B729 — not ported
- * (the engine's keyboard has no shoulders; notes/engine-phase5-flow.md).
- * Up (held) chooses the fly shot, Down (pressed) the grounder, through the
+ * then nothing until the counter reaches 15, then 3 degrees a call. R / L
+ * (pressed, with Right / Left not held) snap to the next octant down / up
+ * through `snap`, the table at $81:B729 ($81:B6C3; port_v2 phase 7). Up
+ * (held) chooses the fly shot, Down (pressed) the grounder, through the
  * kind state $6AD6.
  */
-export function aimPad(s: AimInput, held: number, pressed: number): void {
+export function aimPad(s: AimInput, held: number, pressed: number, snap?: ArrayLike<number>): void {
   if ((held & 0x0f30) === 0) {
     s.hold = 0; // $81:B55D
     return;
@@ -45,12 +45,20 @@ export function aimPad(s: AimInput, held: number, pressed: number): void {
   if ((held & PAD.RIGHT) !== 0) {
     turn(s, -1);
   } else if ((pressed & PAD.R) !== 0) {
-    s.hold = 0; // $81:B59D: the 45-degree snap ($81:B6C3), not ported
+    s.hold = 0; // $81:B59D
+    if (snap) {
+      s.aim = snapOctant(s.aim, snap, -1); // $81:B5A0: A = $FFD3
+      s.changed += 1;
+    }
   }
   if ((held & PAD.LEFT) !== 0) {
     turn(s, +1);
   } else if ((pressed & PAD.L) !== 0) {
-    s.hold = 0; // $81:B5EA: the 45-degree snap, not ported
+    s.hold = 0; // $81:B5EA
+    if (snap) {
+      s.aim = snapOctant(s.aim, snap, +1); // $81:B5ED: A = $002D
+      s.changed += 1;
+    }
   }
   if ((held & PAD.UP) !== 0) {
     // $81:B604: switch on $6AD6
@@ -99,6 +107,16 @@ export function aimPad(s: AimInput, held: number, pressed: number): void {
     s.elev = 0; // $81:B6BC
     s.changed += 1;
   }
+}
+
+/**
+ * $81:B6C3: the byte `snap[aim]`; its high nibble (dir -1, A negative) or
+ * its low nibble (dir +1) times 45 is the new aim.
+ */
+export function snapOctant(aim: number, snap: ArrayLike<number>, dir: 1 | -1): number {
+  const b = snap[aim] ?? 0;
+  const n = dir < 0 ? (b >> 4) & 0x0f : b & 0x0f;
+  return n * 45;
 }
 
 /** One direction's arm of $81:B555 ($81:B573 / $81:B5BE). */

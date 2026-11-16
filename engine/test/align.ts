@@ -181,3 +181,58 @@ export function compareAbilityFields(
   }
   return bad;
 }
+
+/** The game's changes of one field inside the window must be found, in
+ *  order, among the engine's, each within `tol` frames. */
+export function matchChanges(
+  game: FlowEvent[], engine: FlowEvent[], name: string, from: number, to: number, tol = 2,
+): string | null {
+  const want = valueChanges(game, name).filter(([f]) => f >= from && f <= to);
+  const got = valueChanges(engine, name);
+  let j = 0;
+  for (const [f, v] of want) {
+    let k = j;
+    while (k < got.length && !(got[k][1] === v && Math.abs(got[k][0] - f) <= tol)) {
+      if (got[k][0] > f + tol) break;
+      k++;
+    }
+    if (k >= got.length || got[k][1] !== v || Math.abs(got[k][0] - f) > tol) {
+      const near = got.filter(([g]) => Math.abs(g - f) <= 6).map(([g, x]) => `${g}:${x}`).join(' ');
+      return `${name}: the game's ${v} at ${f} has no match (engine near it: ${near || 'nothing'})`;
+    }
+    j = k + 1;
+  }
+  return null;
+}
+
+/** The value a field holds on every frame of [from, to]. */
+export function perFrame(events: FlowEvent[], name: string, from: number, to: number): Map<number, number> {
+  const own = events.filter((e) => e[1] === name);
+  const out = new Map<number, number>();
+  let v = 0;
+  let i = 0;
+  for (let f = Math.min(from, own[0]?.[0] ?? from); f <= to; f++) {
+    while (i < own.length && own[i][0] <= f) v = own[i++][2] as number;
+    if (f >= from) out.set(f, v);
+  }
+  return out;
+}
+
+export function cameraWorst(game: FlowEvent[], engine: FlowEvent[], name: string, from: number, to: number): { worst: number; at: number } {
+  const g = perFrame(game, name, from, to);
+  const e = perFrame(engine, name, from - 2, to + 2);
+  let worst = 0;
+  let at = -1;
+  for (const [f, v] of g) {
+    let best = Infinity;
+    for (let d = -2; d <= 2; d++) {
+      const ev = e.get(f + d);
+      if (ev !== undefined) best = Math.min(best, Math.abs(ev - v));
+    }
+    if (best > worst) {
+      worst = best;
+      at = f;
+    }
+  }
+  return { worst, at };
+}

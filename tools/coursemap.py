@@ -441,20 +441,30 @@ def palette_cycles(d, index):
     return [c for c in (water_ripple(d, index), boost_cycle(d, index), panel_cycle(d, index)) if c]
 
 
-def hole_cgram(d, index, course=None):
+# The night of a hole in one ($83:D2BF sets $6A2E): palette set $11, the
+# scenery's alternate colours ($80:D527 by course & 7), and the course's
+# alternate list ($80:D82B entry 1: $80:D8AB by $6A5A)
+NIGHT_BG3_PALETTE_TABLE = (0x80, 0xD527)
+NIGHT_COURSE_LISTS = (0x80, 0xD8AB)
+
+
+def hole_cgram(d, index, course=None, night=False):
     """The 256 CGRAM words while the hole is in play, before any cycle runs:
     `$98:C000`, the scenery's 20 colours at 0, the HUD's 12 at 20 and the
     course's list (the module docstring). `course` defaults to the hole's
-    (`index // 8`, the `$6A5A` the hole loader uses)."""
+    (`index // 8`, the `$6A5A` the hole loader uses). `night`: the hole in
+    one's alternate tables (`$6A2E` = 1)."""
     if course is None:
         course = index // 8
     cg = words(d[snes_to_file(*PALETTE):snes_to_file(*PALETTE) + 512])
-    sc = _word(d, BG3_PALETTE_TABLE[0], BG3_PALETTE_TABLE[1] + 2 * (course & 7))
+    table = NIGHT_BG3_PALETTE_TABLE if night else BG3_PALETTE_TABLE
+    sc = _word(d, table[0], table[1] + 2 * (course & 7))
     o = snes_to_file(CGRAM_BANK, sc)
     cg[0:BG3_PALETTE_COLOURS] = words(d[o:o + 2 * BG3_PALETTE_COLOURS])
     o = snes_to_file(*HUD_PALETTE)
     cg[HUD_CGRAM:HUD_CGRAM + HUD_COLOURS] = words(d[o:o + 2 * HUD_COLOURS])
-    lst = snes_to_file(COURSE_LISTS[0], _word(d, COURSE_LISTS[0], COURSE_LISTS[1] + 2 * course))
+    lists = NIGHT_COURSE_LISTS if night else COURSE_LISTS
+    lst = snes_to_file(lists[0], _word(d, lists[0], lists[1] + 2 * course))
     while True:
         n = int.from_bytes(d[lst:lst + 2], "little")
         if n == COURSE_LIST_END:
@@ -467,11 +477,12 @@ def hole_cgram(d, index, course=None):
     return cg
 
 
-def hole_palette(d, index, sets=None, course=None):
+def hole_palette(d, index, sets=None, course=None, night=False):
     """The hole's 16 sub-palettes of 16 colours in play (`hole_cgram`), with
     each palette cycle at set 0, or at `sets[name]` for the cycles named
-    there (a water hole's ripple set k: `{"ripple": k}`)."""
-    cg = [snes_color(w) for w in hole_cgram(d, index, course)]
+    there (a water hole's ripple set k: `{"ripple": k}`); `night`: a hole in
+    one's (`hole_cgram`)."""
+    cg = [snes_color(w) for w in hole_cgram(d, index, course, night)]
     pal = [cg[i * 16:(i + 1) * 16] for i in range(16)]
     for cyc in palette_cycles(d, index):
         k = (sets or {}).get(cyc["name"], 0)

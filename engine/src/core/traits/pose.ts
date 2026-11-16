@@ -40,6 +40,8 @@ export const PoseState = {
   Aim: 4,
   AimTurn: 5,
   Curl: 6,
+  /** The unroll after B in the spin stage ($81:C089). */
+  Uncurl: 7,
   Squash: 12,
   Hop: 13,
   Roll: 14,

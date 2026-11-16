@@ -23,6 +23,9 @@ import { Reveal } from './traits/reveal';
 import { Warp } from './traits/warp';
 import { Hazards } from './traits/hazards';
 import { IsPlayer, IsActivePlayer } from './traits/player';
+import { AimUi, ScorePanel } from './traits/aim-ui';
+import { Screen } from './traits/screen';
+import { Save } from './traits/save';
 
 /**
  * The one game world. No module-level world: the headless test harness and
@@ -61,6 +64,10 @@ export function createGameWorld(): World {
   world.add(GameRng);
   world.add(AbilityFx);
   world.add(Switches);
+  world.add(AimUi);
+  world.add(ScorePanel);
+  world.add(Screen);
+  world.add(Save);
   return world;
 }
 

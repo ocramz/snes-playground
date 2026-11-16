@@ -42,6 +42,12 @@ export interface CourseData {
    */
   screenBase: number;
   /**
+   * $8B98 = header word 4 x 8 ($82:B1FA-$82:B200): the course bitmap's
+   * width in pixels, the look's right bound ($81:B8F7). Authored courses
+   * use the bitmap's width, 32 (w + h).
+   */
+  mapWidth: number;
+  /**
    * The hole's enemies as placed (the actor list's cells, $B538/$B578), in
    * the enemy list's order `$69DE`: the load-time sweep's, rows from the
    * top and each row from its last column ($82:B320; src/core/sweep.ts).
@@ -67,6 +73,7 @@ export interface CourseData {
 export interface CourseExtras {
   name?: string;
   screenBase?: number;
+  mapWidth?: number;
   /** Table 10; absent: built from the shape layer (buildOcclusion). */
   occlusion?: OcclusionTable;
   /** The hole's song; absent: HOLE_SONG. */
@@ -132,6 +139,7 @@ export function courseData(
     // the bitmap is 224 lines taller than the origin row on hole 1 (456 =
     // 232 + 224); authored courses without a header use the same relation
     screenBase: extras.screenBase ?? originY + 224,
+    mapWidth: extras.mapWidth ?? 32 * (w + h),
     enemies: enemyCells(tile, w, h),
     name: extras.name ?? '',
     occlusion: extras.occlusion ?? buildOcclusion(w, h, shapes),
@@ -154,6 +162,7 @@ export function enemyCells(tile: ArrayLike<number>, w: number, h: number): Array
 export function fromRomCourse(json: CourseJson): CourseData {
   return courseData(json.w, json.h, json.shape, json.elev, json.walls, json.tile, json.tee, json.word7, {
     screenBase: (json.header[5] ?? 0) * 8,
+    mapWidth: (json.header[4] ?? 0) * 8,
     name: json.name,
     occlusion: json.occlusion === undefined ? undefined : fromOcclusionJson(json.occlusion, json.w, json.h),
     song: json.song,

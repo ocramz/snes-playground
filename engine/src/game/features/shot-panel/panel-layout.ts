@@ -44,6 +44,12 @@ export interface PanelInput {
   one?: boolean;
   /** The tomato about to be spent is in its off phase. */
   blinkOff?: boolean;
+  /**
+   * The spin preset's panel (B held in the aim): the face, the ruler at the
+   * side and the bar at the top/back (web_bspin 2620: tile 58 at y 24 +
+   * 2 (topBack - 6)); no gauge frame, gauge, tomatoes or "1".
+   */
+  preset?: boolean;
 }
 
 export interface PanelSprite {
@@ -73,6 +79,21 @@ export function panelSprites(ui: UiJson, s: PanelInput): PanelSprite[] {
     out.push({ f: p.f, x: s.x + x, y: s.y + y });
   };
   const t = ui.timing;
+  if (s.preset) {
+    const pr = ui.preset;
+    const sx = -4 + 2 * (s.side - 6);
+    const ty = 2 * (s.topBack - 6);
+    if (pr) {
+      for (const p of pr.face) put(p, p.x ?? 0, p.y ?? 0);
+      for (const p of pr.ruler) put(p, sx + (p.dx ?? 0), p.y ?? 0);
+      put(pr.bar, sx + (pr.bar.dx ?? 0), (pr.bar.dy ?? 24) + ty);
+    } else {
+      for (const p of ui.face) put(p, p.x ?? 0, p.y ?? 0);
+      for (const p of ui.ruler) put(p, sx + (p.dx ?? 0), p.y ?? 0);
+      put(ui.bar, sx + (ui.bar.dx ?? 0), 24 + ty);
+    }
+    return out;
+  }
   const panelUp = (s.panel ?? true) && s.age >= t.panel;
   if (panelUp) {
     const face = s.meter2 >= 0 ? ui.faces[String(s.meter2)] ?? ui.face : ui.face;
@@ -102,6 +123,7 @@ export function panelFrames(ui: UiJson): Set<string> {
   const names = new Set<string>();
   const add = (p: UiPart): void => void names.add(p.f);
   [...ui.face, ...ui.base, ...ui.ruler, ui.bar, ui.dot, ...ui.tomato, ...ui.one].forEach(add);
+  if (ui.preset) [...ui.preset.face, ...ui.preset.ruler, ui.preset.bar].forEach(add);
   for (const list of Object.values(ui.gauge)) list.forEach(add);
   for (const list of Object.values(ui.faces)) list.forEach(add);
   names.add(ui.guide.dot);

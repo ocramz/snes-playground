@@ -12,8 +12,9 @@
  *              ($6ACE = $6ACC). The guide outlasts the frame: the loop's
  *              next iteration comes `guideLagFrames` later (Stall guideLag).
  *
- * Y (look around), B (the overview) and Start (pause) are recorded in
- * notes/engine-phase5-flow.md and not ported in phase 5.
+ * port_v2 phase 7 adds Start (the pause menu), B (the spin preset), Y (the
+ * look around), L/R (the 45-degree snaps) and the idle timer (the score
+ * panel): updateAim's header, systems/aim-ui.ts.
  */
 import type { World } from 'koota';
 import { Pad } from '../traits/pad';
@@ -31,42 +32,154 @@ import { aimQuarter } from '../sim/camera';
 import { BallScreen } from '../traits/pose';
 import { emitEvent, enterPhase, frameOf, phaseNow } from './flow-util';
 import { activePlayer } from '../traits/player';
+import { AimUi, IDLE_FRAMES } from '../traits/aim-ui';
+import { panStep } from '../sim/camera';
+import { Session } from '../traits/session';
+import {
+  scorecard, pauseMenu, openPause, presetStep, endPreset, lookScroll, lookArrows, showPanel, hidePanel, panelShown,
+} from './aim-ui';
 
-/** Schedule item 6. */
+/**
+ * Schedule item 6: one aim iteration, in the game's order (`$81:A680`-
+ * `$81:A80A`; port_v2 phase 7 adds the pause, B, Y, L/R and the idle timer):
+ *
+ *   `$EA7E` (the pause open)  -> `$81:BDAD`, then the pose
+ *   `$6B38` (the lockout)     -> one less; B is skipped this iteration
+ *   B held / the preset up    -> `$83:B214` (with Y: the look too); the
+ *                                 release ends the preset (`$81:A6DA`)
+ *   Y held                    -> the idle timer 90; with the d-pad the look
+ *                                 (`$81:B9A2`); alone, the score panel
+ *   the look on (Y released)  -> the pan back; arrived: the look ends
+ *   Start pressed             -> the pause opens
+ *   A pressed                 -> sfx `$34`, pose 4: PanToShot
+ *   otherwise                 -> the d-pad and L/R (`$81:B555`), the facing
+ *   `$81:A7B5`                -> the pan toward the aim's target (update-camera)
+ *   `$81:A7BF`                -> the idle timer: 90 quiet iterations show the
+ *                                 score panel; a change or the look hides it
+ *   `$81:A7E6`                -> pose 5 while turning, else 4
+ *   `$81:B908`                -> the look's arrows
+ */
 export function updateAim(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase !== 'Aim' || t === 0) return;
   const pad = world.get(Pad)!;
   const e = activePlayer(world);
-  if ((pad.pressed & PAD.A) !== 0) {
-    // $81:A780: the aim is confirmed
-    emitEvent(world, 'aim-confirm', 0x34);
-    e.set(Pose, { ...e.get(Pose)!, state: PoseState.Aim });
-    // $81:BE9A: the shot view, Kirby + the quarter's offset
-    const shot = world.get(Shot)!;
-    const sc = e.get(BallScreen)!;
-    const q = aimQuarter(shot.aim);
-    world.set(Shot, {
-      ...shot,
-      viewX: (sc.x + ctx.rules.table('shotViewX')[q]) & 0xffff, // $81:C0F0
-      viewY: (sc.y + ctx.rules.table('shotViewY')[q]) & 0xffff, // $81:C0F8
-    });
-    enterPhase(world, 'PanToShot');
-    return;
+  world.set(AimUi, { ...world.get(AimUi)!, pan: 0 });
+  // $81:BCB6: SELECT's mid-course card blocks the iteration while it is up
+  if (scorecard(world, pad.pressed, holeSongOf(world))) return;
+  const ui = () => world.get(AimUi)!;
+  const setUi = (patch: Partial<ReturnType<typeof ui>>): void => world.set(AimUi, { ...ui(), ...patch });
+  let facingChange = t === 1; // $81:A665/$81:A669 (the head's tail, t = 1)
+  let idleStep = true; // $81:A7BF is reached (the pause skips it)
+  if (ui().pause !== 0) {
+    pauseMenu(world, pad.pressed); // $81:BDAD, then JMP $A7E6
+    idleStep = false;
+  } else {
+    let route: 'y' | 'pan' | 'idle' = 'y';
+    if (ui().lockout !== 0) {
+      setUi({ lockout: ui().lockout - 1 }); // $81:A696
+    } else if (ui().preset !== 0 || (pad.held & PAD.B) !== 0) {
+      if ((pad.held & PAD.B) !== 0) {
+        // $81:A6B0: Y with B starts the look too
+        if ((pad.held & PAD.Y) !== 0 && ui().look === 0) setUi({ look: 1, arrows: ui().arrows === 0 ? 1 : ui().arrows });
+        presetStep(world, pad.held); // $83:B214
+        if (ui().look === 0) {
+          setUi({ arrows: 0 });
+          route = 'pan'; // $81:A6D4
+        } else {
+          route = 'idle'; // $81:A6D7
+        }
+      } else {
+        endPreset(world); // $81:A6DA
+      }
+    }
+    if (route === 'y') {
+      const shot = world.get(Shot)!;
+      if ((pad.held & PAD.Y) !== 0) {
+        world.set(Shot, { ...shot, idle: IDLE_FRAMES }); // $81:A6F5
+        if (ui().look !== 0) {
+          if ((pad.held & PAD.DPAD) !== 0) lookScroll(world, pad.held); // $81:A705
+        } else if ((pad.held & PAD.DPAD) !== 0) {
+          setUi({ look: 1, arrows: ui().arrows === 0 ? 1 : ui().arrows }); // $81:A714
+          if (panelShown(world)) hidePanel(world); // $81:A724
+        } else {
+          if (ui().arrows === 0) setUi({ arrows: 1 }); // $81:A72A
+          if (!panelShown(world)) showPanel(world); // $81:A737
+        }
+        route = 'idle';
+      } else {
+        // $81:A73E
+        if (panelShown(world) && shot.idle !== 0 && ui().look !== 0) hidePanel(world); // $81:A74D
+        if (ui().look !== 0) {
+          // $81:A756: the pan back to the aim's target; arrived, the look ends
+          const cam = { ...world.get(Camera)! };
+          panStep(cam, cam.targetX, cam.targetY);
+          world.set(Camera, cam);
+          if (cam.arrived !== 0) setUi({ arrows: 0, look: 0 });
+          route = 'idle';
+        } else {
+          setUi({ arrows: 0 }); // $81:A76E
+          if ((pad.pressed & PAD.START) !== 0) {
+            openPause(world); // $81:A779, then JMP $A7E6
+            idleStep = false;
+            route = 'idle';
+          } else if ((pad.pressed & PAD.A) !== 0) {
+            // $81:A780: the aim is confirmed
+            if (panelShown(world)) hidePanel(world); // $81:A78D
+            emitEvent(world, 'aim-confirm', 0x34);
+            e.set(Pose, { ...e.get(Pose)!, state: PoseState.Aim });
+            // $81:BE9A: the shot view, Kirby + the quarter's offset
+            const sc = e.get(BallScreen)!;
+            const q = aimQuarter(shot.aim);
+            world.set(Shot, {
+              ...shot,
+              viewX: (sc.x + ctx.rules.table('shotViewX')[q]) & 0xffff, // $81:C0F0
+              viewY: (sc.y + ctx.rules.table('shotViewY')[q]) & 0xffff, // $81:C0F8
+            });
+            enterPhase(world, 'PanToShot');
+            return;
+          } else {
+            const s: AimInput = {
+              aim: shot.aim, hold: shot.hold, kind: shot.kind, grounder: shot.grounder,
+              elev: shot.elev, guideSide: shot.guideSide, guideTB: shot.guideTB, changed: shot.changed,
+            };
+            aimPad(s, pad.held, pad.pressed, ctx.rules.table('aimSnap'));
+            world.set(Shot, { ...shot, ...s });
+            if (s.changed !== 0) facingChange = true; // $81:A7A8
+            route = 'pan';
+          }
+        }
+      }
+    }
+    if (route === 'pan') setUi({ pan: 1 }); // $81:A7B5: update-camera pans
+    if (idleStep) {
+      // $81:A7BF: the idle timer
+      const shot = world.get(Shot)!;
+      if (ui().look === 0 && shot.changed === 0) {
+        if (shot.idle !== 0) {
+          const idle = shot.idle - 1;
+          world.set(Shot, { ...shot, idle });
+          if (idle === 0) showPanel(world); // $81:A7D1
+        }
+      } else {
+        world.set(Shot, { ...shot, idle: IDLE_FRAMES }); // $81:A7D7
+        if (panelShown(world)) hidePanel(world); // $81:A7E2
+      }
+    }
   }
-  const shot = world.get(Shot)!;
-  const s: AimInput = {
-    aim: shot.aim, hold: shot.hold, kind: shot.kind, grounder: shot.grounder,
-    elev: shot.elev, guideSide: shot.guideSide, guideTB: shot.guideTB, changed: shot.changed,
-  };
-  aimPad(s, pad.held, pad.pressed);
-  world.set(Shot, { ...shot, ...s });
+  // $81:A7E6: the pose
   const pose = e.get(Pose)!;
   let { facing, angle } = pose;
-  // $81:A665/$81:A669 (the head's tail, t = 1) and $81:A7A9 (on a change)
-  if (s.changed !== 0 || t === 1) ({ facing, angle } = facingFromAim(ctx.rules, s.aim));
+  if (facingChange) ({ facing, angle } = facingFromAim(ctx.rules, world.get(Shot)!.aim));
   const turning = (pad.pressed & (PAD.L | PAD.R)) !== 0 || (pad.held & PAD.DPAD) !== 0;
   e.set(Pose, { ...pose, state: turning ? PoseState.AimTurn : PoseState.Aim, facing, angle });
+  lookArrows(world); // $81:A80A
+}
+
+/** The hole's song (`$80:C967`, CourseData.song). */
+function holeSongOf(world: World): number {
+  const s = world.get(Session)!;
+  return s.courses[s.holeIndex]?.song ?? 0;
 }
 
 /**

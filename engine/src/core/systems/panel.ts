@@ -31,6 +31,7 @@ import { PAD } from '../sim/aim';
 import { shotPower, launchVelocity, shotSpin } from '../sim/shot';
 import { emitEvent, enterPhase, phaseNow } from './flow-util';
 import { activePlayer } from '../traits/player';
+import { AimUi, AIM_LOCKOUT } from '../traits/aim-ui';
 
 export const PAN_DELAY = 4;
 /** $81:BF30: the curl's yield $1D, then the panel's initial state. */
@@ -41,6 +42,10 @@ export const SPIN_FIRST = 42;
 export const POWER_SFX_AT = 4;
 export const POWER_FIRST = 5;
 export const ROLL_START_AT = 22;
+/** $81:C0A5: the cancel's wait ($22), after which the selectors are latched and the panel goes. */
+export const CANCEL_LATCH_AT = 34;
+/** web_cancel: B at 2560, the aim's first iteration at 2598: the set-up's tail ($80:C5F1 + $81:A619's head) at C + 37. */
+export const CANCEL_FRAMES = 37;
 
 /** Schedule item 8: the curl's trigger, the panel and the spin stage. */
 export function updateSpinStage(world: World): void {
@@ -56,6 +61,9 @@ export function updateSpinStage(world: World): void {
   }
   if (phase !== 'Spin') return;
   if (t === PANEL_INIT_AT) {
+    // $81:BF44: the next aim skips B for 20 iterations, unless a set-up
+    // clears it ($80:F313): it acts after a cancel (port_v2 phase 7)
+    world.set(AimUi, { ...world.get(AimUi)!, lockout: AIM_LOCKOUT });
     // $81:BF30 yields $1D; then $81:BF41-$81:BF62, the panel's initial
     // state (web_hole 3697: the first shot's meter goes back to 0)
     world.set(Shot, {
@@ -73,7 +81,15 @@ export function updateSpinStage(world: World): void {
   if (t < SPIN_FIRST) return;
   const pad = world.get(Pad)!;
   if (t > SPIN_FIRST) {
-    // $81:BFB5-$81:BFCC: (B cancels: not ported) A goes to the power stage
+    // $81:BFB5-$81:BFCC: B cancels ($81:C089: Kirby uncurls, the shot
+    // thread waits $22 + 1 frames and ends; port_v2 phase 7), A goes to the
+    // power stage
+    if ((pad.pressed & PAD.B) !== 0) {
+      const e = activePlayer(world);
+      e.set(Pose, { ...e.get(Pose)!, state: PoseState.Uncurl, timer: 0 });
+      enterPhase(world, 'Cancel');
+      return;
+    }
     if ((pad.pressed & PAD.A) !== 0) {
       enterPhase(world, 'Power');
       return;

@@ -171,7 +171,7 @@ ifeq ($(CUTSCENE),)
 	@echo "warning: no $(CUTSCENE_REPLAY)/pokes.txt: exporting without the intro, hole-out and night layers"
 	@echo "         (make CUTSCENE_REPLAY=build/emu/autoplay/course1 traces a close substitute)"
 endif
-	$(PYTHON) tools/export_web.py --only font,hud,sprites,ui,audio,objects --out build/engine/assets
+	$(PYTHON) tools/export_web.py --only font,hud,sprites,ui,audio,objects,card --out build/engine/assets
 	$(PYTHON) tools/terrain_style.py --out build/engine/assets
 	$(PYTHON) tools/export_web.py --only manifest --out build/engine/assets
 

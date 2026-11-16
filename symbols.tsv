@@ -188,6 +188,8 @@ $80:8281	0x000281	code	loc_nmi_cgram_dma	-	NMI: DMA ram_cgram_staging to CGRAM (
 $80:8288	0x000288	tbl	tbl_cgram_dma	24	3 sets of (size, source, CGADD) for sub_dma_cgram, indexed by $00A0 * 8
 $80:82CA	0x0002CA	code	loc_nmi_oam_dma	-	NMI: DMA the OAM buffer at $7E:0600 to OAM (emulated)
 $80:82D3	0x0002D3	code	sub_read_joypad	-	auto-joypad read into ram_joy_held / _pressed / _repeat (emulated)
+$80:841A	0x00041A	code	sub_flow_setjmp	-	A = a context address ($16CF, $16D9, $16E3): save the stack and the return there, return 0; $80:843E with X = it returns there again, nonzero (the pause menu's COURSE SELECT / QUIT)
+$80:843E	0x00043E	code	sub_flow_longjmp	-	X = a context $80:841A saved: resume it (the top-level flow's menus); docs/flow.md
 $80:8508	0x000508	code	sub_obsel_set	32	write $2101 OBSEL. A = sprite size selector (ASL x5), X = VRAM byte address of the sprite tile page (X>>13 = name base). JSL/RTL
 $80:8542	0x000542	code	sub_bg1_set	-	BG1 tilemap and character base: Y = tilemap word address, X low 2 bits = map size, X >> 12 = char base in 4K words
 $80:8598	0x000598	code	sub_bg2_set	-	as sub_bg1_set for BG2
@@ -206,6 +208,8 @@ $80:8D89	0x000D89	code	sub_oam_emit_frame	162	walk a 5-byte metasprite part list
 $80:8D90	0x000D90	code	loc_oam_frame_priority	28	control record $7E: read the byte at $7E:<ptr>, bits 0-1 -> bits 12-13 of $3F, then continue the SAME list at +3 via sub_oam_emit_frame_alt. A priority override, not a continuation
 $80:8DAC	0x000DAC	code	loc_oam_frame_follow_ptr	6	control record $80: LDA $0001,Y / TAY, an absolute jump to another list in the same bank
 $80:8E39	0x000E39	code	sub_oam_emit_frame_alt	118	sub_oam_emit_frame with the $3F priority override applied ($80:8E67 ORA $3F); entered from loc_oam_frame_priority. Same record format
+$80:8FC2	0x000FC2	code	sub_fade_in	-	$007F = $0101, then the light frame helper until the brightness $007E reaches 15
+$80:8FD8	0x000FD8	code	sub_fade_out	-	$007F = $FF01, then frames until the forced blank ($007D bit 7)
 $80:903A	0x00103A	code	sub_apply_screen_params_entry	6	prologue that falls into sub_apply_screen_params; A = bank, Y = block address
 $80:9040	0x001040	code	sub_apply_screen_params	-	apply a screen setup block: byte 0 -> $2105 BGMODE, byte 1 -> $2101 OBSEL, then word pairs to sub_obsel_set. A=bank Y=block. No direct callers; dispatched
 $80:90C8	0x0010C8	code	sub_cgram_partial	20	A = byte count, X = source address, Y = first CGRAM colour index. The MVN at $80:90D4 hardwires the source bank to $98
@@ -444,14 +448,31 @@ $81:A804	0x00A804	code	loc_aim_state	-	sets Kirby's animation state 4/5 (aiming,
 $81:AF82	0x00AF82	code	sub_guide_step	-	shot guide: a copy of the physics step run while aiming to predict the path; $6AC6 = point kind (unconfirmed)
 $81:B0C4	0x00B0C4	code	loc_guide_land_tile	-	the guide's landing tile test ($81:B455 class): the water's own model ($81:B0D3-$81:B19C): in the water drag or out, dry over the region land on the level with code 0
 $81:B285	0x00B285	code	loc_guide_roll_tile	-	the guide's rolling tile test: the water started in (the block's $D872) drags in the region; dry, the ground becomes the level, code 0
+$81:B6C3	0x00B6C3	code	sub_aim_snap_octant	41	L/R in the aim: a nibble of tbl_aim_snap[aim] (low for L, high for R) times 45
+$81:B729	0x00B729	tbl	tbl_aim_snap	360	a byte per aim degree: low nibble the next octant up, high nibble the next down
+$81:B8EB	0x00B8EB	code	sub_look_bounds	29	at the hole's load: the look's bounds $6AB2-$6AB8 (x -32..$8B98, y 0..$8B9A+$E0)
+$81:B908	0x00B908	code	sub_look_arrows	154	the look's arrows: $6ABA bit 2 blinks 20/10 frames ($6ABC); one OAM frame per way the camera can still move
+$81:B9A2	0x00B9A2	code	sub_look_scroll	105	Y with the d-pad: $38AC/$38AE +-6/3 a frame inside the bounds
 $81:BA0B	0x00BA0B	code	sub_launch_velocity	-	JSL; vz = P sin e, h = P cos e, vx = h cos(aim), vy = h sin(aim); P = $6ADC (entry $81:BA0E with A = P), e = $D9B6 (emulated)
+$81:BCB6	0x00BCB6	code	sub_aim_select_card	-	SELECT in the aim: fade out, $83:C8DD (BEST and YOUR SCORE), wait for SELECT, the hole back, its song again
+$81:BDAD	0x00BDAD	code	sub_pause_menu_step	-	the aim iteration while the pause is open: B/Start close, Up/Down the cursor $6AC4, A: resume or longjmp $16E3 / $16D9
+$81:C089	0x00C089	code	loc_spin_cancel	-	B in the spin stage: pose 7, object $1A, $22 frames, the shot thread ends $FFFF: the set-up's tail again
 $81:C12E	0x00C12E	code	sub_spin_side_input	-	JSR; Left/Right move $6B50 every 8 frames; in a fly shot also steps $6B52 (6->0->12->0)
 $81:C1D5	0x00C1D5	code	sub_shot_spin	273	JSR; $D9CC/$D9CE/$D9D0 from $6B50/$6B52, power and aim: grounder curve or fly-shot impulse (emulated)
 $81:C2E6	0x00C2E6	code	sub_shot_power	42	JSL; $6ADC = $1300 * tbl_power[$6B3A] >> 14; tbl_power $88:A670 grounder, $88:A6F0 fly shot
+$81:C47B	0x00C47B	code	sub_save_checksums	-	every member's checksum (sub_save_checksum) into $70:020E
+$81:C4B7	0x00C4B7	code	sub_save_checksum	118	A = member: the sum of its course words, $001A, $0010, its ranking records' words, + $1357; docs/save.md
+$81:C52D	0x00C52D	code	sub_save_course_round	53	after the course's intro: the member's rounds of course $6A5A + 1 (below 1000)
+$81:C666	0x00C666	code	sub_save_course_end	207	the last hole-out (1P): the card capped at 99, $D7E0, the medal, the cleared count, sub_ranking_insert, the checksums; $EC4B
+$81:C735	0x00C735	tbl	tbl_medal_thresholds	64	16 courses x [bronze, silver, gold, 0]: the medal is how many are >= the score (course 1: 26 19 14)
+$81:C775	0x00C775	code	sub_medal_for_score	30	A = score: the medal 0-3 by tbl_medal_thresholds[$6A5A]
 $81:C7AF	0x00C7AF	code	sub_medal_flags	54	ram_medal_flags from every save slot (OR over the five members); $81:C7E5 does one slot ($EAB7)
+$81:C8C6	0x00C8C6	code	sub_ranking_insert	-	the round into course $6A5A's 25 records if it beats the 25th; merged with the 5 built-ins, sorted by score, rounds, id; C = ranked, $EC4D its place
+$81:CAB7	0x00CAB7	ptr	tbl_ranking_builtins	32	16 pointers to 5 built-in ranking records of 14 bytes (members 5-9, ids $28-$2C)
 $81:E0C7	0x00E0C7	tbl	tbl_name_entry_zones	-	name entry: cursor hit zones (CLR x 4-$15 y $38-$45, OK x $28-$3B), read by $81:DFD9
 $81:F6B6	0x00F6B6	code	sub_members_ranking	-	members list option RANKING (jump table $81:FC23, $EAB5 = 3): the per-course ranking table; A on an entry -> sub_ranking_result_card
 $81:F92B	0x00F92B	code	sub_ranking_result_card	-	scene 3: the chosen ranking entry's per-hole RESULT card over its course's scenery; A or B returns to the table (scene 2)
+$81:FA49	0x00FA49	code	sub_new_member	-	NEW MEMBER: the first $9999 slot, its drawing cleared, NAME ENTRY $81:E0E1, cleared 0, the serial $70:1B3C
 $82:8000	0x010000	code	sub_tile_water_hit	246	tiles $60-$6F rolled onto: from dry ground the ball drops in (vz 0, air 1); in the water the x/y drag or out of the region; else the entry; docs/tiles.md "Water"
 $82:80F6	0x0100F6	code	sub_tile_water_land	-	tiles $60-$6F landed on: in the water the drag or out at the level; dry in the region under the level a skip, a bounce, a skim, or the entry (/ 2 or / 8, $D9EE, splash, bubbles, $49/$4C, one frozen frame); docs/tiles.md "Water"
 $82:8228	0x010228	code	sub_water_skip_count	46	$69DC from the spin and |$6B58 - 6|: -1, 1 or 2
@@ -540,10 +561,21 @@ $82:DBDE	0x015BDE	tbl	tbl_hit_reactions	-	hit code -> Kirby animation state (40-
 $82:ECFC	0x016CFC	code	sub_turn_to_dir	63	JSL, A = 0-3 (N E S W): rotates (vx, vy) by 270/0/90/180 - $D9DA through $82:ED3B, zeroes the cross axis, $81:8E60; the speed is kept (emulated: web_arrow)
 $82:F903	0x017903	code	sub_map_select	-	scene 17, MAP SELECT: course (NORMAL/EXTRA), course number and hole number, then plays that hole. From the title menu's MAP SELECT ($83:B95B)
 $83:ABC5	0x01ABC5	code	sub_tomato_queue_dec	-	queues a tomato -1 in the HUD ring $68FA (A = the player); callers: the roll's start $82:BFDB, the hazards, $82:C085 (a fall out of the world, only when $17FF is set: not in 1P); verified web_flow, web_fly, web_haz*
+$83:AEEB	0x01AEEB	code	sub_score_panel_show	-	$EA7C = $691A = 1, the panel's BG3 rows and HDMA window (unless $69A0: DEMO PLAY)
+$83:AF82	0x01AF82	code	sub_score_panel_hide	20	$EA7C = 0, $691A = 1, the rows cleared, the HDMA off
+$83:AF96	0x01AF96	code	sub_score_panel_hide_silent	17	$EA7C = $691A = 0: the HUD thread (the tomato queue) stops too
+$83:AFA7	0x01AFA7	code	sub_pause_menu_open	53	Start in the aim: $83:AF96, $EA7E = 1, palette set $0A, the window and CONTINUE / COURSE SELECT SCREEN / QUIT ($83:AFE4), $6AC4 = 0
+$83:B214	0x01B214	code	sub_spin_preset	270	B held in the aim: object $10 at ($24, $BF); the d-pad steps $D9B8/$D9BA (12-frame repeat $6B5C); $6B50/$6B52 follow
+$83:B33D	0x01B33D	code	sub_menu_window	-	A = text, Y = row: a window from $93:F556 over the BG3 map and its text (sub_text_draw)
 $83:B406	0x01B406	code	sub_text_draw	-	walk a string, OR $3C00 (palette 7, priority) into each glyph and store into the BG3 tilemap buffer; $FE = newline, $F0-$FF dispatch through tbl_text_control
 $83:B46A	0x01B46A	ptr	tbl_text_control	32	16 word targets for control codes $F0-$FF; $FE is the newline at $83:B44C
 $83:B9A5	0x01B9A5	code	sub_sound_room	266	SOUND ROOM handler. Loads song 0 on entry ($83:B9BB); FGM path $83:BA11 loads song 0 then triggers effect $B0; BGM path $83:BA20 plays song $B2 as id $7E+n
 $83:BAAF	0x01BAAF	data	tbl_sound_room_limits	4	two words compared at $83:BA6A: $007E FGM numbers (0-125), $0021 BGM numbers (0-32)
+$83:C8DD	0x01C8DD	code	sub_select_card	-	SELECT's mid-course card: the window, YOUR SCORE so far, BEST SCORE (the course's best of $70:1958: saved or built-in)
+$83:CD82	0x01CD82	tbl	tbl_card_slots	36	the RESULT card's number slots: 8 x and the total's ($83:CD92); the words at $83:CD93 + 2k hold the y in their high byte
+$83:D081	0x01D081	code	sub_card_number	95	A = number, X = x | attributes, Y = y | variant << 8: object $8C draws it (8x16 digits, a star for 1)
+$83:D2AB	0x01D2AB	code	sub_hole_in_one	-	the hole-out's songs: 25; or in one ($D82A = 2): song 0, the night ($6A2E = 1, palette set $11, $80:D82B 1), objects 99/100, song 26
+$83:D3ED	0x01D3ED	code	sub_result_card	-	the per-hole RESULT card (no scene request): built in the blank, faded in, waits for A/B/Start held on $6B84's pad, faded out
 $83:DAAA	0x01DAAA	code	sub_demo_stream_tick	-	the DEMOPLAY stream's tick from the vblank wait $80:8491: held $0067 and pressed $006B from the record's (pad, count) pairs
 $83:F985	0x01F985	code	sub_medal_award	-	after a 1P course result ($80:F528): if the medal flags rose (sub_medal_flags before/after), scene 15 with one of six congratulation texts ($83:FB02-$83:FD4F) and song $83
 $83:FADA	0x01FADA	tbl	tbl_medal_award_text	12	six text pointers for scene 15: a medal / silver or gold / gold for all courses, then the same for the extra courses ($83:FB02-$83:FD4F)

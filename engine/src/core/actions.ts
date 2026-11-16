@@ -44,6 +44,9 @@ import type { RomRules } from './rules';
 import { sweepActors, type HoleActors } from './sweep';
 import { setupHazards } from './systems/actors';
 import { spawnPlayer } from './world';
+import { AimUi, ScorePanel } from './traits/aim-ui';
+import { Save, touchSave } from './traits/save';
+import { beginCourse } from './save';
 import { IsPlayer, activePlayer } from './traits/player';
 import { BoostHum } from './traits/boost';
 import { SnapTrail } from './traits/snap';
@@ -108,11 +111,18 @@ export function sessionCtx(world: World): Ctx | null {
  * the card cleared, at least 2 lives ($80:C101), 4 tomatoes ($80:C122), the
  * tomato queue empty; then hole 0. Returns the context for its first hole.
  */
-export function startCourse(world: World, rules: RomRules, courses: CourseData[]): Ctx {
+export function startCourse(world: World, rules: RomRules, courses: CourseData[], course?: number): Ctx {
   if (courses.length === 0) throw new Error('startCourse with no holes');
   const s = world.get(Session)!;
   s.rules = rules;
   s.courses = courses;
+  if (course !== undefined) s.course = course;
+  // `$81:C52D` (after the course's intro): the member's rounds of this course + 1
+  const save = world.get(Save)!;
+  if (save.member >= 0 && s.course >= 0) {
+    beginCourse(save.data, save.member, s.course);
+    touchSave(save);
+  }
   const career = world.get(Career)!;
   career.lives = Math.max(career.lives, START_LIVES);
   career.card = courses.map(() => -1);
@@ -209,6 +219,10 @@ export function startHole(world: World, i: number): Ctx {
   e.set(KirbyPalette, { wet: 0 });
   resetAbilityFx(world, ctx); // Kirby's set 3, no palette object
   resetSwitches(world, data.tile, w); // objects 127, 117 and 118 ($82:BBAE, $82:BC59)
+  // the score panel hidden at the load ($80:C1B2), and the HUD thread on
+  // (its object's start, $84:9896); the aim's other inputs cleared
+  world.set(ScorePanel, { shown: 0, hudOn: 1 });
+  world.set(AimUi, { ...world.get(AimUi)!, pause: 0, cursor: 0, preset: 0, look: 0, arrows: 0, arrowTimer: 0, lockout: 0, pan: 1, jump: 0 });
   // the first core frame after this is the set-up's first
   world.set(HoleFlow, { phase: 'ShotSetup', since: world.get(Time)!.frame + 1, prev: 'Idle', holeInOne: 0, length: 0 });
   return ctx;

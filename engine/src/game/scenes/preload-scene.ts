@@ -15,7 +15,7 @@ import {
   AssetUrl, Json, Rules, RulesUrl, Tex, holeUrl, sfxKey, songKey, assetUrl,
 } from '../assets/keys';
 import { addAtlasClips, addAtlasFrames } from '../assets/atlas';
-import type { AtlasJson, AudioJson, CutscenesJson, HudJson, ManifestJson, UiJson } from '../assets/schema';
+import type { AtlasJson, AudioJson, CardJson, CutscenesJson, HudJson, ManifestJson, UiJson } from '../assets/schema';
 import { romCourseSets, testCourseSet } from '../assets/course-sets';
 import { RomRules, type TablesJson } from '../../core/rules';
 import { buildFont } from '../features/text/font';
@@ -64,6 +64,17 @@ export class PreloadScene extends Phaser.Scene {
     if (files.has('hud_panel.png')) load.image(Tex.hudPanel, AssetUrl.hudPanel);
     if (files.has('hud_tomato.png')) load.image(Tex.hudTomato, AssetUrl.hudTomato);
     if (files.has('hud_ability.png')) load.image(Tex.hudAbility, AssetUrl.hudAbility);
+    if (files.has('pause_window.png')) load.image(Tex.pauseWindow, AssetUrl.pauseWindow);
+    if (files.has('card.json')) load.json(Json.card, AssetUrl.card);
+    if (files.has('card_digits.png')) load.image(Tex.cardDigits, AssetUrl.cardDigits);
+    if (files.has('card_best.png')) load.image(Tex.cardBest, AssetUrl.cardBest);
+    for (let n = 1; n <= 8; n++) {
+      if (files.has(`card_window_${n}.png`)) load.image(Tex.cardWindow(n), AssetUrl.cardWindow(n));
+    }
+    if (files.has('pause_cursor.png')) load.image(Tex.pauseCursor, AssetUrl.pauseCursor);
+    for (const d of ['Up', 'Right', 'Down', 'Left'] as const) {
+      if (files.has(`look_${d.toLowerCase()}.png`)) load.image(Tex[`look${d}`], AssetUrl[`look${d}`]);
+    }
     if (files.has('font.png')) load.image(Tex.font, AssetUrl.font);
     if (files.has('cutscenes.json')) load.json(Json.cutscenes, AssetUrl.cutscenes);
     if (files.has('terrain_style.json') && files.has('terrain_style.png')) {
@@ -115,6 +126,7 @@ export class PreloadScene extends Phaser.Scene {
       objects: this.textures.exists(Tex.objects) ? json<AtlasJson>(Json.objects) : null,
       ui: this.textures.exists(Tex.ui) ? json<UiJson>(Json.ui) : null,
       hud: json<HudJson>(Json.hud),
+      card: json<CardJson>(Json.card),
       audio: json<AudioJson>(Json.audio),
       cutscenes: json<CutscenesJson>(Json.cutscenes),
       terrainStyle: this.terrainStyle(json<TerrainStyleJson>(Json.terrainStyle)),

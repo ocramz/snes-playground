@@ -28,6 +28,8 @@ import { Course, courseEntity } from '../src/core/traits/course';
 import { Pose, BallScreen, BallSprite } from '../src/core/traits/pose';
 import { BallPos, BallVel, BallAir, BallSpin, BallWet, StillCount, BallHoled, BallMode, BallAbility } from '../src/core/traits/ball';
 import { GameRng } from '../src/core/traits/water';
+import { AimUi, ScorePanel } from '../src/core/traits/aim-ui';
+import { Screen } from '../src/core/traits/screen';
 import { activePlayer } from '../src/core/traits/player';
 import { Tomatoes, Strokes, Stars, Career, TomatoQueue, StockedAbility } from '../src/core/traits/counters';
 import { s16 } from '../src/core/fixed';
@@ -113,6 +115,21 @@ export function sample(world: World): Record<string, number> {
     wworn: e.get(BallAbility)!.worn,
     wmode: e.get(BallMode)!.mode,
     wlatch: e.get(BallAbility)!.latch,
+    // port_v2 phase 7: the aim's other inputs and the score panel
+    panel: world.get(ScorePanel)!.shown,
+    hudon: world.get(ScorePanel)!.hudOn,
+    pause: world.get(AimUi)!.pause,
+    pcur: world.get(AimUi)!.cursor,
+    preset: world.get(AimUi)!.preset,
+    prep: shot.sideTimer,
+    gside: shot.guideSide,
+    gtb: shot.guideTB,
+    look: world.get(AimUi)!.look,
+    lookl: world.get(AimUi)!.arrows,
+    idle: shot.idle,
+    lock: world.get(AimUi)!.lockout,
+    // the brightness's low byte ($007E; bit 7 the forced blank)
+    bright: world.get(Screen)!.blank ? 0x80 : world.get(Screen)!.bright,
   };
 }
 
@@ -149,6 +166,8 @@ export function runFlowScript(
     text?: string;
     /** A ROM hole (build/engine/rom-test/holes/<n>) instead of hole 1. */
     hole?: number;
+    /** More ROM holes after the first (the course goes on: the RESULT card, the next hole). */
+    more?: number[];
     /** Apply tools/snesstep/inputs/<script>.pokes (the ball's block words) at their frames. */
     pokes?: boolean;
     /**
@@ -166,7 +185,8 @@ export function runFlowScript(
   const course = fromRomCourse(opts.hole !== undefined ? loadRomHole(opts.hole)! : loadRomCourse());
   const pokes = opts.pokes ? loadBallPokes(script) : new Map<number, Array<[number, number]>>();
   const world = createGameWorld();
-  const ctx = startCourse(world, rules, [course]);
+  const extra = (opts.more ?? []).map((h) => fromRomCourse(loadRomHole(h)!));
+  const ctx = startCourse(world, rules, [course, ...extra]);
   if (opts.seedRng) seedRngFromFlow(world, script, offset + 1);
   const entries = parseInputScript(opts.text ?? readFileSync(inputScriptPath(script), 'utf8'));
   const run: FlowRun = { world, ctx, events: [], ball: [], emitted: [], phases: [], iters: [] };

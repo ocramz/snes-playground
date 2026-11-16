@@ -182,6 +182,9 @@ script at the next vblank.
 | `dance.txt` | title menu → DANCE SELECT → 1PLAY DANCE → DANCE01: Kirby's dance on the scene-8 stage, then the title; needs the medal-flag pokes |
 | `play_extra.txt` | from a finished-game save: 1PLAY GAME → PLAY EXTRA COURSE → member 1 → extra course 1 (hole at 2279) |
 | `ranking.txt` | members list → RANKING (scene 2) → A on entry 01 → its RESULT card (scene 3); needs a save with a cleared course |
+| `web_pause.txt`, `web_pause_quit.txt` | hole 1's pause menu: the cursor, B, CONTINUE; QUIT to the title (port_v2 phase 7) |
+| `web_look.txt`, `web_bspin.txt`, `web_lr.txt`, `web_cancel.txt`, `web_idle.txt` | hole 1's aim: Y's look, B's spin preset, L/R's snaps, B's cancel in the spin stage, the idle timer's score panel |
+| `web_card.txt`, `web_select.txt` | web_hole through its RESULT card into hole 2; SELECT's mid-course card on hole 1 |
 
 Facts the scripts depend on, found with the stepper:
 

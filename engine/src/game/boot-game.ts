@@ -16,6 +16,7 @@ import { PreloadScene } from './scenes/preload-scene';
 import { HoleScene } from './scenes/hole-scene';
 import { HudScene } from './scenes/hud-scene';
 import { ResultScene } from './scenes/result-scene';
+import { SaveStore } from './features/save/save-store';
 
 /** `menu` is registered under SceneKeys.Menu: Preload, Hole and Result hand back to it. */
 export function bootGame(menu: new () => Phaser.Scene): Phaser.Game {
@@ -28,7 +29,7 @@ export function bootGame(menu: new () => Phaser.Scene): Phaser.Game {
   const host: Host = {
     world: createGameWorld(),
     rules: null,
-    assets: { atlas: null, objects: null, ui: null, hud: null, audio: null, cutscenes: null, terrainStyle: null },
+    assets: { atlas: null, objects: null, ui: null, hud: null, card: null, audio: null, cutscenes: null, terrainStyle: null },
     sets: [],
     set: null,
     audio: null,
@@ -55,6 +56,12 @@ export function bootGame(menu: new () => Phaser.Scene): Phaser.Game {
     audio: { disableWebAudio: false },
     scene: [],
   });
+
+  // the save (port_v2 phase 7): loaded now, written back after any step that changed it
+  const q = new URLSearchParams(window.location.search);
+  const store = new SaveStore(q.get('save') === 'fresh' ? 'fresh' : q.has('nosave') ? 'readonly' : 'store');
+  store.load(host.world);
+  game.events.on(Phaser.Core.Events.POST_STEP, () => store.sync(host.world));
 
   game.scene.add(SceneKeys.Preload, PreloadScene);
   game.scene.add(SceneKeys.Menu, menu);

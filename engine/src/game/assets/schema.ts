@@ -85,6 +85,23 @@ export interface UiJson {
     meterStart: number;
   };
   anchorNote: string;
+  /**
+   * The spin preset's panel (port_v2 phase 7; tools/export_web_ui.py): its own
+   * palette's face, the ruler (dx from the side's x), the bar (dy from the
+   * top/back's y); offsets from `anchor`.
+   */
+  preset?: { anchor: [number, number]; face: UiPart[]; ruler: UiPart[]; bar: UiPart & { dy?: number } };
+}
+
+/** The per-hole RESULT card (tools/export_web.py build_card; port_v2 phase 7). */
+export interface CardJson {
+  window: { at: [number, number]; size: [number, number] };
+  /** Each hole's number slot (x, y) ($83:CD82 / $83:CD93) and the total's. */
+  holes: Array<[number, number]>;
+  total: [number, number];
+  digits: { image: string; w: number; h: number };
+  /** SELECT's BEST SCORE window (card_best.png): its top-left, and its slots' x offset from YOUR's. */
+  best?: { at: [number, number]; dx: number };
 }
 
 export interface AudioEntry {
@@ -219,4 +236,8 @@ export interface HudJson {
    * row 0, their ground (colour 9, white) in row 1; `at` the icon's top-left.
    */
   ability?: { image: string; at: [number, number]; cell: number; cells: Record<string, number> };
+  /** The pause menu's window (pause_window.png at `at`) and the cursor's three cells (port_v2 phase 7). */
+  pause?: { at: [number, number]; size: [number, number]; cursor: Array<[number, number]> };
+  /** The look's arrows (look_<dir>.png), each at its screen top-left. */
+  arrows?: { up: [number, number]; right: [number, number]; down: [number, number]; left: [number, number] };
 }

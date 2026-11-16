@@ -45,6 +45,8 @@ export class CourseDriver {
   readonly events: Logged[] = [];
   /** Buttons held for the next frames. */
   private hold: Array<{ raw: number; frames: number }> = [];
+  /** Hold A whenever the RESULT card is up (port_v2 phase 7), so the course goes on by itself. */
+  cardButton = true;
 
   constructor(holes?: CourseData[]) {
     this.rules = new RomRules(loadTables());
@@ -71,6 +73,8 @@ export class CourseDriver {
       if (this.hold.length > 0) {
         raw = this.hold[0].raw;
         if (--this.hold[0].frames <= 0) this.hold.shift();
+      } else if (this.phase === 'Card' && this.cardButton) {
+        raw = 0x0080; // A on the RESULT card ($83:D48C waits for it held)
       }
       this.world.set(Pad, { ...this.world.get(Pad)!, raw });
       runCoreFrame(this.world);

@@ -24,7 +24,7 @@ import { Shot } from '../src/core/traits/shot';
 import { IsCup, IsEnemy, IsHole, InHole } from '../src/core/traits/hole';
 import { placeBall } from '../src/core/actions';
 import {
-  HOLEOUT_FRAMES, HOLEOUT_HIO_FRAMES, OOT_LIFE_AT, OOT_SETUP_AT, LOST_RESET_AT, RESPAWN_FRAMES,
+  HOLEOUT_FRAMES, CARD_WAIT, CARD_NEXT_HOLE, HOLEOUT_HIO_FRAMES, OOT_LIFE_AT, OOT_SETUP_AT, LOST_RESET_AT, RESPAWN_FRAMES,
 } from '../src/core/systems/hole-flow';
 
 const kinds = (d: CourseDriver, from = 0): string[] =>
@@ -79,8 +79,9 @@ describe.skipIf(!haveRules)('the hole and course loop on the test courses', () =
     expect(activePlayer(d.world).get(Tomatoes)!.n).toBe(4);
     const holed = d.events.find((e) => e.kind === 'holed')!;
     const done = d.frame;
-    expect(done - holed.frame).toBeGreaterThan(HOLEOUT_FRAMES);
-    expect(done - holed.frame).toBeLessThan(HOLEOUT_FRAMES + 60);
+    // then the RESULT card: its wait from CARD_WAIT (A already held), the next hole's load 80 later
+    expect(done - holed.frame).toBeGreaterThan(HOLEOUT_FRAMES + CARD_WAIT + CARD_NEXT_HOLE);
+    expect(done - holed.frame).toBeLessThan(HOLEOUT_FRAMES + CARD_WAIT + CARD_NEXT_HOLE + 60);
   });
 
   it('t5: a ball off the island is lost: tomatoes 0, a life, the refill, the ball back at the origin', () => {

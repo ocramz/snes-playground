@@ -34,6 +34,7 @@ import { project } from '../projection';
 import { emitEvent, phaseNow } from './flow-util';
 import { PAN_DELAY } from './panel';
 import { activePlayer } from '../traits/player';
+import { AimUi } from '../traits/aim-ui';
 
 /** The song request's APU handshake, measured (web_fly 3252 -> 3256). */
 export const APU_LAG_FRAMES = 4;
@@ -41,6 +42,9 @@ export const APU_LAG_FRAMES = 4;
 export function updateCamera(world: World, ctx: Ctx): void {
   const { phase, t } = phaseNow(world);
   if (phase === 'Aim' && t > 0) {
+    // $81:A7B5: only when the aim iteration got there (not in the pause,
+    // the look, or the preset with the look; port_v2 phase 7)
+    if (world.get(AimUi)!.pan === 0) return;
     const cam = { ...world.get(Camera)! };
     panStep(cam, cam.targetX, cam.targetY);
     world.set(Camera, cam);

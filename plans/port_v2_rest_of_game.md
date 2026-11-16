@@ -166,11 +166,11 @@ Every screen below has been rendered from the stepper (`build/screens`).
 
 | screen | scene, routine | still unknown |
 |---|---|---|
-| the per-hole RESULT card | scene 3, `$81:F92B`/`$F98C` | nothing blocks it; the engine just goes to the next hole (`game/scenes/hole-scene.ts:246-248`) |
-| pause; the overview (B); the look-around (Y); the aim's L/R snap and B cancel | `$83:AFA7`, `$83:B214`, `$81:B9A2`; `sim/aim.ts:35-53`, `systems/panel.ts:75` | unread ([flow.md](../docs/flow.md)) |
+| the per-hole RESULT card | `$83:D3ED`, no scene request (scene 3 is the ranking entry's card, `$81:F92B`) | **ported in step 7** ([flow.md](../docs/flow.md)) |
+| pause; B (the spin preset, not an overview); Y (the look); SELECT (the mid-course card); the aim's L/R snap and B cancel | `$83:AFA7`, `$83:B214`, `$81:B9A2`, `$81:BCB6`, `$81:B6C3`, `$81:C089` | **ported in step 7** |
 | the course map, the course intro | scene 5 `$83:9690`, scene 11 `$86:FD0B`; the cleared courses `$7E:D7BE` from SRAM (`$81:FB9C`) | the cursor, the advance animation |
-| the course result, the ranking, the medals | scenes 8, 4 and 15 (`sub_medal_award $83:F985`); the medals at `$70:021A` | the score formula, the medal thresholds |
-| SRAM | 8 KB, 64-byte slots, partly mapped | the drawings, the best scores, the checksum |
+| the course result, the ranking, the medals | scenes 8, 4 and 15 (`sub_medal_award $83:F985`); the medals at `$70:021A` | the score (the strokes' total) and the medal thresholds (`$81:C735`) are read; the screens' animations (objects of banks `$84`/`$85`) are not |
+| SRAM | 8 KB, mapped ([save.md](../docs/save.md)) | **read in step 7**; the engine keeps it as JSON. The drawings' format is unread (NAME ENTRY is skipped) |
 | the logo, the title, the attract demo | scenes 16 and 1; the title map `$92:8550` | which hole the attract plays, its input source |
 | the title menu, the hidden items | gates `$7E:EAA9`-`$EAB3` (`$81:C7AF`); MAP SELECT, SOUND ROOM, DANCE SELECT | the menu logic |
 | the name entry (a drawing pad) | scene 2, `$81:DFD9`, the zones `$81:E0C7` | how a drawing is stored |
@@ -252,6 +252,12 @@ Ordered by holes unlocked per unit of RE:
    - After it: 1P 64 clean, the extra game 64 (§1). The random holes' solve rates are unchanged by it (29, 30 and 24 of 30, as at the phase's start).
    - Left: `$58`/`$59` and the 2P branches (step 9), the objects' phases at the load.
 7. **The shell:** the per-hole card, pause and the overview, the course map, title → map → course, the medals and SRAM.
+   - **In progress, 2026-11-16** ([notes/port-v2-phase7-shell.md](../notes/port-v2-phase7-shell.md); docs/flow.md, docs/save.md, docs/engine.md). Five pieces, in order (the user's choice); NAME ENTRY is skipped and the save is the engine's own JSON.
+   - **Piece 1 done:** the aim's other inputs in the game's order: the pause menu (CONTINUE / COURSE SELECT SCREEN / QUIT), the spin preset (B), the look (Y, with its arrows), L/R's octant snaps, B's cancel in the spin stage (with its 20-iteration lockout), and the score panel's real rule (`$EA7C` at its 1P sites; `$691A` gating the tomato queue). Seven new scripts, every watched word ±2 frames.
+   - **Piece 2 done:** the per-hole RESULT card (`$83:D3ED`: its timeline frame-exact on web_card, the course's window, the number objects at the ROM's slots), SELECT's mid-course card (BEST and YOUR SCORE), and every hole's night computed from the ROM's alternate tables. Not drawn: the card's flying star, the numbers' pop-in.
+   - **Piece 3 done:** the save ([save.md](../docs/save.md)): the members, the rounds, the medals, the cleared count, the ranking with its built-in records; five autoplay saves replayed through the rules equal the game's. The host keeps it in localStorage.
+   - Found on the way: the plan's "overview (B)" is the spin preset; SELECT is the mid-course card; `$3798` is a ROM checksum (the GAME OVER's SRAM wipe never runs); the cup reveal's lag comes after the HUD thread took a waiting tomato; the card waits on the *held* pad.
+   - **Left: pieces 4 and 5** (the course loop's screens and the front). The course's end is animation-heavy (`$83:C787`'s dance, `$83:C9FF`'s tally with sfx `$44` per hole, scene 8's objects in bank `$85`, songs 19, 1 and 15), so each screen needs either its objects ported or a recorded replay like the hole's cutscenes.
 8. **The extra game and King Dedede.** The extra game is nearly free after steps 1-6; Dedede needs his own RE.
 9. **Two players:** the turn loop, the HUD, the steal, ball-to-ball hits, the handicap and dice.
 

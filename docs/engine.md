@@ -38,7 +38,7 @@ URL flags:
 | `?nointro` | skip the fly-in; the host plays the hole's song itself |
 | `?course=N` | start ROM course N (1-8) straight from the menu |
 | `?hole=N` | start the chosen course at hole N |
-| `?debug` | exposes `window.__engine`: `phase()`, `hole()` (the set, the ROM index, the name, the song), `frame()`, `scroll()`, `kirby()`, `depths()`, `warp()`, `switches()` (the switches' state and their objects), `step(pad, n)`, `freeze()`, `isolatePanel()`, `hitNextEnemy()`, `putOnCup(lift)`, `placeBall(p)`, `freeEnemies()`. Key D toggles the procedural terrain over a ROM hole or a styled one. On `random.html`, `window.__random`: the seed, the difficulty, and each hole's JSON, par and plan |
+| `?debug` | exposes `window.__engine`: `phase()`, `hole()` (the set, the ROM index, the name, the song), `frame()`, `scroll()`, `kirby()`, `depths()`, `warp()`, `switches()` (the switches' state and their objects), `step(pad, n)`, `freeze()`, `isolatePanel()`, `hitNextEnemy()`, `putOnCup(lift)`, `placeBall(p)`, `freeEnemies()`, `aimUi()` (the pause, the preset, the look, the score panel, the aim), `flow()` (`HoleFlow` and the camera), `showCard(strokes)` (the RESULT card up now). Key D toggles the procedural terrain over a ROM hole or a styled one. On `random.html`, `window.__random`: the seed, the difficulty, and each hole's JSON, par and plan |
 | `?seed=N` | `random.html`: the course's seed (else a fresh one, written back to the URL) |
 | `?difficulty=` | `random.html`: `easy`, `normal` (the default) or `hard` |
 
@@ -111,7 +111,7 @@ The rules that go with it:
 | 3 | tick-stall | `$81:8C95` (hit-stops), `$82:8B5C` (the reveal), the guide's and the APU's lag | `schedule.ts`, `traits/stall.ts` |
 | 4 | update-hole-flow | the hole loop `$80:F278`-`$80:F48C` as phases | `systems/hole-flow.ts` |
 | 5 | setup-shot | `$80:F73B`, `$80:C4FF`, `$80:C5F1` | `systems/hole-flow.ts` |
-| 6 | update-aim | the aim loop `$81:A680`-`$81:A80A`, the d-pad `$81:B555`, the facing `$81:BB4A` | `systems/aim.ts`, `sim/aim.ts`, `sim/facing.ts` |
+| 6 | update-aim | the aim loop `$81:A680`-`$81:A80A` in the game's order: SELECT's mid-course card `$81:BCB6`, the pause menu `$83:AFA7`/`$81:BDAD`, the spin preset `$83:B214`, the look `$81:B9A2`/`$81:B908`, the d-pad and L/R `$81:B555`/`$81:B6C3`, the facing `$81:BB4A`, the idle timer and the score panel `$81:A7BF` (port_v2 phase 7) | `systems/aim.ts`, `systems/aim-ui.ts`, `sim/aim.ts`, `sim/facing.ts` |
 | 7 | update-shot-guide | `$81:A956` → `$81:A9B8` | `systems/aim.ts`, `sim/guide.ts` |
 | 8 | update-spin-stage | the shot thread `$81:BE91`-`$81:BFCC` | `systems/panel.ts` |
 | 9 | update-power-meter | `$81:BFDC`-`$81:C032` | `systems/panel.ts` |
@@ -192,6 +192,10 @@ World singletons (`world.add` at creation, `core/world.ts`):
 | `Warp` | stage, t, the two cells, the pan target, where Kirby went in, hidden | `$DA58/$DA5C`, `$0B7E/$0B82`, `$6A48` | `traits/warp.ts` |
 | `Hazards` (AoS) | the actors' run state, object 76's list, the cell index | `$B6BA`, `$ABB8`, the thread slots | `traits/hazards.ts` |
 | `Career` (AoS) | lives, the card | `$D7F4`, `$D80A` | `traits/counters.ts` |
+| `AimUi` | the pause menu and its cursor, the spin preset, the look and its arrows, the lockout after a cancel, whether the iteration panned, the pause's longjmp, SELECT's card (port_v2 phase 7) | `$EA7E`, `$6AC4`, `$EA80`, `$6AAE`, `$6ABA`/`$6ABC`, `$6B38` | `traits/aim-ui.ts` |
+| `ScorePanel` | the score panel shown, the HUD thread on (it gates the tomato queue) | `$EA7C`, `$691A` | `traits/aim-ui.ts` |
+| `Screen` | the brightness and the forced blank, for the shell's fades (the RESULT card, SELECT's card) | `$007E`, `$007D` bit 7 | `traits/screen.ts` |
+| `Save` (AoS) | the save as JSON ([save.md](save.md)), its version, the member playing, the last course's result | the battery RAM, `$EAB7`, `$EC4B` | `traits/save.ts`, `core/save.ts` |
 | `TomatoQueue` (AoS) | the ring, the pending change, the timer, the HUD's shown flag, hold | `$68FA`, `$68F4` | `traits/counters.ts` |
 | `BoostHum` | active (object 112 lives: the hole has a boost panel), its counter | object 112's `$531C` | `traits/boost.ts` |
 | `SnapTrail` (AoS) | the live objects 61 (spawners) and 62 (stars, with their slot fields), and the flag they share | `$699A`, the thread slots | `traits/snap.ts` |
@@ -227,6 +231,7 @@ The hole's entities, spawned from the load-time sweep (`sweep.ts`, `$82:B320`; `
 | ShotSetup | `$80:F73B`, `$80:C4FF`, `$80:C5F1` (3 frames) | Aim |
 | Aim | `$81:A680`-`$81:A80A` | A → PanToShot |
 | PanToShot | `$81:BE91`: the pan to the shot view | arrived → Spin (the curl) |
+| Cancel | B in the spin stage, `$81:C089`: the uncurl, the selectors latched at C + 34 | C + 37 → ShotSetup's third frame (no stroke) |
 | Spin | `$81:BF07`-`$81:BFCC` | A → Power |
 | Power | `$81:BFDC`-`$81:C032` | the latch or the auto-fire → LaunchDelay |
 | LaunchDelay | `$81:C035`- | R + 24 → Rolling |
@@ -238,7 +243,8 @@ The hole's entities, spawned from the load-time sweep (`sweep.ts`, `$82:B320`; `
 | BallLost | `$80:F830` | Respawn, or GameOver |
 | Respawn | `$83:9589`, `$80:F8C5`, `$80:F8DA` | ShotSetup |
 | HoleOut | `$80:F48C`: the pan, the card, the songs, the 1UP | HoleOver |
-| HoleOver | the RESULT card `$83:D3ED` | `nextHole` |
+| Card | the RESULT card `$83:D3ED` (not after the course's last hole): the build in the blank, the fade in, the wait for A, B or Start held, the fade out | the press + 80 → HoleOver |
+| HoleOver | the next hole's load | `nextHole` |
 | GameOver | scene 9 (`$83:D856`) | `continueGame` / `endGame` |
 | CourseDone | after the last hole | `endGame` |
 
@@ -308,7 +314,9 @@ Either way the course carries its song (`CourseData.song`: a ROM hole's `$80:C99
 - Boot and Preload. Preload loads `tables.json`, the manifest, the atlases, `ui`, the HUD, the font, the audio, the cutscenes and course 1's BG3 scenery (`Tex.scenery`, behind the holes without bitmaps), but no hole. It turns the atlases into textures with custom pivots and into global animations. A clip's looping tail becomes a second animation, chained.
 - Menu: courses 1-8 (the manifest's `courses`) or the test holes. Picking a ROM course loads its eight holes (`assets/course-loader.ts`: course.json, layers.json, then the bitmaps it lists), once; `?course=N` picks it at once.
 - Hole: the only simulation host.
-- Hud: runs in parallel and reads the world.
+- Hud: runs in parallel and reads the world. It shows exactly when core's `ScorePanel.shown` (`$EA7C`) is set, the game's own rule (port_v2 phase 7).
+- In the hole scene, beside the views: the pause menu's window and cursor and the look's arrows (`features/hud/aim-ui-view.ts`), the RESULT card and SELECT's card (`features/card/`), each drawn from core's state; the spin preset's panel is the shot panel's preset mode (`panel-layout.ts`).
+- The save: `features/save/save-store.ts` loads core's `Save` from localStorage (`kdc-engine-save-v1`) at boot and writes it after any game step that changed it (`?save=fresh` an empty save in memory, `?nosave` read only). The dev menu plays a ROM course as member 0, made if absent; the test and random holes keep no save.
 - Result: the course card; GAME OVER with CONTINUE.
 
 **The cutscenes** (`features/cutscene/`) are a replay of one recorded run ([web-demo.md](web-demo.md) "The intro and the hole-out (measured with the stepper)"), drawn by a sprite pool relative to two anchors, the tee pad and the cup's ring. The director ties them to core:
@@ -370,7 +378,7 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 
 ## The assets
 
-`make engine-assets` runs the web demo's exporter into `build/engine/assets`: `course,layers` per hole into `holes/NNN` (the ROM index, one file rule each), `tools/export_web.py --only font,hud,sprites,ui,audio,objects`, `tools/terrain_style.py`, then `manifest`, which lists the holes by course. The holes are `ENGINE_HOLES` (0-63 by default; the extra game is 64-127). The rules and the test fixtures go to `build/engine/rules` and `build/engine/rom-test`. Vite serves `build/engine` as the public directory.
+`make engine-assets` runs the web demo's exporter into `build/engine/assets`: `course,layers` per hole into `holes/NNN` (the ROM index, one file rule each), `tools/export_web.py --only font,hud,sprites,ui,audio,objects,card`, `tools/terrain_style.py`, then `manifest`, which lists the holes by course. The holes are `ENGINE_HOLES` (0-63 by default; the extra game is 64-127). The rules and the test fixtures go to `build/engine/rules` and `build/engine/rom-test`. Vite serves `build/engine` as the public directory.
 
 | asset | ROM source | exporter step | output | engine consumer |
 |---|---|---|---|---|
@@ -388,11 +396,14 @@ Every kind core emits, from `features/audio/event-table.ts`, which `test/event-t
 | object 62's 64 scripts; the polar table its motion reads | `$85:CFF2` → the scripts at `$85:D027`-`$E08D`; `$80:EABA` ([animation.md](animation.md) "Objects 61 and 62") | `tables` | `tables.json` `snapStars`, `polarTrig` | `sim/snap-stars.ts` |
 | the cup's rim, object 75 | its sheet from the c1n replay (`build/web-sprites/obj_075`) | `sprites` | the atlas frame `cupmask` (only its shape is used) | `sync-cup-mask` |
 | the intro and the hole-outs | an every-frame trace of c1n (`tools/snesstep/trace_cutscene.py`) | `sprites` (`build_cutscenes`) | `cutscenes.json` + atlas frames `cs_*` | `features/cutscene` |
-| course bitmaps | bank `$88` course tables + BG3 scenery, drawn with the CGRAM in play (`coursemap.hole_cgram`: `$98:C000`, the scenery's 20 colours, the HUD's 12, the course's list `$80:D869`); on a water hole the tiles `$91:ED29`; the cycles' sets ([courses.md](courses.md) "The palette in play", "Per-hole surface graphics") | `layers` (`--hole N`) | `holes/NNN/layer_*.png`: the outline's and the glow's masks, the night set, the cycles' overlays `layer_{back,front}_{ripple,boost,panels}<k>.png`; `layers.json` (`cycles`), `course.json` (`song`) | `LayersView`, `fromRomCourse` |
+| course bitmaps | bank `$88` course tables + BG3 scenery, drawn with the CGRAM in play (`coursemap.hole_cgram`: `$98:C000`, the scenery's 20 colours, the HUD's 12, the course's list `$80:D869`; a hole in one's night: the alternate tables `$80:D527` and `$80:D8AB`, every hole); on a water hole the tiles `$91:ED29`; the cycles' sets ([courses.md](courses.md) "The palette in play", "Per-hole surface graphics") | `layers` (`--hole N`) | `holes/NNN/layer_*.png`: the outline's and the glow's masks, the night set, the cycles' overlays `layer_{back,front}_{ripple,boost,panels}<k>.png`; `layers.json` (`cycles`), `course.json` (`song`) | `LayersView`, `fromRomCourse` |
 | the hole songs | `$80:C99D`[course] → [hole] (`$80:C967`) | `course` | `course.json` `song` | `CourseData.song` |
 | the shot panel | the game's OAM while the panel is up (`tools/export_web_ui.py`) | `ui` | `ui.png/json`, with the measured timing | `PanelView` |
 | the guide's pictures from the water | `$89:8F52`, `$89:8F6B` drawn with the aim in the pond of web_water_shot | `ui` | `ui.json` `guide.dotWet`, `guide.coneWet` | `GuideView` |
 | the score panel | stepper screen snapshots | `hud` | `hud_panel.png`, `hud_tomato.png`, `hud.json` (the slots) | the Hud scene |
+| the pause menu's window and cursor; the look's arrows | BG3 of `build/screens/pause_menu`; the sprites of `look_arrows` (web_look 2455, `tools/snesstep/screens.py`) | `hud` | `pause_window.png`, `pause_cursor.png`, `look_<dir>.png`; `hud.json` `pause`, `arrows` | `AimUiView` |
+| the spin preset's panel | object `$10`'s OAM in its own palette (web_bspin 2620) | `ui` | `ui.json` `preset` | `PanelView` |
+| the RESULT card and SELECT's card | BG1 of each course's first card in the whole game's autoplay run; object `$8C`'s digits and star from a hole in one's card; SELECT's BEST window (web_select 2600); the slots `$83:CD82`/`$83:CD93` | `card` | `card_window_<n>.png`, `card_best.png`, `card_digits.png`, `card.json` | `CardView` |
 | the font | `gfx_course_font $90:FBBC` ([text.md](text.md)) | `font` | `font.png` | `features/text` (a RetroFont) |
 | music and effects | N-SPC sequences + BRR samples, rendered (`tools/render_audio.py`; [audio.md](audio.md)) | `audio` (`tools/web_audio_map.json`: the hole songs 6-14, the asleep, fall and hole-out songs, 47 effects) | `audio.json`, ogg + mp3 | `AudioPlayer` |
 | the course art's exemplar patches | tables 8 and 9 of the 92 plain geometries, the tile page and palette `$98:C000` (`tools/terrain_style.py`) | — | `terrain_style.png/json` | Preload (`host.assets.terrainStyle`), `features/layers/styled.ts` |
@@ -514,7 +525,7 @@ The bridge:
 - **The hole's song is the intro's cue.** `startHole` emits none; the director plays `CourseData.song` at the recording's two song cues, and with `?nointro` the host plays it.
 - **The shot panel and the score panel are derived in the view**, from `HoleFlow`, `Shot` and a per-core-frame history; core has no panel flags.
   - The shot panel's age counts from the curl plus 26 (web_ui's A → curl), and the picture lags one frame (the snapshot rule).
-  - The score panel hides while the shot panel is up and during cutscenes. That is the web demo's rule; the game's is not known.
+  - (Until port_v2 phase 7 the score panel followed the web demo's rule; it is now core's `ScorePanel`, the game's.)
 - **`sync-pose` dirty-checks the clip** instead of tracking `Changed(Pose)`: core writes `Pose` several times a frame, some of them through `updateEach`, which Koota does not flag.
 - **A clip's `next` is ignored**, because it names a state and core sets that state itself.
 - **The music plays on its own `AudioBufferSourceNode`**, with the loop points; Phaser's WebAudioSound has no loop region.
@@ -533,7 +544,7 @@ The bridge:
 
 ## Verification
 
-`make engine-test` runs 44 vitest files (673 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
+`make engine-test` runs 47 vitest files (856 tests) in node. The ROM-derived ones skip when `build/engine` is missing. The recordings they compare with are the stepper's runs of the input scripts in `tools/snesstep/inputs/`, made by `make engine-traces` (`npm run traces`) into `build/engine/rom-test/`.
 
 | test | checks |
 |---|---|
@@ -554,7 +565,10 @@ The bridge:
 | `water-fx` | the water's scenarios and web_water_shot: per matched ball state the block's `$D872` and Kirby's palette (the CGRAM shadow `$0504`); every splash (53-58) and bubble emitter (67) in spawn order, its states (x, y, frame) in the game's, the random state seeded at the set-up; the region at its edges, the level, the skip count, the mode branches, `$80:87DD` |
 | `switches` | the switches' and the swirls' eight scenarios (`test/switch-scenarios.ts`, whose ball states and sounds are trace-terrain's) on the game's iterations from the poke: `$6A2A`, `$6A2C` and `$69CA` as the step writes them; objects 117 and 118's colours (CGRAM 78 and 94) and object 127's frames (its uploads), each set to the game's phase at the poke; Kirby's `$D7D4` through the water switch's block; the block's 64 iterations and their dissolve steps. The disc at its rim and past its last row, and the view's dissolve mask |
 | `snap-stars` | objects 61 and 62 on the five snap scenarios against their recorded slots (`trace_actors.py --types 61,62`, with the slots' exits): the spawners, the bursts, each star's states (x, y, frame) in order, taken twice a tick; the polar step, a script's life, the burst's sign test |
-| `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone, pause |
+| `courses`, `hole-flow` | the test holes' validation and coverage; on them: a hole in one, a hole-out, a lost ball, out of tomatoes, t6's warp pair, GAME OVER and CONTINUE, all 8 holes to CourseDone (the course driver holds A on each RESULT card), pause |
+| `aim-buttons` | the aim's other inputs (port_v2 phase 7): web_pause, web_pause_quit, web_look, web_bspin, web_lr, web_cancel, web_idle and web_select on hole 1: the pause, its cursor, the preset and its repeat, the side and top/back, the look and its arrows, the lockout, the score panel and `$691A`, the idle timer, SELECT's card's brightness, the pose and the aim, ±2 frames; the camera within 2/8 px. flow.test's eight runs add `panel` and `hudon` |
+| `card` | web_card: the RESULT card's brightness from the blank to the next hole's load, the card word, the panel |
+| `save` | the save's rules against the game's battery RAM: five autoplay runs (course1, game, game2, game4, extra), decoded by `tools/sram.py`, replayed from an empty save through `newMember`, `beginCourse` and `finishCourse`: the members and the rankings equal the game's; the medals' thresholds; the ranking's order, ties and 25th place |
 | `assets`, `view-catalog`, `event-table` | every clip's frames exist; every name a view draws exists (the rim's `cupmask`, the warp's objects, object 62's five pictures, every frame the water's objects show, Kirby's wet twins, the guide's pictures from the water, every species' clip, the hazards' tables by tile); the manifest's 8 courses of 8 holes; every hole's song (the 64 of `$80:C99D`'s lists); the cycles follow the tiles (ripple, boost, warp/snap panels, with their sets and steps); the glow's table; every sound id has a file; nothing is emitted outside the event table |
 | `cup-mask-warp` | the rim mask's first frame and cut; objects 63 and 64's pictures and lives |
 | `occlusion` | table 10 as exported; `$82:F4FD`'s branches on hole 1 and web_fly's fall; the builder against the ROM's tables (99 % at least); Kirby's depths and the shadow's test |
@@ -565,7 +579,7 @@ The bridge:
 | `no-phaser-in-core` | the dependency rules above, the player's handle included: no `queryFirst` on a player trait anywhere in `src/` or `test/` |
 
 In the browser:
-- `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs`, `test/e2e/random.mjs`, `test/e2e/water.mjs`, `test/e2e/ability.mjs` and `test/e2e/switch.mjs` (Playwright with the cached Chromium). `switch.mjs` plays web_sw_water_drain on course 1 hole 8 and web_sw_switch_roll on course 2 hole 3 with the ball placed as their pokes put it, checks the core's switch state at the screenshots and fails on any page error. `ability.mjs` plays web_ab_c1's input on course 1 hole 3 frame by frame, checks Kirby's clips in the transformation and the jump, and saves screenshots at the take, the transformation, the jump and the third shot's aim (`build/engine-test/ability/`). `water.mjs` plays web_water_shot's input on course 1 hole 7 frame by frame through the debug hook's `step`, with screenshots at the entry, on the bed, in the aim from the water and on the way out (`build/engine-test/water/`). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
+- `npm run e2e` runs `test/e2e/smoke.mjs`, `test/e2e/courses.mjs`, `test/e2e/random.mjs`, `test/e2e/water.mjs`, `test/e2e/ability.mjs`, `test/e2e/switch.mjs` and `test/e2e/pause.mjs` (Playwright with the cached Chromium). `pause.mjs` steps course 1 hole 1 with pads through the debug hook: the idle timer's score panel, the pause menu and its cursor, the spin preset, the look, an L snap, and QUIT back to the menu (screenshots in `build/engine-test/pause/`). `switch.mjs` plays web_sw_water_drain on course 1 hole 8 and web_sw_switch_roll on course 2 hole 3 with the ball placed as their pokes put it, checks the core's switch state at the screenshots and fails on any page error. `ability.mjs` plays web_ab_c1's input on course 1 hole 3 frame by frame, checks Kirby's clips in the transformation and the jump, and saves screenshots at the take, the transformation, the jump and the third shot's aim (`build/engine-test/ability/`). `water.mjs` plays web_water_shot's input on course 1 hole 7 frame by frame through the debug hook's `step`, with screenshots at the entry, on the bed, in the aim from the water and on the way out (`build/engine-test/water/`). `courses.mjs` boots hole 1 of each of courses 1-8 with `?course=N` (the hole's ROM index and song checked, a screenshot each in `build/engine-test/courses/`), and plays a shot on course 3 hole 2. `random.mjs` generates seed 42's course, checks that a reload gives the same holes, plays a shot on hole 1, and saves screenshots to `build/engine-test/random/`. `smoke.mjs` boots course 1 and plays a shot. It checks that there is no page error, console error or failed request, that the ball's view moves, and that the tee and the cup draw under Kirby.
 - `python3 tools/check_web_ui.py --target engine` renders the panel for 20 recorded states. All 20 are pixel-identical to the game's OAM sprites.
 
 The harness's conventions:
@@ -595,7 +609,8 @@ The flow:
 - Kind 1 (Down after a grounder: an 80-step guide with its own gap end, `$81:AAF3`) is approximated as kind 0 with 80 steps.
 - The guide's lag is measured, not modelled: shorter rolling guides and the full fly guide are unverified.
 - The APU's lag is measured on the fall's song only.
-- In the aim stage, B, Y, Start, L/R and the idle timer `$6AC2` are not ported.
+- The RESULT card's warp star with Kirby (objects `$88`/`$89`) and twinkles (`$83`) are not drawn, and its numbers show from the build, where the game's pop in later. SELECT's BEST window has course 1's colours on every course, and a built-in record's face is not drawn (its PLAYER box is blank, like the members' drawings). The digit cell `$89`/`$99` (shown for a 0) is unconfirmed.
+- The night's 18 OBJ colours (`$98:D406` at CGRAM `$C6`), its palette loop `$83:D3D9` and the ripple's alternate colours (`$84:84F1`) are not ported; the BG layers' night is.
 - The hover drop's length (`$82:8CE8`[h] + 8) is unmeasured, and the view draws it linear.
 
 The presentation:
@@ -622,9 +637,8 @@ The presentation:
 
 - The test holes and the random holes place no ability enemies (the ROM holes do: all ten abilities are ported).
 - Two players: the second player entity and the turn change (the handle, `IsActivePlayer` for `$1803`, is in place), pad 2, the tomato queue's per-player entries, the follow's catch-up states, stolen stars (`$82:8B0F`), ball-to-ball hits, the 2P HUD, the asleep turn-skip.
-- King Dedede, the course result's medals, the map (the plan's stretch goal), the scoreboard, player names, the menus, SRAM.
+- King Dedede; the shell's other screens (port_v2 phase 7, pieces 4 and 5: the course's clear and result, the medal award, the course ranking, the map, the course intro, GAME OVER's own screen, the logo, the title and its menu, the members list); player names (NAME ENTRY is skipped by the user's choice). The pause menu's COURSE SELECT SCREEN and QUIT end the course and go back to the dev menu until the map and the title exist.
 - The extra game (holes 64-127): the same loading with `ENGINE_HOLES` (its songs and ripples are courses 1-8's), but not offered.
-- The night palette on courses 2-8: only course 1 hole 1's swap is recorded.
 
 ## Unconfirmed
 
@@ -641,7 +655,7 @@ The plan's risks, and their state now:
 | 7 | Koota's copy-on-get and change tracking | handled: SoA writes go through `set` or `updateEach`; `Course.layer2` is marked `changed` |
 | 8 | the hole songs per course | settled and ported: `$80:C99D`'s lists, emulated on the whole game for courses 1-8 ([audio.md](audio.md)) |
 | 9 | enemy kinds beyond hole 1 | settled for the shapes: every species' idle clip recorded (`trace_enemies.py`); open: `$48`'s colours on course 3, `$40`'s pictures on hole 36, the ability species' pose and pulse as two cycles |
-| 10 | the night palette | open: course 1 hole 1 only |
+| 10 | the night palette | settled: the alternate tables, every hole (port_v2 phase 7) |
 | 11 | the cutscene is one recording | open: c1n kept |
 
 Frames measured on one run only:

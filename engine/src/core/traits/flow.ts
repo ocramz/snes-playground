@@ -16,6 +16,7 @@ export type FlowPhase =
   | 'PanToShot' // $81:BE91: pan to the shot view, then the curl
   | 'Spin' // $81:BF07-$81:BFCC: the panel opens, then the selectors
   | 'Power' // $81:BFDC-$81:C032: the meter
+  | 'Cancel' // $81:C089: B in the spin stage, back to the set-up's tail and the aim
   | 'LaunchDelay' // $81:C035 to the first physics step
   | 'Rolling' // the roll loop $82:C052-
   | 'RollEnd' // $82:C172: after the shot is over, until the HUD's tomatoes hide
@@ -25,7 +26,8 @@ export type FlowPhase =
   | 'BallLost' // $80:F830 + $80:F59A: tomatoes 0, back to the shot origin
   | 'Respawn' // $83:9589 + $80:F8C5 + $80:F8DA: a life, the refill
   | 'HoleOut' // holed: the sink, then $80:F48C's hole-out
-  | 'HoleOver' // the RESULT card ($83:D3ED): waits for `nextHole`
+  | 'Card' // the RESULT card ($83:D3ED): built, faded in, waits for A, B or Start held, faded out
+  | 'HoleOver' // after the card: waits for `nextHole`
   | 'GameOver' // scene 9 ($83:D856): waits for `continueGame` / `endGame`
   | 'CourseDone'; // after the last hole ($6A62)
 

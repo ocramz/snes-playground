@@ -55,7 +55,7 @@ sys.path.insert(0, HERE)
 
 from courses import ENTRIES, default_entries, entry, header  # noqa: E402
 from coursemap import (  # noqa: E402
-    EMPTY, backdrop, hole_page, hole_palette, palette_cycles, unpack, BG3_MAP_TILES,
+    EMPTY, backdrop, hole_cgram, hole_page, hole_palette, palette_cycles, unpack, BG3_MAP_TILES,
     switch_state, surface_kind, SWIRL_FRAMES, WATER_FIRST_TILE, WATER_GFX_BYTES)
 from halcomp import decompress  # noqa: E402
 from lorom import snes_to_file  # noqa: E402
@@ -650,6 +650,23 @@ def build_tables(d):
     scalar("toggleHitWeak", 0x80, 0xDDF1)
     scalar("toggleLandWeak", 0x80, 0xDDF3)
     put("toggleDisc", 0x88, 0x9190, rom_bytes(d, 0x88, 0x9190, 521), 1)
+    # the shell (port_v2 phase 7): L/R in the aim snap by 45 degrees through
+    # $81:B6C3: a byte per aim degree, its low nibble the next octant up (L),
+    # its high nibble the next down (R); the aim becomes nibble x 45
+    put("aimSnap", 0x81, 0xB729, rom_bytes(d, 0x81, 0xB729, 360), 1)
+    # the save's rules (port_v2 phase 7): the medals' thresholds, 16 courses x
+    # [bronze, silver, gold, 0] ($81:C775 counts those >= the score), and the
+    # ranking's five built-in records per course ($81:CAB7 -> 14 bytes each:
+    # member 5-9, score, rounds, the tie-break id 40-44, the 8 holes' strokes)
+    put("medalThresholds", 0x81, 0xC735, rom_bytes(d, 0x81, 0xC735, 64), 1)
+    ptrs = rom_words(d, 0x81, 0xCAB7, 16)
+    builtins = []
+    for c in range(16):
+        raw = rom_bytes(d, 0x81, ptrs[c], 70)
+        for k in range(5):
+            r = raw[14 * k:14 * k + 14]
+            builtins += [r[0], r[1] | (r[2] << 8), r[3] | (r[4] << 8), r[5]] + list(r[6:14])
+    put("rankingBuiltins", 0x81, 0xCAD7, builtins, 2)
     # object 127, the swirls' tiles ($84:DB97): the frames' waits, two
     # $FF-ended lists of ten ($84:DC42 the strong pairs', $84:DC4D the weak)
     put("swirlWaits", 0x84, 0xDC42, rom_bytes(d, 0x84, 0xDC42, 22), 1)
@@ -1060,17 +1077,17 @@ def build_layers(d, index, outdir):
         wrote[path] = [256, 256]
 
     bg3(cols, "layer_bg3.png")
-    # The HOLE IN ONE sequence swaps the BG palettes for a night set (recorded
-    # by tools/snesstep/trace_cutscene.py; only hole 1's run is recorded).
-    # Every CGRAM entry that differs between the two recorded palettes takes
-    # its night value; the others keep the ROM colours used above.
-    night = None
-    if index == 0:
-        import export_web_sprites
-        night = export_web_sprites.night_cgram()
+    # The HOLE IN ONE sequence swaps the BG palettes for a night set: $83:D2BF
+    # sets $6A2E, loads palette set $11 (the scenery's alternate colours,
+    # $80:D527) and the course's alternate list ($80:D82B 1: $80:D8AB), the
+    # tables coursemap.hole_cgram(night=True) reads (port_v2 phase 7; on hole
+    # 1 it agrees with c1n's recorded night on every entry but the cycling
+    # glow and outline, CGRAM 113 and 127). Every BG entry that differs takes
+    # its night value; the cycles keep their own.
     night_back = None
-    if night:
-        day_cg, night_cg = night
+    day_cg = [snes_color(w) for w in hole_cgram(d, index)]
+    night_cg = [snes_color(w) for w in hole_cgram(d, index, night=True)]
+    if day_cg[:128] != night_cg[:128]:
         changed = {i: night_cg[i] for i in range(128)
                    if day_cg[i] != night_cg[i] and i != OUTLINE_PAL * 16 + OUTLINE_COLOUR}
         pal_n = [[changed.get(p * 16 + c, pal[p][c]) for c in range(16)] for p in range(len(pal))]
@@ -1169,10 +1186,190 @@ def build_hud(outdir):
     icons = export_web_sprites.build_icons(outdir)
     if icons:
         info["ability"] = icons
+    # port_v2 phase 7: the pause menu's window and cursor, the look's arrows
+    pause = build_pause(outdir)
+    if pause:
+        info["pause"] = pause
+    arrows = build_look_arrows(outdir)
+    if arrows:
+        info["arrows"] = arrows
     # the slots as data, for the engine's HUD (engine/src/game/features/hud)
     write_json(os.path.join(outdir, "hud.json"), dict(info, about=(
         "screen pixels of the 256x224 frame; slots are the top-left of what the "
         "panel blanked (tools/export_web.py build_hud)")), compact=False)
+    return info
+
+
+PAUSE_SRC = os.path.join(ROOT, "build", "screens", "pause_menu_layers", "bg3.png")
+LOOK_SRC = os.path.join(ROOT, "build", "screens", "look_arrows_layers", "obj.png")
+
+
+def build_pause(outdir):
+    """The pause menu ($83:AFA7): its window on BG3, which does not scroll, in
+    screen pixels, with the cursor's cell blanked, and the cursor glyph
+    ($3C40). `$81:BE74` puts the cursor at buffer words $8E, $10E, $18E of the
+    window's rows (from row $11): cells (7, 19), (7, 21), (7, 23)."""
+    from PIL import Image
+    if not os.path.exists(PAUSE_SRC):
+        print("pause: {} missing (tools/snesstep/screens.py makes it); skipped".format(PAUSE_SRC))
+        return None
+    im = Image.open(PAUSE_SRC).convert("RGBA")
+    box = (16, 136, 240, 216)
+    cursors = [[56, 152], [56, 168], [56, 184]]
+    cx, cy = cursors[0]
+    glyph = im.crop((cx, cy, cx + 8, cy + 8))
+    window = im.crop(box)
+    inside = window.getpixel((cx - box[0] + 8, cy - box[1]))   # the window's interior, beside the cursor
+    for y in range(8):
+        for x in range(8):
+            window.putpixel((cx - box[0] + x, cy - box[1] + y), inside)
+    window.save(os.path.join(outdir, "pause_window.png"))
+    glyph.save(os.path.join(outdir, "pause_cursor.png"))
+    return {"at": [box[0], box[1]], "size": [box[2] - box[0], box[3] - box[1]], "cursor": cursors}
+
+
+def build_look_arrows(outdir):
+    """The look's arrows ($81:B908 -> $80:8B02, OAM frames $8EE9/$8EF3/$8F07/$8F11),
+    cut from the sprite layer of a frame that shows all four (web_look 2455):
+    up (112, 8), right (208, 64), down (112, 144), left (24, 64)."""
+    from PIL import Image
+    if not os.path.exists(LOOK_SRC):
+        print("arrows: {} missing (tools/snesstep/screens.py makes it); skipped".format(LOOK_SRC))
+        return None
+    im = Image.open(LOOK_SRC).convert("RGBA")
+    boxes = {"up": (112, 8, 144, 24), "right": (208, 64, 232, 96),
+             "down": (112, 144, 144, 160), "left": (24, 64, 48, 96)}
+    out = {}
+    for name, box in boxes.items():
+        im.crop(box).save(os.path.join(outdir, "look_{}.png".format(name)))
+        out[name] = [box[0], box[1]]
+    return out
+
+
+# The per-hole RESULT card ($83:D3ED; port_v2 phase 7): every course's window
+# from the whole game's autoplay run (build/emu/autoplay/game, its first hole's
+# card, 29 frames after $83:D3ED: the fade in done), and the number object
+# $8C's pictures from a hole in one's card left up (the same run to 3900, then
+# no button: build/emu/card_hio, 3990).
+CARD_RUN = os.path.join(ROOT, "build", "emu", "autoplay", "game")
+CARD_DIR = os.path.join(ROOT, "build", "emu", "card_courses")
+CARD_FRAMES = [3938, 17298, 30804, 44403, 57654, 71561, 85170, 99204]
+CARD_HIO_DIR = os.path.join(ROOT, "build", "emu", "card_hio")
+# SELECT's mid-course card (tools/snesstep/inputs/web_select.txt, up from 2545)
+CARD_SELECT_DIR = os.path.join(ROOT, "build", "emu", "card_select")
+CARD_SELECT_FRAME = 2600
+CARD_BEST = (16, 18, 120, 207)             # the BEST SCORE window: YOUR's, 120 px left
+CARD_HIO_FRAME = 3990
+CARD_WINDOW = (136, 18, 240, 207)          # BG1's window, screen pixels (BG1 does not scroll here)
+CARD_DRAWING = (57, 55, 87, 77)            # the member's drawing, window pixels: blanked (black)
+# $83:CD82 / $83:CD93: each hole's number (x, y) for $83:D081; $83:CD92 / $83:CDA4 the total's
+CARD_SLOTS = (0x83, 0xCD82)
+
+
+def card_capture():
+    """The stepper runs build_card reads (cached)."""
+    import subprocess
+    stepper = os.path.join(ROOT, "build", "snesstep", "release", "snesstep")
+    if not os.path.isdir(CARD_DIR) or not all(
+            os.path.isdir(os.path.join(CARD_DIR, "f%06d" % f)) for f in CARD_FRAMES):
+        subprocess.run([stepper, "--frames", str(CARD_FRAMES[-1] + 6),
+                        "--input", os.path.join(CARD_RUN, "input.txt"),
+                        "--pokes", os.path.join(CARD_RUN, "pokes.txt"),
+                        "--snap-at", ",".join(str(f) for f in CARD_FRAMES),
+                        "--no-dsp", "--quiet", "--out", CARD_DIR], check=True)
+    hio = os.path.join(CARD_HIO_DIR, "f%06d" % CARD_HIO_FRAME)
+    if not os.path.isdir(hio):
+        os.makedirs(CARD_HIO_DIR, exist_ok=True)
+        inp = os.path.join(CARD_HIO_DIR, "input.txt")
+        pk = os.path.join(CARD_HIO_DIR, "pokes.txt")
+        with open(os.path.join(CARD_RUN, "input.txt")) as f, open(inp, "w") as o:
+            o.writelines(l for l in f if l.split() and l.split()[0].isdigit() and int(l.split()[0]) < 3900)
+        with open(os.path.join(CARD_RUN, "pokes.txt")) as f, open(pk, "w") as o:
+            o.writelines(l for l in f if l.strip() and int(l.split(":")[0]) < 3900)
+        subprocess.run([stepper, "--frames", str(CARD_HIO_FRAME + 4), "--input", inp, "--pokes", pk,
+                        "--snap-at", str(CARD_HIO_FRAME), "--no-dsp", "--quiet", "--out", CARD_HIO_DIR], check=True)
+
+
+def card_select_capture():
+    import subprocess
+    if os.path.isdir(os.path.join(CARD_SELECT_DIR, "f%06d" % CARD_SELECT_FRAME)):
+        return
+    stepper = os.path.join(ROOT, "build", "snesstep", "release", "snesstep")
+    subprocess.run([stepper, "--frames", str(CARD_SELECT_FRAME + 4),
+                    "--input", os.path.join(HERE, "snesstep", "inputs", "web_select.txt"),
+                    "--snap-at", str(CARD_SELECT_FRAME), "--no-dsp", "--quiet", "--out", CARD_SELECT_DIR], check=True)
+
+
+def build_card(outdir):
+    """card_window_<n>.png (courses 1-8, the drawing blanked), card_digits.png
+    (object $8C's pictures: the digits 1-9 and 0, 8 x 16, tiles $80-$89 over
+    $90-$99 in OBJ palette 0, then the 1-stroke star, tile $05 in palette 2)
+    and card.json (the slots)."""
+    import numpy as np
+    from PIL import Image
+    import ppu_render as P
+    if not os.path.isdir(CARD_RUN):
+        print("card: {} missing (tools/snesstep/autoplay.py --frames 135000 --out build/emu/autoplay/game); "
+              "skipped".format(CARD_RUN))
+        return None
+    card_capture()
+    for n, f in enumerate(CARD_FRAMES, 1):
+        snap = os.path.join(CARD_DIR, "f%06d" % f)
+        layers = os.path.join(CARD_DIR, "l%d" % f)
+        if not os.path.exists(os.path.join(layers, "bg1.png")):
+            import subprocess
+            subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ppu_render.py"), snap, "-o",
+                            os.path.join(CARD_DIR, "c%d.png" % f), "--layers", layers], check=True)
+        win = Image.open(os.path.join(layers, "bg1.png")).convert("RGBA").crop(CARD_WINDOW)
+        x0, y0, x1, y1 = CARD_DRAWING
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                win.putpixel((x, y), (0, 0, 0, 255))
+        win.save(os.path.join(outdir, "card_window_%d.png" % n))
+    # the BEST SCORE window of SELECT's card (course 1's colours for every
+    # course: only course 1's is captured), its drawing blanked as well
+    card_select_capture()
+    sel = os.path.join(CARD_SELECT_DIR, "f%06d" % CARD_SELECT_FRAME)
+    layers = os.path.join(CARD_SELECT_DIR, "layers")
+    if not os.path.exists(os.path.join(layers, "bg1.png")):
+        import subprocess
+        subprocess.run([sys.executable, os.path.join(ROOT, "tools", "ppu_render.py"), sel, "-o",
+                        os.path.join(CARD_SELECT_DIR, "select.png"), "--layers", layers], check=True)
+    best = Image.open(os.path.join(layers, "bg1.png")).convert("RGBA").crop(CARD_BEST)
+    x0, y0, x1, y1 = CARD_DRAWING
+    for y in range(y0, y1):
+        for x in range(x0, x1):
+            best.putpixel((x, y), (0, 0, 0, 255))
+    best.save(os.path.join(outdir, "card_best.png"))
+    snap = P.Snapshot(os.path.join(CARD_HIO_DIR, "f%06d" % CARD_HIO_FRAME))
+
+    def tile(t, pal):
+        pix = P.tile_at(snap, 4, P.obj_tile_word(snap, t, 0, 0))
+        idx = np.where(pix > 0, 128 + pal * 16 + pix, 0)
+        rgb = (snap.cgram5[idx] * 255 // 31).astype(np.uint8)
+        a = np.where(pix > 0, 255, 0).astype(np.uint8)
+        return Image.fromarray(np.dstack([rgb, a]), "RGBA")
+    sheet = Image.new("RGBA", (8 * 11, 16), (0, 0, 0, 0))
+    for k in range(10):                    # "1".."9", then "0"
+        sheet.paste(tile(0x80 + k, 0), (8 * k, 0))
+        sheet.paste(tile(0x90 + k, 0), (8 * k, 8))
+    sheet.paste(tile(0x05, 2), (80, 0))
+    sheet.save(os.path.join(outdir, "card_digits.png"))
+    # $83:CF08: X = $83:CD82[k] (the low byte: x), Y = the word at $83:CD93 + 2k,
+    # whose high byte is y ($83:CF26 XBA); the total: $83:CD92 and $83:CDA4
+    d = load_rom()
+    xs = rom_words(d, 0x83, 0xCD82, 9)
+    ys = [(v >> 8) & 0xFF for v in rom_words(d, 0x83, 0xCD93, 8)]
+    ty = rom_words(d, 0x83, 0xCDA4, 1)[0] & 0xFF
+    info = {"window": {"at": [CARD_WINDOW[0], CARD_WINDOW[1]], "size": [CARD_WINDOW[2] - CARD_WINDOW[0],
+                                                                         CARD_WINDOW[3] - CARD_WINDOW[1]]},
+            "holes": [[xs[k] & 0xFF, ys[k]] for k in range(8)], "total": [xs[8] & 0xFF, ty],
+            "best": {"at": [CARD_BEST[0], CARD_BEST[1]], "dx": -120},
+            "digits": {"image": "card_digits.png", "w": 8, "h": 16,
+                       "about": "cell k is the digit k + 1, cell 9 the 0, cell 10 the star (its 8 x 8 top)"},
+            "about": "$83:D081 draws a number at (x, y): its top tile at (x - 4, y - 8); tens 9 px left; "
+                     "the 1-stroke star at (x - 34, y - 4); window at `at` (screen pixels)"}
+    write_json(os.path.join(outdir, "card.json"), info, compact=False)
     return info
 
 
@@ -1320,6 +1517,8 @@ def main():
         print("audio: {}".format(build_audio(args.out)))
     if "hud" in steps:
         print("hud: {}".format(build_hud(args.out)))
+    if "card" in steps:
+        print("card:", build_card(args.out))
     if "sprites" in steps:
         import export_web_sprites
         print("sprites: {}".format(export_web_sprites.build(args.out)))

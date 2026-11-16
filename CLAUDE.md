@@ -66,6 +66,9 @@ mark uncertain claims "unconfirmed" and promote them to `docs/` once verified.
   the shot thread's stages and the shot panel's timing, the roll's end, the
   tomato queue, lives and strokes, running out of tomatoes, the lost ball and
   the hole-out's timeline.
+- [docs/save.md](docs/save.md) — the battery RAM: its layout, the rules that
+  write it (members, rounds, medals, the cleared count, the ranking), and the
+  engine's JSON of it.
 - [docs/engine.md](docs/engine.md) — the Koota × Phaser 4 reimplementation in
   `engine/`: how to run and test it, the dependency rules, the event model,
   the frame (every system with the routine it ports), the traits, the hole

@@ -1,0 +1,15 @@
+# The aim's idle timer over hole 1 (port_v2 phase 7): 90 quiet frames show the
+# score panel, input hides it, quiet again shows it.
+400 START 2     # title menu
+500 START 2     # 1PLAY GAME -> PLAY COURSE
+600 A 2         # members list, cursor on NEW MEMBER
+820 A 2         # NEW MEMBER -> name entry
+1000 A+RIGHT 15 # draw a stroke (an empty name is not accepted)
+1030 RIGHT 12   # cursor x -> OK column
+1050 DOWN 40    # cursor y -> OK row
+1100 A 2        # OK -> course map
+1500 A 2        # enter course 1 -> intro
+2100 A 2        # start hole 1 (the aim from 2335)
+2600 RIGHT 4
+2760 A 2        # the aim's A hides it
+2840 B 2        # the spin stage's B: cancel, back to the aim

@@ -6,6 +6,8 @@
  * picks ROM course N at once.
  */
 import Phaser from 'phaser';
+import { Save, touchSave } from '../../core/traits/save';
+import { newMember } from '../../core/save';
 import { SceneKeys } from '../scene-keys';
 import { startCourse, startHole } from '../../core/actions';
 import { addText, setGameText } from '../features/text/font';
@@ -88,7 +90,18 @@ export class MenuScene extends Phaser.Scene {
       }
     }
     this.host.set = set;
-    startCourse(this.host.world, this.host.rules, set.holes.map((h) => h.data));
+    // a ROM course is played by the save's member 0 (made if there is none,
+    // NAME ENTRY skipped) until the shell's members list exists; the test
+    // holes keep no save (port_v2 phase 7)
+    const save = this.host.world.get(Save)!;
+    const course = set.rom?.course ?? -1;
+    if (course >= 0) {
+      if (save.data.members[0] === null && newMember(save.data) >= 0) touchSave(save);
+      save.member = save.data.members.findIndex((m) => m !== null);
+    } else {
+      save.member = -1;
+    }
+    startCourse(this.host.world, this.host.rules, set.holes.map((h) => h.data), course);
     const first = this.host.flags.hole;
     if (first !== null && first > 1 && first <= set.holes.length) startHole(this.host.world, first - 1);
     if (!this.scene.isActive(SceneKeys.Hud)) this.scene.launch(SceneKeys.Hud, { host: this.host });

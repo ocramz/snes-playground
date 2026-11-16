@@ -7,7 +7,7 @@
  */
 import type { World } from 'koota';
 import type { RomRules } from '../core/rules';
-import type { AtlasJson, AudioJson, CutscenesJson, HudJson, UiJson } from './assets/schema';
+import type { AtlasJson, AudioJson, CardJson, CutscenesJson, HudJson, UiJson } from './assets/schema';
 import type { CourseSet } from './assets/course-sets';
 import type { AudioPlayer } from './features/audio/audio-player';
 import type { Difficulty, GeneratedHole } from '../core/gen/generate';
@@ -18,6 +18,7 @@ export interface LoadedAssets {
   objects: AtlasJson | null;
   ui: UiJson | null;
   hud: HudJson | null;
+  card: CardJson | null;
   audio: AudioJson | null;
   cutscenes: CutscenesJson | null;
   /** The course art's exemplar patches (tools/terrain_style.py), for holes without bitmaps. */

@@ -164,6 +164,15 @@ python3 tools/snesstep/trace_enemies.py      # every enemy species' idle clip ->
 #   cd engine && npm test            # = make engine-test; npm run traces = make engine-traces
 #   (the keys, the debug hook and what each test checks: docs/engine.md)
 
+# The shell (port_v2 phase 7): trace_flow.py also watches the pause, the preset, the look,
+#   the idle timer, the score panel ($EA7C, $691A), the lockout and the brightness ($007E),
+#   and logs the scene requests ($80:CABC) in iters_<name>.json; the scripts are
+#   inputs/web_{pause,pause_quit,look,bspin,lr,cancel,idle,card,select}.txt
+python3 tools/export_web.py --only card --out build/engine/assets   # the RESULT card's windows,
+#   digits and SELECT's BEST window (needs build/emu/autoplay/game; captures its snapshots)
+python3 tools/sram.py build/emu/autoplay/course1/sram.bin            # the battery RAM as the
+#   engine's save JSON (docs/save.md); make engine-traces writes rom-test/save_<run>.json
+
 # Screens: PPU setup, what each loads, and the scene bundles
 python3 tools/scenes.py blocks            # the 20 screen setup blocks
 python3 tools/scenes.py loaders           # the four loader jump tables

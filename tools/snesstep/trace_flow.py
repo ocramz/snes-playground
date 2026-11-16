@@ -109,6 +109,18 @@ WATCH = {
     "sw117": 0x0400 + 2 * 78,           # palette 4 colour 14: object 117's set ($84:869D)
     "sw118": 0x0400 + 2 * 94,           # palette 5 colour 14: object 118's set
     "ripple": 0x0400 + 2 * 0x42,        # palette 4 colour 2: object 113's ripple ($84:8533)
+    # the shell (port_v2 phase 7): the aim's other buttons and the score panel
+    "panel": 0xEA7C,                    # the score panel shown ($83:AEEB sets, $83:AF82 / $AF96 clear)
+    "pause": 0xEA7E,                    # the pause menu open ($83:AFA7)
+    "pcur": 0x6AC4,                     # ... its cursor
+    "preset": 0xEA80,                   # B held in the aim: the spin preset ($83:B214)
+    "prep": 0x6B5C,                     # ... its d-pad repeat counter
+    "gside": 0xD9B8, "gtb": 0xD9BA,     # the shot's side and top/back between stages
+    "look": 0x6AAE, "lookl": 0x6ABA,    # Y: the look around, and its latch
+    "idle": 0x6AC2,                     # the aim's idle timer (90 -> the score panel)
+    "hudon": 0x691A,                    # the HUD thread's enable ($84:98F2)
+    "lock": 0x6B38,                     # the aim's input lockout ($81:A691)
+    "bright": 0x007E,                   # the brightness (low byte) and the fade's step (high byte)
 }
 
 
@@ -124,6 +136,8 @@ WAIT_PC = "$80:845F"
 # ability icon ($84:9B88 the stock's picture, $84:A52D/$84:A548 the UFO's
 # countdown) is the only bank-$84 caller kept.
 UPLOAD_PC = "$80:8696"
+# The scene request (A = the scene number).
+SCENE_PC = "$80:CABC"
 # A request in the first lines of a frame belongs to the main loop's
 # iteration of the frame before (the loop runs past the vblank).
 ITERATION_LINE = 112
@@ -154,7 +168,7 @@ def write_sounds(name, run, out_dir):
 def write_iters(name, run, out_dir):
     """build/engine/rom-test/iters_<name>.json: the frame helper's calls and
     the trigger's pad reads, from the stepper's pclog.tsv."""
-    entries, trigger, waits, uploads = [], [], [], []
+    entries, trigger, waits, uploads, scenes = [], [], [], [], []
     with open(os.path.join(run, "pclog.tsv")) as f:
         head = next(f).rstrip("\n").split("\t")
         col = {k: i for i, k in enumerate(head)}
@@ -169,11 +183,14 @@ def write_iters(name, run, out_dir):
                 waits.append([fr, ln])
             elif r[col["pc"]] == UPLOAD_PC and r[col["ret_long"]].startswith("$84:"):
                 uploads.append([fr, ln, int(r[col["a"]], 16), r[col["ret_long"]]])
+            elif r[col["pc"]] == SCENE_PC:
+                scenes.append([fr, ln, int(r[col["a"]], 16) & 0xFF, r[col["ret_long"]]])
     path = os.path.join(out_dir, "iters_{}.json".format(name))
     with open(path, "w") as f:
         json.dump({"name": name, "about": "entries: $80:8F78 [frame, line]; trigger: $82:C880 [frame, line, $006B]; "
-                   "waits: $80:845F [frame, line]; uploads: $80:8696 from bank $84 [frame, line, A, caller]",
-                   "entries": entries, "trigger": trigger, "waits": waits, "uploads": uploads}, f, separators=(",", ":"))
+                   "waits: $80:845F [frame, line]; uploads: $80:8696 from bank $84 [frame, line, A, caller]; "
+                   "scenes: $80:CABC [frame, line, scene, caller]",
+                   "entries": entries, "trigger": trigger, "waits": waits, "uploads": uploads, "scenes": scenes}, f, separators=(",", ":"))
 
 
 def s16(v):
@@ -191,7 +208,7 @@ def trace(name, frames, out_dir, extra=()):
     for a in sorted(set(WATCH.values())):
         cmd += ["--watch-write", "$7E:{:04X}-$7E:{:04X}".format(a, a + 1)]
     cmd += ["--log-pc", SFX_PC, "--log-pc", SONG_PC, "--log-pc", ITER_PC, "--log-pc", TRIGGER_PC,
-            "--log-pc", WAIT_PC, "--log-pc", UPLOAD_PC]
+            "--log-pc", WAIT_PC, "--log-pc", UPLOAD_PC, "--log-pc", SCENE_PC]
     cmd += list(extra) + ["--no-dsp", "--quiet", "--out", run]
     subprocess.run(cmd, check=True)
     write_sounds(name, run, out_dir)
